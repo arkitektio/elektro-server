@@ -11,7 +11,7 @@ https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
 import os
 import django
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mikro_server.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "elektro_server.settings")
 django.setup()
 
 from channels.routing import ProtocolTypeRouter, URLRouter
@@ -28,7 +28,7 @@ from django.urls import re_path
 django_asgi_app = get_asgi_application()
 
 
-from mikro_server.schema import schema  # noqa
+from elektro_server.schema import schema  # noqa
 
 
 gql_http_consumer = CorsMiddleware(

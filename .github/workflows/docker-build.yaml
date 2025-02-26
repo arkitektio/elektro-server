@@ -25,4 +25,4 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: jhnnsrs/mikro_next:nightly
+          tags: jhnnsrs/elektro:nightly

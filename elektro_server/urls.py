@@ -19,7 +19,7 @@ from django.urls import path, include
 from strawberry.django.views import AsyncGraphQLView
 from .basepath import basepath
 
-from mikro_server.schema import schema
+from elektro_server.schema import schema
 
 urlpatterns = [
     basepath("admin/", admin.site.urls),

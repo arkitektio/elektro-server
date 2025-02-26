@@ -2,7 +2,7 @@ import pytest
 from core.models import Image, Dataset
 from django.contrib.auth import get_user_model
 from authentikate.models import App
-from mikro_server.schema import schema
+from elektro_server.schema import schema
 from guardian.shortcuts import get_perms
 from asgiref.sync import sync_to_async
 from kante.context import ChannelsContext, EnhancendChannelsHTTPRequest

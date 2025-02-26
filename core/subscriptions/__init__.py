@@ -1,3 +1,3 @@
 from .rois import *
-from .images import *
+from .traces import *
 from .files import *

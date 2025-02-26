@@ -249,20 +249,6 @@ class File(models.Model):
 
 
 
-class Experiment(models.Model):
-    name = models.CharField(max_length=1000, help_text="The name of the experiment")
-    description = models.CharField(
-        max_length=1000,
-        help_text="The description of the experiment",
-        null=True,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    history = HistoryField()
-
-
-
-
 class Trace(models.Model):
     """A Trace is n-dimensional representation of a time series.
 
@@ -383,13 +369,18 @@ class View(models.Model):
         abstract = True
 
 
+class TimelineView(View):
+    start_time = models.DateTimeField(
+        help_text="The start time of the view", null=True, blank=True
+    )
+    end_time = models.DateTimeField(
+        help_text="The end time of the view", null=True, blank=True
+    )
 
 
 
 
-
-
-class Event(models.Model):
+class ROI(models.Model):
     """A Event is a event area within a trace
 
     This region is to be regarded as a view on the representation. Depending

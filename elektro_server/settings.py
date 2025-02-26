@@ -110,7 +110,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "mikro_server.urls"
+ROOT_URLCONF = "elektro_server.urls"
 
 TEMPLATES = [
     {
@@ -133,8 +133,8 @@ AUTHENTICATION_BACKENDS = (
     "guardian.backends.ObjectPermissionBackend",
 )
 
-WSGI_APPLICATION = "mikro_server.wsgi.application"
-ASGI_APPLICATION = "mikro_server.asgi.application"
+WSGI_APPLICATION = "elektro_server.wsgi.application"
+ASGI_APPLICATION = "elektro_server.asgi.application"
 
 
 # Database

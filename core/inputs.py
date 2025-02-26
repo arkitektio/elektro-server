@@ -4,8 +4,8 @@ from typing import List, Optional
 from strawberry import ID
 import strawberry
 
-@strawberry_django.input(models.Image)
-class ImageInput:
+@strawberry_django.input(models.Trace)
+class TraceInput:
     origins: Optional[List[ID]]
     dataset: Optional[ID]
     creator: ID

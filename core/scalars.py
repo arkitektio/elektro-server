@@ -2,8 +2,8 @@ from typing import NewType
 
 import strawberry
 
-ArrayLike = strawberry.scalar(
-    NewType("ArrayLike", str),
+TraceLike = strawberry.scalar(
+    NewType("TraceLike", str),
     description="The `ArrayLike` scalar type represents a reference to a store "
     "previously created by the user n a datalayer",
     serialize=lambda v: v,

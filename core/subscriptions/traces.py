@@ -8,17 +8,17 @@ from core.channel import image_listen
 
 
 @strawberry.type
-class ImageEvent:
-    create: types.Image | None = None
+class TraceEvent:
+    create: types.Trace | None = None
     delete: strawberry.ID | None = None
-    update: types.Image    | None = None
+    update: types.Trace    | None = None
 
 
-async def images(
+async def traces(
     self,
     info: Info,
     dataset: strawberry.ID | None = None,
-) -> AsyncGenerator[ImageEvent, None]:
+) -> AsyncGenerator[TraceEvent, None]:
     """Join and subscribe to message sent tso the given rooms."""
 
     if dataset is None:

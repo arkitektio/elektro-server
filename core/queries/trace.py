@@ -5,8 +5,8 @@ from strawberry import ID
 import strawberry_django
 
 
-def random_image(
+def random_trace(
     info: Info,
-) -> types.Image:
-    view = models.Image.objects.order_by("?").first()
+) -> types.Trace:
+    view = models.Trace.objects.order_by("?").first()
     return view

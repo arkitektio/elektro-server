@@ -1,0 +1,109 @@
+[tool.poetry]
+name = "mikro2"
+version = "0.1.0"
+description = ""
+authors = ["jhnnsrs <jhnnsrs@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+Django = "^4.2.3"
+graphene-django = "^3.1.3"
+graphene-federation = "^3.1.4"
+django-taggit = "^4.0.0"
+channels = { extras = ["daphne"], version = "^4.0.0" }
+omegaconf = "^2.3.0"
+django-channels-graphql-ws = "1.0.0rc6"
+channels-redis = "^4.1.0"
+django-guardian = "^2.4.0"
+strawberry-graphql-django = "^0.14.0"
+pytest-asyncio = "^0.21.1"
+django-choices-field = "^2.2.2"
+boto3 = "^1.28.12"
+pyjwt = "^2.8.0"
+pydantic = "<2"
+django-simple-history = "^3.3.0"
+psycopg = ">=3.1.8"
+django-probes = "^1.7.0"
+django-cors-headers = "^4.2.0"
+asgi-cors-strawberry = "^0.2.0"
+pytest-cov = "^4.1.0"
+authentikate = ">=0.1.10"
+kante = ">=0.1.6"
+koherent = ">=0.1.2"
+click = "^8.1.7"
+rich-click = "^1.7.2"
+django-health-check = "^3.17.0"
+duckdb = "^1.1.0"
+pandas = "^2.2.3"
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main", "strawberry.ext.mypy_plugin"]
+ignore_missing_imports = true
+strict = true
+
+
+[tool.django-stubs]
+django_settings_module = "mikro_server.settings"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "mikro_server.settings_test"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.0.280"
+black = "^23.7.0"
+pytest-django = "^4.5.2"
+mypy = "^1.4.1"
+django-stubs = "^4.2.3"
+moto = {extras = ["all"], version = "^4.2.12"}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+# Enable the pycodestyle (`E`) and Pyflakes (`F`) rules by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
+select = ["E", "F"]
+ignore = []
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "*/migrations/**",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+per-file-ignores = {}
+
+# Same as Black.
+line-length = 88
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+# Assume Python 3.10.
+target-version = "py310"

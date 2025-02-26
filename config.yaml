@@ -1,0 +1,33 @@
+db:
+  db_name: mikro_db
+  engine: django.db.backends.postgresql
+  host: db
+  password: postgres
+  port: 5432
+  username: fostgres
+django:
+  admin:
+    email: admin@admin.com
+    password: admin
+    username: admin
+  debug: false
+  hosts:
+    - "*"
+  secret_key: t!7qh%)_#&k_6px&n(xm4bes@t3nrmgh=h2k#8f@rbgz=&y9f21
+lok:
+  issuer: lok
+  key_type: RS256
+  public_key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGFj0zB7j6KrTRFEP+a2Z7toLEwJ0ROF3qSkq6vo2aK5TGRv+D3V/6VhvM2NgtUIO1iqwvf4XETamhHt2xlVzJyoyMAnAGkwkMyQJpI6wG5g7NtrRc1kkeefWbLBVW+aEI++3ec3eD9PUhnjXbQXJwju8l2ldKg2skw2fZWrjfWo0S0CuvB05nXJ8BmmAo65BBv29gGVywzZEApv/Zu16l6ftCZSEKi/zMbK6YxCekl/h3sfK7uGj6uaab7XSqqANHDZDTSotD5ws8UdMb3IP4/qoJiJm0Lsw5XpmFTt9M+ekiv/9HsWjXtzOd0BpqxynlvF1fWDr0HVnrUCh1XMzn
+s3:
+  access_key: crappygreysetter
+  buckets:
+    zarr: zarr
+    parquet: parquet
+    media: mikromedia
+  host: minio
+  port: "9000"
+  protocol: http
+  secret_key: e8821a29d189789e39c9922a3bfcfb4a
+redis:
+  host: redis
+  port: 6379

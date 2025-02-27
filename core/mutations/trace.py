@@ -190,7 +190,7 @@ def from_trace_like(
 
     dataset = input.dataset or get_trace_dataset(info)
 
-    image = models.Image.objects.create(
+    image = models.Trace.objects.create(
         dataset_id=dataset,
         creator=info.context.request.user,
         name=input.name,

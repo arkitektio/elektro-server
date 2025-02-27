@@ -81,8 +81,16 @@ class TraceFilter:
     ids: list[strawberry.ID] | None
     dataset: DatasetFilter | None
     not_derived: bool | None = None
+    search: str | None
 
     provenance: ProvenanceFilter | None
+
+    def filter_search(self, queryset, info):
+        if self.search is None:
+            return queryset
+        return queryset.filter(name__contains=self.search)
+    
+
 
     def filter_ids(self, queryset, info):
         if self.ids is None:

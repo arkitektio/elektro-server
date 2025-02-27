@@ -108,19 +108,19 @@ class ZarrStore(S3Store):
         # Create a boto3 S3 client
         s3 = datalayer.s3v4
 
-        # Extract the bucket and key from the S3 path
+
+         # Extract the bucket and key from the S3 path
         bucket_name, prefix = self.path.replace("s3://", "").split("/", 1)
 
         # List all files under the given prefix
         response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
 
-        zarr_info = {}
 
         # Check if the '.zarray' file exists and retrieve its content
         for obj in response.get("Contents", []):
             if obj["Key"].endswith(".zarray"):
                 array_name = obj["Key"].split("/")[-2]
-                print(array_name)
+                assert array_name == "data", "If using zarr v2, the array name must be 'data'"
 
                 # Get the content of the '.zarray' file
                 zarray_file = s3.get_object(Bucket=bucket_name, Key=obj["Key"])
@@ -128,19 +128,36 @@ class ZarrStore(S3Store):
                 zarray_json = json.loads(zarray_content)
 
                 # Retrieve the 'shape' and 'chunks' attributes
-                zarr_info[array_name] = {
-                    "shape": zarray_json.get("shape"),
-                    "chunks": zarray_json.get("chunks"),
-                    "dtype": zarray_json.get("dtype"),
-                }
 
-        
+                self.shape = zarray_json.get("shape")
+                self.chunks = zarray_json.get("chunks")
+                self.dtype = zarray_json.get("dtype")
+                self.version = "2"
+                break
 
-        self.dtype = zarr_info["data"]["dtype"]
-        self.shape = zarr_info["data"]["shape"]
-        self.chunks = zarr_info["data"]["chunks"]
+
+            if obj["Key"].endswith("zarr.json"):
+                array_name = obj["Key"].split("/")[-2]
+
+
+                # Get the content of the '.zarray' file
+                zarray_file = s3.get_object(Bucket=bucket_name, Key=obj["Key"])
+                zarray_content = zarray_file["Body"].read().decode("utf-8")
+                zarray_json = json.loads(zarray_content)
+                if zarray_json["node_type"] == "array":
+
+                    self.shape = zarray_json["shape"]
+                    self.chunks = zarray_json.get("chunk_grid", {}).get("configuration", {}).get("chunkshape", [])
+                    self.dtype = zarray_json["data_type"]
+                    self.version = "3"
+                    break
+
+
+        assert self.shape is not None, "Could not find shape in zarr store"
         self.populated = True
         self.save()
+        
+
 
     @property
     def c_size(self):

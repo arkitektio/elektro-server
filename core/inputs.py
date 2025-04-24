@@ -26,3 +26,14 @@ class AssociateInput:
 class DesociateInput:
     selfs: List[strawberry.ID]
     other: strawberry.ID
+
+
+@strawberry.input()
+class CellInput:
+    id: strawberry.ID
+    
+
+
+@strawberry.input()
+class ModelInput:
+    cells: List[strawberry.ID]

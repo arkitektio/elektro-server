@@ -3,14 +3,29 @@ import strawberry
 from enum import Enum
 
 
-class ImageKind(TextChoices):
+class TraceKindChoices(TextChoices):
     """Variety expresses the Type of Representation we are dealing with"""
 
-    MASK = "MASK", "Mask (Value represent Labels)"
-    VOXEL = "VOXEL", "Voxel (Value represent Intensity)"
-    RGB = "RGB", "RGB (First three channel represent RGB)"
+    TIME = "TIME", "Mask (Value represent Labels)"
+    VOLTAGE = "VOLTAGE", "Voltage (Value represent Intensity)"
+    CURRENT = "CURRENT", "Current (Value represent Intensity)"
     UNKNOWN = "UNKNOWN", "Unknown"
 
+
+class RecodingKindChoices(TextChoices):
+    """Variety expresses the Type of Representation we are dealing with"""
+
+    TIME = "TIME", "Mask (Value represent Labels)"
+    VOLTAGE = "VOLTAGE", "Voltage (Value represent Intensity)"
+    CURRENT = "CURRENT", "Current (Value represent Intensity)"
+    INA = "INA", "INA (Value represent Intensity)"
+    
+    
+class StimulusKindChoices(TextChoices):
+    """Variety expresses the Type of Representation we are dealing with"""
+    CURRENT = "CURRENT", "Current (Value represent Intensity)"
+    VOLTAGE = "VOLTAGE", "Voltage (Value represent Intensity)"
+    
 
 class ProvenanceAction(TextChoices):
     CREATE = "CREATE", "Create"
@@ -151,20 +166,34 @@ class DuckDBDataType(Enum):
     JSON = strawberry.enum_value("JSON", description="JSON object, a structured text format used for representing data")
 
 
+@strawberry.enum
+class SynapseKind(str, Enum):
+    """Variety expresses the Type of Representation we are dealing with"""
+    EXP2SYN = "exp2syn"
+    GABAA = "gabaA"
     
+
+@strawberry.enum
+class ConnectionKind(str, Enum):
+    """Variety expresses the Type of Representation we are dealing with"""
+    SYNAPSE = "synapse"
+      
 
 
 
 @strawberry.enum
-class ScanDirection(str, Enum):
-    ROW_COLUMN_SLICE = "row_column_slice"
-    COLUMN_ROW_SLICE = "column_row_slice"
-    SLICE_ROW_COLUMN = "slice_row_column"
-
-    ROW_COLUMN_SLICE_SNAKE = "row_column_slice_snake"
-    COLUMN_ROW_SLICE_SNAKE = "column_row_slice_snake"
-    SLICE_ROW_COLUMN_SNAKE = "slice_row_column_snake"
-
+class RecordingKind(str, Enum):
+    VOLTAGE = "VOLTAGE"
+    CURRENT = "CURRENT"
+    TIME = "TIME"
+    INA = "INA"
+    UNKNOWN = "UNKNOWN"
+    
+@strawberry.enum
+class StimulusKind(str, Enum):
+    VOLTAGE = "VOLTAGE"
+    CURRENT = "CURRENT"
+    UNKNOWN = "UNKNOWN"
 
 @strawberry.enum
 class RoiKind(str, Enum):

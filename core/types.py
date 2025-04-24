@@ -1,3 +1,4 @@
+from core.base_models.type.model import ModelConfigModel
 from pydantic import BaseModel
 import strawberry
 import strawberry.django
@@ -19,6 +20,8 @@ from strawberry.experimental import pydantic
 from typing import Union
 from strawberry import LazyType
 from core.duck import get_current_duck
+from core.base_models.type.graphql.cell import Cell
+from core.base_models.type.graphql.model import ModelConfig
 
 
 
@@ -185,7 +188,98 @@ class File:
     name: auto
     origins: List["Trace"] = strawberry.django.field()
     store: BigFileStore
+   
+   
+@strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, pagination=True)
+class ModelCollection:
+    id: auto
+    name: str
+    models: List["NeuronModel"] = strawberry.django.field()
+    description: str | None
+   
+ 
+    
+@strawberry_django.type(models.NeuronModel,  filters=filters.NeuronModelFilter, pagination=True)
+class NeuronModel:
+    id: auto
+    name: auto
+    description: str | None
+    creator: User | None
+    collection: ModelCollection | None
+    
+    @strawberry.django.field()
+    def config(self, info: Info) -> "ModelConfig":
+        return ModelConfigModel(**self.json_model)
+    
 
+    
+    
+@strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, pagination=True)
+class Experiment:
+    id: auto
+    name: str
+    description: str | None
+    views: List["ExperimentView"]
+    
+@strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, pagination=True)
+class Simulation:
+    id: auto
+    name: str
+    description: str | None
+    kind: enums.StimulusKind
+    creator: User | None
+    model: NeuronModel
+    duration: int = 400
+    time_trace: "Trace"
+    stimuli: List["Stimulus"] = strawberry.django.field()
+    recordings: List["Recording"] = strawberry.django.field()
+
+
+@strawberry_django.type(models.Recording)
+class Recording:
+    id: auto
+    simulation: Simulation
+    kind: enums.RecordingKind
+    trace: "Trace"
+    location: str
+    position: str 
+    cell: str
+    
+    @strawberry.django.field()
+    def label(self, info: Info) -> str:
+        return self.label or f"{self.cell}: {self.location}({self.position})"
+
+
+      
+    
+@strawberry_django.type(models.Stimulus)
+class Stimulus:
+    id: auto
+    simulation: Simulation
+    kind: enums.StimulusKind
+    trace: "Trace"
+    location: str
+    position: str 
+    cell: str
+    
+    @strawberry.django.field()
+    def label(self, info: Info) -> str:
+        return self.label or f"{self.cell}: {self.location}({self.position})"
+
+
+@strawberry_django.type(models.ExperimentView, filters=filters.ExperimentFilter, pagination=True)
+class ExperimentView:
+    id: auto
+    stimulus: Stimulus | None
+    recording: Recording | None
+    label: str | None
+    offset: float | None
+    duration: float | None
+    
+    
+
+    
+    
 
 @strawberry_django.type(
     models.Trace, filters=filters.TraceFilter, order=filters.TraceOrder, pagination=True

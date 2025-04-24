@@ -45,9 +45,33 @@ class FileFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
     provenance: ProvenanceFilter | None
+    
+@strawberry.django.filter(models.Experiment)
+class ExperimentFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    provenance: ProvenanceFilter | None
 
 
+    
+@strawberry.django.filter(models.ModelCollection)
+class ModelCollectionFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    provenance: ProvenanceFilter | None
+    
+    
+@strawberry.django.filter(models.Simulation)
+class SimulationFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    provenance: ProvenanceFilter | None
 
+@strawberry.django.filter(models.NeuronModel)
+class NeuronModelFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    provenance: ProvenanceFilter | None
 
 @strawberry.django.filter(models.Instrument)
 class InstrumentFilter:

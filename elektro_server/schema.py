@@ -20,6 +20,7 @@ from authentikate.strawberry.permissions import IsAuthenticated, NeedsScopes, Ha
 from core.render.objects import types as render_types
 from core.duck import DuckExtension
 from typing import Annotated
+from core.base_models.type.graphql.model import SynapticConnection, Exp2Synapse
 
 
 
@@ -31,14 +32,34 @@ class Query:
     rois: list[types.ROI] = strawberry_django.field()
     datasets: list[types.Dataset] = strawberry_django.field()
     mydatasets: list[types.Dataset] = strawberry_django.field()
-
+    experiments: list[types.Experiment] = strawberry_django.field()
+    neuron_models: list[types.NeuronModel] = strawberry_django.field()
+    model_collections: list[types.ModelCollection] = strawberry_django.field()
 
     files: list[types.File] = strawberry_django.field()
+    simulations: list[types.Simulation] = strawberry_django.field()
     myfiles: list[types.File] = strawberry_django.field()
     random_trace: types.Trace = strawberry_django.field(resolver=queries.random_trace)
+    
+    @strawberry.django.field()
+    def experiment(self, info: Info, id: ID) -> types.Experiment:
+        """Get all experiments"""
+        return models.Experiment.objects.get(id=id)
+    
+    @strawberry.django.field()
+    def model_collection(self, info: Info, id: ID) -> types.ModelCollection:
+        """Get all model collections"""
+        return models.ModelCollection.objects.get(id=id)
 
+    @strawberry.django.field()
+    def simulation(self, info: Info, id: ID) -> types.Simulation:
+        """Get all simulations"""
+        return models.Simulation.objects.get(id=id)
 
-
+    @strawberry.django.field()
+    def neuron_model(self, info: Info, id: ID) -> types.NeuronModel:
+        """Get all simulations"""
+        return models.NeuronModel.objects.get(id=id)
 
 
     @strawberry.django.field(
@@ -49,6 +70,13 @@ class Query:
         print(id)
         return models.Trace.objects.get(id=id)
     
+    @strawberry.django.field(
+        permission_classes=[IsAuthenticated],
+        description="Returns a single image by ID"
+    )
+    def neuron_model(self, info: Info, id: ID) -> types.NeuronModel:
+        print(id)
+        return models.NeuronModel.objects.get(id=id)
     
     @strawberry.django.field(
         permission_classes=[IsAuthenticated]
@@ -102,6 +130,15 @@ class Mutation:
     delete_image = strawberry_django.mutation(
         resolver=mutations.delete_trace,
         description="Delete an existing image"
+    )
+    
+    create_neuron_model = strawberry_django.mutation(
+        resolver=mutations.create_neuron_model,
+        description="Create a new neuron model"
+    )
+    create_simulation = strawberry_django.mutation(
+        resolver=mutations.create_simulation,
+        description="Create a new simulsation"
     )
 
 
@@ -178,6 +215,12 @@ class Mutation:
         resolver=mutations.release_files_from_dataset,
         description="Remove files from a dataset"
     )
+    
+    # Experiment
+    create_experiment = strawberry_django.mutation(
+        resolver=mutations.create_experiment,
+        description="Create a new experiment"
+    )
 
   
 
@@ -241,5 +284,7 @@ schema = strawberry.Schema(
         DuckExtension,
     ],
     types=[
+        SynapticConnection,
+        Exp2Synapse
     ]
 )

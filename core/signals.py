@@ -18,9 +18,9 @@ def my_roi_delete_handler(sender, instance=None, **kwargs):
 
 
 @receiver(post_save, sender=models.Trace)
-def my_image_handler(sender, instance=None, created=None, **kwargs):
+def my_trace_handler(sender, instance=None, created=None, **kwargs):
     print("ROI HANDLER")
-    image_broadcast({"id": instance.id, "type": "create" if created else "update"}, ["images"] + [f"dataset_images_{instance.dataset.id}"] )
+    image_broadcast({"id": instance.id, "type": "create" if created else "update"}, ["traces"] )
 
 @receiver(pre_delete, sender=models.Trace)
 def my_image_delete_handler(sender, instance=None, **kwargs):

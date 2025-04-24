@@ -7,6 +7,9 @@ from .trace import (
     relate_to_dataset,
     pin_trace,
 )
+from .neuron_model import (
+    create_neuron_model,
+)
 from .dataset import (
     create_dataset,
     delete_dataset,
@@ -30,6 +33,8 @@ from .file import (
 )
 from .roi import *
 from .upload import *
+from .simulation import *
+from .experiment import *
 
 __all__ = [
     "from_trace_like",
@@ -43,10 +48,12 @@ __all__ = [
     "delete_dataset",
     "pin_dataset",
     "update_dataset",
+    "create_neuron_model",
     "revert_dataset",
     "put_datasets_in_dataset",
     "release_datasets_from_dataset",
     "put_images_in_dataset",
+    "create_experiment",
     "release_images_from_dataset",
     "put_files_in_dataset", 
 ] 

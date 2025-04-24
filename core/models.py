@@ -266,6 +266,151 @@ class File(models.Model):
 
 
 
+class ModelCollection(models.Model):
+    """A ModelCollection is a collection of models,
+    
+    that are comparable to each other.
+    
+
+    """
+    comparison = models.ForeignKey(
+        "NeuronModel",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="comparing_collections",
+    )
+    name = models.CharField(max_length=1000, help_text="The name of the model collection")
+    description = models.CharField(max_length=1000, null=True, blank=True)
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        help_text="The user that created the model collection",
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    pinned_by = models.ManyToManyField(
+        get_user_model(),
+        related_name="pinned_model_collections",
+        help_text="The users that have pinned the model collection",
+    )
+    
+
+
+class NeuronModel(models.Model):
+    """ A NEURON model 
+    that can be used t simulate a neuron
+    """
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+        help_text="The parent model of the neuron",
+    )
+    collection = models.ForeignKey(
+        ModelCollection,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="models",
+        help_text="The collection of the model",
+    )
+    hash = models.CharField(
+        max_length=1000,
+        help_text="The hash of the model",
+        unique=True,
+    )
+    json_model = models.JSONField(
+        help_text="The json model of the neuron",
+        default=dict,
+        blank=True,
+    )
+    name = models.CharField(max_length=1000, help_text="The name of the model")
+    description = models.CharField(max_length=1000, null=True, blank=True)
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        help_text="The user that created the model",
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    pinned_by = models.ManyToManyField(
+        get_user_model(),
+        related_name="pinned_models",
+        help_text="The users that have pinned the model",
+    )
+    
+
+
+
+class Experiment(models.Model):
+    name = models.CharField(max_length=1000, help_text="The name of the experiment")
+    description = models.CharField(max_length=1000, null=True, blank=True)
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        help_text="The user that created the experiment",
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    pinned_by = models.ManyToManyField(
+        get_user_model(),
+        related_name="pinned_experiments",
+        help_text="The users that have pinned the experiment",
+    )
+    history = HistoryField()
+    
+    
+    
+class ExperimentView(models.Model):
+    """A SimulationView is a view of a simulation.
+
+    It is used to group simulations together, for example to group all simulations
+    that are used to represent a specific channel.
+
+    """
+    recording = models.ForeignKey(
+        "Recording",
+        on_delete=models.CASCADE,
+        related_name="views",
+        null=True,
+        blank=True,
+    )
+    stimulus = models.ForeignKey(
+        "Stimulus",
+        on_delete=models.CASCADE,
+        related_name="views",
+        null=True,
+        blank=True,
+    )
+    experiment = models.ForeignKey(
+        Experiment,
+        on_delete=models.CASCADE,
+        related_name="views",
+        null=True,
+        blank=True,
+    )
+    offset = models.FloatField(
+        help_text="The offset of the view in seconds", null=True, blank=True
+    )
+    duration = models.FloatField(
+        help_text="The duration of the view in seconds", null=True, blank=True
+    )
+    label= models.CharField(
+        max_length=1000,
+        help_text="The label of the view",
+        null=True,
+        blank=True,
+    )
+
+    
+    
+    
+
+
+
 class Trace(models.Model):
     """A Trace is n-dimensional representation of a time series.
 
@@ -304,9 +449,6 @@ class Trace(models.Model):
 
     """
 
-    dataset = models.ForeignKey(
-        Dataset, on_delete=models.CASCADE, null=True, blank=True, related_name="traces"
-    )
     store = models.ForeignKey(
         ZarrStore,
         on_delete=models.CASCADE,
@@ -314,15 +456,14 @@ class Trace(models.Model):
         blank=True,
         help_text="The store of the trace",
     )
-
     name = models.CharField(
         max_length=1000, help_text="The name of the image", default=""
     )
 
     description = models.CharField(max_length=1000, null=True, blank=True)
     kind = TextChoicesField(
-        choices_enum=enums.ImageKind,
-        default=enums.ImageKind.UNKNOWN.value,
+        choices_enum=enums.TraceKindChoices,
+        default=enums.TraceKindChoices.UNKNOWN.value,
         help_text="The Representation can have vasrying kind, consult your API",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -342,6 +483,101 @@ class Trace(models.Model):
 
     def __str__(self) -> str:
         return f"Representation {self.id}"
+    
+class Simulation(models.Model):
+    """ A RUN is a run of a neuron model on a dataset.
+
+    It is used to store the results of the run, such as the
+    parameters used and the output of the run.
+    """
+
+    model = models.ForeignKey(
+        NeuronModel, on_delete=models.CASCADE, related_name="runs"
+    )
+    duration = models.FloatField(
+        help_text="The duration of the run in seconds"
+    )
+    dt = models.FloatField(
+        help_text="The time step of the run in seconds", default=1.0
+    )
+    time_trace = models.ForeignKey(
+        Trace,
+        on_delete=models.CASCADE,
+        related_name="simulations",
+    )
+    name = models.CharField(max_length=1000, help_text="The name of the run")
+    
+    
+    
+
+class Stimulus(models.Model):
+    trace = models.ForeignKey(
+        Trace,
+        on_delete=models.CASCADE,
+        related_name="stimuli",
+    )
+    simulation = models.ForeignKey(
+        Simulation,
+        on_delete=models.CASCADE,
+        related_name="stimuli",
+    )
+    kind = TextChoicesField(
+        choices_enum=enums.StimulusKindChoices,
+        default=enums.StimulusKindChoices.CURRENT.value,
+        help_text="The Representastion can have vasrying kind, consult your API",
+    )
+    cell = models.CharField(
+        max_length=1000,
+        help_text="The cell thsat was ssrecorded",
+    )
+    location = models.CharField(
+        max_length=1000,
+        help_text="The location of the recording",
+    )
+    position = models.CharField(
+        max_length=1000,
+        help_text="The position of the recording",
+    )
+    label = models.CharField(
+        max_length=1000,
+        help_text="The label of the recording",
+    )
+
+
+ 
+class Recording(models.Model):
+    trace = models.ForeignKey(
+        Trace,
+        on_delete=models.CASCADE,
+        related_name="recordings",
+    )
+    simulation = models.ForeignKey(
+        Simulation,
+        on_delete=models.CASCADE,
+        related_name="recordings",
+    )
+    kind= TextChoicesField(
+        choices_enum=enums.RecodingKindChoices,
+        default=enums.RecodingKindChoices.VOLTAGE.value,
+        help_text="The Representation can have vasrying kind, consult your API",
+    )
+    cell = models.CharField(
+        max_length=1000,
+        help_text="The cell of the recording",
+    )
+    location = models.CharField(
+        max_length=1000,
+        help_text="The location of the recording",
+    )
+    position = models.CharField(
+        max_length=1000,
+        help_text="The position of the recording",
+    )
+    label = models.CharField(
+        max_length=1000,
+        help_text="The label of the recording",
+    )
+       
 
 class ViewCollection(models.Model):
     """A ViewCollection is a collection of views.

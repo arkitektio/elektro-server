@@ -66,6 +66,20 @@ class SimulationFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
     provenance: ProvenanceFilter | None
+    
+    
+@strawberry.django.filter(models.Recording)
+class RecordingFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    provenance: ProvenanceFilter | None
+    
+@strawberry.django.filter(models.Recording)
+class StimulusFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    provenance: ProvenanceFilter | None
+
 
 @strawberry.django.filter(models.NeuronModel)
 class NeuronModelFilter(IDFilterMixin, SearchFilterMixin):

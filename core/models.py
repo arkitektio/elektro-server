@@ -294,6 +294,11 @@ class ModelCollection(models.Model):
         related_name="pinned_model_collections",
         help_text="The users that have pinned the model collection",
     )
+    models = models.ManyToManyField(
+        "NeuronModel",
+        related_name="model_collections",
+        help_text="The models that are in the collection",
+    )
     
 
 
@@ -308,14 +313,6 @@ class NeuronModel(models.Model):
         blank=True,
         related_name="children",
         help_text="The parent model of the neuron",
-    )
-    collection = models.ForeignKey(
-        ModelCollection,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="models",
-        help_text="The collection of the model",
     )
     hash = models.CharField(
         max_length=1000,
@@ -492,7 +489,7 @@ class Simulation(models.Model):
     """
 
     model = models.ForeignKey(
-        NeuronModel, on_delete=models.CASCADE, related_name="runs"
+        NeuronModel, on_delete=models.CASCADE, related_name="simulations"
     )
     duration = models.FloatField(
         help_text="The duration of the run in seconds"
@@ -647,6 +644,12 @@ class ROI(models.Model):
     his is used to display the ROI in the UI.
 
     """
+    label = models.CharField(
+        max_length=1000,
+        help_text="The label of the ROI",
+        null=True,
+        blank=True,
+    )
     trace = models.ForeignKey(
         Trace,
         on_delete=models.CASCADE,
@@ -663,9 +666,17 @@ class ROI(models.Model):
         help_text="A list of the ROI Vectors (specific for each type)",
         default=list,
     )
+    max_t = models.IntegerField(
+        help_text="The maximum time of the ROI",
+        default=0
+    )
+    min_t = models.IntegerField(
+        help_text="The minimum time of the ROI",
+       default=0
+    )
     kind = TextChoicesField(
         choices_enum=enums.RoiKindChoices,
-        default=enums.RoiKindChoices.PATH.value,
+        default=enums.RoiKindChoices.SPIKE.value,
         help_text="The Roi can have vasrying kind, consult your API",
     )
     color = models.CharField(

@@ -84,27 +84,10 @@ class BlendingChoices(TextChoices):
 
 
 class RoiKindChoices(TextChoices):
-    ELLIPSIS = "ellipse", "Ellipse"
-    POLYGON = "polygon", "POLYGON"
     LINE = "line", "Line"
-
-    # Rectangular Types
-    RECTANGLE = "rectangle", "Rectangle (XY)"
-    SPECTRAL_RECTANGLE = "spectral_rectangle", "Spectral Rectangle (XYC)"
-    TEMPORAL_RECTANGLE = "temporal_rectangle", "Temporal Rectangle (XYT)"
-    CUBE = "cube", "Cube (XYZ)"
-    SPECTRAL_CUBE = "spectral_cube", "Spectral Cube (XYZC)"
-    TEMPORAL_CUBE = "temporal_cube", "Temporal Cube (XYZT)"
-    HYPERCUBE = "hypercube", "Hypercube (XYZT)"
-    SPECTRAL_HYPERCUBE = "spectral_hypercube", "Spectral Hypercube (XYZTC)"
-
-    # Path Types
-    PATH = "path", "Path"
-    UNKNOWN = "unknown", "Unknown"
-
-    FRAME = "frame", "Frame"
-    SLICE = "slice", "Slice"
     POINT = "point", "Point"
+    SPIKE = "spike", "Spike"
+    SLICE = "slice", "Slice"
 
 
 class ContinousScanDirection(TextChoices):
@@ -197,24 +180,7 @@ class StimulusKind(str, Enum):
 
 @strawberry.enum
 class RoiKind(str, Enum):
-    ELLIPSIS = "ellipse"
-    POLYGON = "polygon"
     LINE = "line"
-
-    # Rectangular Types
-    RECTANGLE = "rectangle"
-    SPECTRAL_RECTANGLE = "spectral_rectangle"
-    TEMPORAL_RECTANGLE = "temporal_rectangle"
-    CUBE = "cube"
-    SPECTRAL_CUBE = "spectral_cube"
-    TEMPORAL_CUBE = "temporal_cube"
-    HYPERCUBE = "hypercube"
-    SPECTRAL_HYPERCUBE = "spectral_hypercube"
-
-    # Path Types
-    PATH = "path"
-
-    FRAME = "frame",
-    SLICE = "slice"
     POINT = "point"
-
+    SPIKE = "spike"
+    SLICE = "slice"

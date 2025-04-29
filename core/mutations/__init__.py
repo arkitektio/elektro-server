@@ -35,6 +35,7 @@ from .roi import *
 from .upload import *
 from .simulation import *
 from .experiment import *
+from .model_collection import *
 
 __all__ = [
     "from_trace_like",

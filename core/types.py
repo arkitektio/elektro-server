@@ -21,6 +21,7 @@ from typing import Union
 from strawberry import LazyType
 from core.duck import get_current_duck
 from core.base_models.type.graphql.cell import Cell
+from core.base_models.type.graphql.topology import Topology
 from core.base_models.type.graphql.model import ModelConfig
 
 
@@ -196,8 +197,109 @@ class ModelCollection:
     name: str
     models: List["NeuronModel"] = strawberry.django.field()
     description: str | None
-   
  
+ 
+ 
+@strawberry.enum
+class ChangeType(str, Enum):
+    REMOVED = "removed"
+    ADDED = "added"
+    CHANGED = "changed"
+
+@strawberry.type
+class Change:
+    type: ChangeType
+    path: List[str]
+    value_a: Optional[scalars.Any]
+    value_b: Optional[scalars.Any]
+
+def compare_models(dict_a: dict, dict_b: dict, path: Optional[List[str]] = None) -> List[Change]:
+    if path is None:
+        path = []
+
+    changes: List[Change] = []
+
+    keys_a = set(dict_a.keys())
+    keys_b = set(dict_b.keys())
+
+    for key in keys_a - keys_b:
+        changes.append(Change(
+            type=ChangeType.REMOVED,
+            path=path + [key],
+            value_a=dict_a[key],
+            value_b=None
+        ))
+
+    for key in keys_b - keys_a:
+        changes.append(Change(
+            type=ChangeType.ADDED,
+            path=path + [key],
+            value_a=None,
+            value_b=dict_b[key]
+        ))
+
+    for key in keys_a & keys_b:
+        val_a = dict_a[key]
+        val_b = dict_b[key]
+
+        if isinstance(val_a, dict) and isinstance(val_b, dict):
+            deeper_changes = compare_models(val_a, val_b, path + [key])
+            if deeper_changes:
+                changes.extend(deeper_changes)
+            elif val_a != val_b:
+                changes.append(Change(
+                    type=ChangeType.CHANGED,
+                    path=path + [key],
+                    value_a=val_a,
+                    value_b=val_b
+                ))
+        elif isinstance(val_a, list) and isinstance(val_b, list):
+            # Compare lists element by element
+            min_len = min(len(val_a), len(val_b))
+            for i in range(min_len):
+                item_a = val_a[i]
+                item_b = val_b[i]
+                if isinstance(item_a, dict) and isinstance(item_b, dict):
+                    deeper_changes = compare_models(item_a, item_b, path + [key, str(i)])
+                    changes.extend(deeper_changes)
+                elif item_a != item_b:
+                    changes.append(Change(
+                        type=ChangeType.CHANGED,
+                        path=path + [key, str(i)],
+                        value_a=item_a,
+                        value_b=item_b
+                    ))
+            # Handle extra items
+            for i in range(min_len, len(val_a)):
+                changes.append(Change(
+                    type=ChangeType.REMOVED,
+                    path=path + [key, str(i)],
+                    value_a=val_a[i],
+                    value_b=None
+                ))
+            for i in range(min_len, len(val_b)):
+                changes.append(Change(
+                    type=ChangeType.ADDED,
+                    path=path + [key, str(i)],
+                    value_a=None,
+                    value_b=val_b[i]
+                ))
+        elif val_a != val_b:
+            changes.append(Change(
+                type=ChangeType.CHANGED,
+                path=path + [key],
+                value_a=val_a,
+                value_b=val_b
+            ))
+
+    return changes
+
+
+@strawberry.type
+class Comparison:
+    collection: ModelCollection
+    changes: List[Change]
+   
     
 @strawberry_django.type(models.NeuronModel,  filters=filters.NeuronModelFilter, pagination=True)
 class NeuronModel:
@@ -205,11 +307,34 @@ class NeuronModel:
     name: auto
     description: str | None
     creator: User | None
-    collection: ModelCollection | None
+    model_collections: list[ModelCollection] | None
+    simulations: List["Simulation"] = strawberry.django.field()
     
     @strawberry.django.field()
     def config(self, info: Info) -> "ModelConfig":
         return ModelConfigModel(**self.json_model)
+    
+    @strawberry.django.field()
+    def changes(self, info: Info, to: strawberry.ID | None = None) -> List[Change]:
+        """ Gets the changes"""
+        if to is None:
+            to_model = self.model_collections.first().models.first()
+        else:
+            to_model = models.NeuronModel.objects.get(id=to)
+            
+        changes = compare_models(self.json_model, to_model.json_model)
+        return changes
+    
+    @strawberry.django.field()
+    def comparisons(self, info: Info) -> List["Comparison"]:
+        """ Gets the changes"""
+        comparisons = []
+        for col in self.model_collections.all():
+            changes = compare_models(self.json_model, col.models.first().json_model)
+            comparisons.append(Comparison(collection=col, changes=changes))
+        return comparisons
+    
+    
     
 
     
@@ -235,7 +360,7 @@ class Simulation:
     recordings: List["Recording"] = strawberry.django.field()
 
 
-@strawberry_django.type(models.Recording)
+@strawberry_django.type(models.Recording,  filters=filters.RecordingFilter, pagination=True)
 class Recording:
     id: auto
     simulation: Simulation
@@ -252,7 +377,7 @@ class Recording:
 
       
     
-@strawberry_django.type(models.Stimulus)
+@strawberry_django.type(models.Stimulus,  filters=filters.StimulusFilter, pagination=True)
 class Stimulus:
     id: auto
     simulation: Simulation
@@ -307,7 +432,7 @@ class Trace:
     dataset: Optional["Dataset"] = strawberry_django.field(description="The dataset this image belongs to")
     history: List["History"] = strawberry_django.field(description="History of changes to this image")
     creator: User | None = strawberry_django.field(description="Who created this image")
-
+    rois: List["ROI"] = strawberry_django.field(description="The rois of this image")
 
 
 
@@ -515,6 +640,10 @@ class ROI:
     @strawberry.django.field()
     def name(self, info: Info) -> str:
         return self.kind
+    
+    @strawberry.django.field()
+    def label(self, info: Info) -> str | None:
+        return self.label
     
 
 

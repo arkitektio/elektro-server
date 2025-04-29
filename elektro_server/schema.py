@@ -1,5 +1,5 @@
 from kante.types import Info
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List
 import strawberry
 from strawberry_django.optimizer import DjangoOptimizerExtension
 
@@ -21,7 +21,8 @@ from core.render.objects import types as render_types
 from core.duck import DuckExtension
 from typing import Annotated
 from core.base_models.type.graphql.model import SynapticConnection, Exp2Synapse
-
+from core.base_models.type.graphql.model import ModelConfigModel
+from core.base_models.type.graphql.topology import Section
 
 
 ID = Annotated[StrawberryID, strawberry.argument(description="The unique identifier of an object")]
@@ -35,11 +36,70 @@ class Query:
     experiments: list[types.Experiment] = strawberry_django.field()
     neuron_models: list[types.NeuronModel] = strawberry_django.field()
     model_collections: list[types.ModelCollection] = strawberry_django.field()
+    recordings: list[types.Recording] = strawberry_django.field()
+    stimuli: list[types.Stimulus] = strawberry_django.field()
 
     files: list[types.File] = strawberry_django.field()
     simulations: list[types.Simulation] = strawberry_django.field()
     myfiles: list[types.File] = strawberry_django.field()
     random_trace: types.Trace = strawberry_django.field(resolver=queries.random_trace)
+    
+    @strawberry.django.field(
+        permission_classes=[IsAuthenticated],
+        description="Returns a list of images"
+    )
+    def stimulus(self, info: Info, id: ID) -> types.Stimulus:
+        """Get all stimuli"""
+        return models.Stimulus.objects.get(id=id)
+    
+    
+    @strawberry.django.field(
+        permission_classes=[IsAuthenticated],
+        description="Returns a list of cells in a model"
+    )
+    def cells(self, info: Info, modelId: ID, ids: List[ID] | None = None, search: str | None = None) -> list[types.Cell]:
+        
+        model = models.NeuronModel.objects.get(id=modelId)
+        l = ModelConfigModel(**model.json_model)
+        
+        if search:
+            return [cell for cell in l.cells if search in cell.id]
+        if ids:
+            return [cell for cell in l.cells  if cell.id in ids]
+                
+            
+        return l.cells
+    
+    
+    @strawberry.django.field(
+        permission_classes=[IsAuthenticated],
+        description="Returns a list of images"
+    )
+    def sections(self, info: Info, modelId: ID, cellId: ID, ids: List[ID] | None = None, search: str | None = None) -> List["Section"]:
+        """Get all cells"""
+        model = models.NeuronModel.objects.get(id=modelId)
+        l = ModelConfigModel(**model.json_model)
+        
+        for cell in l.cells:
+            if cell.id == cellId:
+                if search:
+                    return [section for section in cell.topology.sections if search in section.id]
+                if ids:
+                    return [section for section in cell.topology.sections if section.id in ids]
+                
+                
+                return cell.topology.sections
+                
+        raise ValueError(f"Cell with ID {cellID} not found in model {modelId}")
+        
+    
+    @strawberry.django.field(
+        permission_classes=[IsAuthenticated],
+        description="Returns a list of images"
+    )
+    def recording(self, info: Info, id: ID) -> types.Recording:
+        """Get all stimuli"""
+        return models.Recording.objects.get(id=id)
     
     @strawberry.django.field()
     def experiment(self, info: Info, id: ID) -> types.Experiment:
@@ -167,6 +227,12 @@ class Mutation:
     delete_file = strawberry_django.mutation(
         resolver=mutations.delete_file,
         description="Delete an existing file"
+    )
+    
+    
+    create_model_collection = strawberry_django.mutation(
+        resolver=mutations.create_model_collection,
+        description="Create a new model collection"
     )
 
 

@@ -81,7 +81,6 @@ def create_simulation(
         )
         
         
-        
         recording = models.Recording.objects.create(
             trace=trace,
             kind=recording.kind,

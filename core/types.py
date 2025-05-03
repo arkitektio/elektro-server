@@ -344,7 +344,9 @@ class Experiment:
     id: auto
     name: str
     description: str | None
-    views: List["ExperimentView"]
+    time_trace: "Trace"
+    recording_views: List["ExperimentRecordingView"] = strawberry.django.field()
+    stimulus_views: List["ExperimentStimulusView"] = strawberry.django.field()
     
 @strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, pagination=True)
 class Simulation:
@@ -355,9 +357,11 @@ class Simulation:
     creator: User | None
     model: NeuronModel
     duration: int = 400
+    dt: float
     time_trace: "Trace"
     stimuli: List["Stimulus"] = strawberry.django.field()
     recordings: List["Recording"] = strawberry.django.field()
+    created_at: datetime.datetime
 
 
 @strawberry_django.type(models.Recording,  filters=filters.RecordingFilter, pagination=True)
@@ -367,7 +371,7 @@ class Recording:
     kind: enums.RecordingKind
     trace: "Trace"
     location: str
-    position: str 
+    position: float 
     cell: str
     
     @strawberry.django.field()
@@ -384,7 +388,7 @@ class Stimulus:
     kind: enums.StimulusKind
     trace: "Trace"
     location: str
-    position: str 
+    position: float 
     cell: str
     
     @strawberry.django.field()
@@ -392,17 +396,22 @@ class Stimulus:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
 
-@strawberry_django.type(models.ExperimentView, filters=filters.ExperimentFilter, pagination=True)
-class ExperimentView:
+@strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentFilter, pagination=True)
+class ExperimentRecordingView:
     id: auto
-    stimulus: Stimulus | None
-    recording: Recording | None
+    recording: Recording 
     label: str | None
     offset: float | None
     duration: float | None
     
     
-
+@strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentFilter, pagination=True)
+class ExperimentStimulusView:
+    id: auto
+    stimulus: Stimulus 
+    label: str | None
+    offset: float | None
+    duration: float | None
     
     
 

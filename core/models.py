@@ -108,8 +108,7 @@ class ZarrStore(S3Store):
         # Create a boto3 S3 client
         s3 = datalayer.s3v4
 
-
-         # Extract the bucket and key from the S3 path
+        # Extract the bucket and key from the S3 path
         bucket_name, prefix = self.path.replace("s3://", "").split("/", 1)
 
         # List all files under the given prefix
@@ -147,7 +146,7 @@ class ZarrStore(S3Store):
                 if zarray_json["node_type"] == "array":
 
                     self.shape = zarray_json["shape"]
-                    self.chunks = zarray_json.get("chunk_grid", {}).get("configuration", {}).get("chunkshape", [])
+                    self.chunks = zarray_json.get("chunk_grid", {}).get("configuration", {}).get("chunk_shape", [])
                     self.dtype = zarray_json["data_type"]
                     self.version = "3"
                     break
@@ -357,11 +356,16 @@ class Experiment(models.Model):
         related_name="pinned_experiments",
         help_text="The users that have pinned the experiment",
     )
+    time_trace = models.ForeignKey(
+        "Trace",
+        on_delete=models.CASCADE,
+        related_name="experiments",
+    )
     history = HistoryField()
     
     
     
-class ExperimentView(models.Model):
+class ExperimentRecordingView(models.Model):
     """A SimulationView is a view of a simulation.
 
     It is used to group simulations together, for example to group all simulations
@@ -371,21 +375,48 @@ class ExperimentView(models.Model):
     recording = models.ForeignKey(
         "Recording",
         on_delete=models.CASCADE,
-        related_name="views",
-        null=True,
-        blank=True,
-    )
-    stimulus = models.ForeignKey(
-        "Stimulus",
-        on_delete=models.CASCADE,
-        related_name="views",
+        related_name="experiment_views",
         null=True,
         blank=True,
     )
     experiment = models.ForeignKey(
         Experiment,
         on_delete=models.CASCADE,
-        related_name="views",
+        related_name="recording_views",
+        null=True,
+        blank=True,
+    )
+    offset = models.FloatField(
+        help_text="The offset of the view in seconds", null=True, blank=True
+    )
+    duration = models.FloatField(
+        help_text="The duration of the view in seconds", null=True, blank=True
+    )
+    label= models.CharField(
+        max_length=1000,
+        help_text="The label of the view",
+        null=True,
+        blank=True,
+    )
+
+class ExperimentStimulusView(models.Model):
+    """A SimulationView is a view of a simulation.
+
+    It is used to group simulations together, for example to group all simulations
+    that are used to represent a specific channel.
+
+    """
+    stimulus = models.ForeignKey(
+        "Stimulus",
+        on_delete=models.CASCADE,
+        related_name="experiment_views",
+        null=True,
+        blank=True,
+    )
+    experiment = models.ForeignKey(
+        Experiment,
+        on_delete=models.CASCADE,
+        related_name="stimulus_views",
         null=True,
         blank=True,
     )
@@ -503,7 +534,13 @@ class Simulation(models.Model):
         related_name="simulations",
     )
     name = models.CharField(max_length=1000, help_text="The name of the run")
-    
+    created_at = models.DateTimeField(auto_now_add=True)
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        help_text="The user that created the run",
+        null=True,
+    )
     
     
 

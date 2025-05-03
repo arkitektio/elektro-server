@@ -7,19 +7,28 @@ from core.base_models.input.graphql.biophysics import BiophysicsInput
 
 
 @strawberry.input()
-class ViewInput:
+class StimulusViewInput:
     stimulus: strawberry.ID | None = None
+    offset: float | None = None
+    duration: float | None = None
+    label: str | None = None
+  
+  
+@strawberry.input()
+class RecordingViewInput:
     recording: strawberry.ID | None = None
     offset: float | None = None
     duration: float | None = None
     label: str | None = None
-    
+      
     
 
 @strawberry.input()
 class CreateExperimentInput:
     name: str 
-    views: list[ViewInput]
+    time_trace: strawberry.ID | None = None
+    stimulus_views: list[StimulusViewInput]
+    recording_views: list[RecordingViewInput]
     description: str | None = None
     
 
@@ -28,34 +37,36 @@ def create_experiment(
     input: CreateExperimentInput,
 ) -> types.Experiment:
 
+
    
     
     exp = models.Experiment.objects.create(
         name=input.name,
         creator=info.context.request.user,
         description=input.description,
+        time_trace=models.Trace.objects.get(id=input.time_trace),
         
     )
     
     
-    for view in input.views:
+    for view in input.stimulus_views:
         
-        recording = None
-        stimulus = None
+        stimulus = models.Stimulus.objects.get(id=view.stimulus)
         
-        if view.stimulus:
-            stimulus = models.Stimulus.objects.get(id=view.stimulus)
-        elif view.recording:
-            recording = models.Recording.objects.get(id=view.recording)
-        else:
-            raise ValueError("Either stimulus or recording must be provided")
-        
-        if stimulus and recording:
-            raise ValueError("Both stimulus and recording cannot be provided")
-        
-        models.ExperimentView.objects.create(
+        models.ExperimentStimulusView.objects.create(
             experiment=exp,
             stimulus=stimulus,
+            offset=view.offset,
+            label=view.label,
+            duration=view.duration,
+        )
+        
+    for view in input.recording_views:
+        
+        recording = models.Recording.objects.get(id=view.recording)
+        
+        models.ExperimentRecordingView.objects.create(
+            experiment=exp,
             recording=recording,
             offset=view.offset,
             label=view.label,

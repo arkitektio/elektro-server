@@ -3,8 +3,7 @@ from typing import AsyncGenerator
 import strawberry
 import strawberry_django
 from kante.types import Info
-from core import models, scalars, types
-from core.channel import file_listen
+from core import models, scalars, types, channels
 
 
 @strawberry.type
@@ -23,13 +22,13 @@ async def files(
     """Join and subscribe to message sent to the given rooms."""
 
     if dataset is None:
-        channels = ["files"]
+        schannels = ["files"]
     else:
-        channels = ["dataset_files_" + str(dataset)]
+        schannels = ["dataset_files_" + str(dataset)]
 
 
 
-    async for message in file_listen(info, channels):
+    async for message in channels.file_channel.listen(info.context, schannels):
         print("Received message", message)
         if message["type"] == "create":
             roi = await models.File.objects.aget(

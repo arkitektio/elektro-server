@@ -17,12 +17,10 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from strawberry.django.views import AsyncGraphQLView
-from .basepath import basepath
+from kante.path import dynamicpath
 
 from elektro_server.schema import schema
 
 urlpatterns = [
-    basepath("admin/", admin.site.urls),
-    basepath("graphql", AsyncGraphQLView.as_view(schema=schema)),
-    basepath('ht/', include('health_check.urls')),
+    dynamicpath("admin/", admin.site.urls),
 ]

@@ -1,28 +1,24 @@
 from kante.types import Info
 from typing import AsyncGenerator, List
 import strawberry
-from strawberry_django.optimizer import DjangoOptimizerExtension
 
 from core.datalayer import DatalayerExtension
-from core.channel import image_listen
 from strawberry import ID as StrawberryID
-from kante.directives import upper, replace, relation
-from strawberry.permission import BasePermission
 from typing import Any, Type
 from core import types, models
 from core import mutations
 from core import queries
 from core import subscriptions
-from strawberry.field_extensions import InputMutationExtension
 import strawberry_django
 from koherent.strawberry.extension import KoherentExtension
-from authentikate.strawberry.permissions import IsAuthenticated, NeedsScopes, HasScopes
 from core.render.objects import types as render_types
 from core.duck import DuckExtension
 from typing import Annotated
 from core.base_models.type.graphql.model import SynapticConnection, Exp2Synapse
 from core.base_models.type.graphql.model import ModelConfigModel
 from core.base_models.type.graphql.topology import Section
+from authentikate.strawberry.extension import AuthentikateExtension
+from strawberry_django.optimizer import DjangoOptimizerExtension
 
 
 ID = Annotated[StrawberryID, strawberry.argument(description="The unique identifier of an object")]
@@ -45,7 +41,7 @@ class Query:
     random_trace: types.Trace = strawberry_django.field(resolver=queries.random_trace)
     
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated],
+        permission_classes=[],
         description="Returns a list of images"
     )
     def stimulus(self, info: Info, id: ID) -> types.Stimulus:
@@ -54,7 +50,7 @@ class Query:
     
     
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated],
+        permission_classes=[],
         description="Returns a list of cells in a model"
     )
     def cells(self, info: Info, modelId: ID, ids: List[ID] | None = None, search: str | None = None) -> list[types.Cell]:
@@ -72,7 +68,7 @@ class Query:
     
     
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated],
+        permission_classes=[],
         description="Returns a list of images"
     )
     def sections(self, info: Info, modelId: ID, cellId: ID, ids: List[ID] | None = None, search: str | None = None) -> List["Section"]:
@@ -94,7 +90,7 @@ class Query:
         
     
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated],
+        permission_classes=[],
         description="Returns a list of images"
     )
     def recording(self, info: Info, id: ID) -> types.Recording:
@@ -123,7 +119,7 @@ class Query:
 
 
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated],
+        permission_classes=[],
         description="Returns a single image by ID"
     )
     def trace(self, info: Info, id: ID) -> types.Trace:
@@ -131,7 +127,7 @@ class Query:
         return models.Trace.objects.get(id=id)
     
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated],
+        permission_classes=[],
         description="Returns a single image by ID"
     )
     def neuron_model(self, info: Info, id: ID) -> types.NeuronModel:
@@ -139,7 +135,7 @@ class Query:
         return models.NeuronModel.objects.get(id=id)
     
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated]
+        permission_classes=[]
     )
     def roi(self, info: Info, id: ID) -> types.ROI:
         print(id)
@@ -148,7 +144,7 @@ class Query:
    
 
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated]
+        permission_classes=[]
     )
     def file(self, info: Info, id: ID) -> types.File:
         print(id)
@@ -156,7 +152,7 @@ class Query:
 
     
     @strawberry.django.field(
-        permission_classes=[IsAuthenticated]
+        permission_classes=[]
     )
     def dataset(self, info: Info, id: ID) -> types.Dataset:
         return models.Dataset.objects.get(id=id)
@@ -313,15 +309,7 @@ class Mutation:
 
 @strawberry.type
 class Subscription:
-    @strawberry.subscription(description="Subscribe to real-time image history events")
-    async def history_events(
-        self,
-        info: Info,
-    ) -> AsyncGenerator[types.Trace, None]:
-        """Join and subscribe to message sent to the given rooms."""
-        async for message in image_listen(info):
-            yield await models.Trace.objects.aget(id=message)
-
+    """The root subscription type"""
 
     rois = strawberry.subscription(
         resolver=subscriptions.rois,
@@ -342,10 +330,10 @@ schema = strawberry.Schema(
     query=Query,
     subscription=Subscription,
     mutation=Mutation,
-    directives=[upper, replace, relation],
     extensions=[
-        DjangoOptimizerExtension,
         KoherentExtension,
+        AuthentikateExtension,
+        DjangoOptimizerExtension,
         DatalayerExtension,
         DuckExtension,
     ],

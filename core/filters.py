@@ -1,6 +1,5 @@
 import strawberry
 from core import models, enums, scalars
-from koherent.strawberry.filters import ProvenanceFilter
 from strawberry import auto
 from typing import Optional
 from strawberry_django.filters import FilterLookup
@@ -28,86 +27,68 @@ class SearchFilterMixin:
         return queryset.filter(name__contains=self.search)
 
 
-@strawberry.django.order(models.Trace)
+@strawberry_django.order(models.Trace)
 class TraceOrder:
     created_at: auto
 
 
-@strawberry.django.filter(models.Dataset)
+@strawberry_django.filter(models.Dataset)
 class DatasetFilter:
     id: auto
     name: Optional[FilterLookup[str]]
-    provenance: ProvenanceFilter | None
 
-
-@strawberry.django.filter(models.File)
+@strawberry_django.filter(models.File)
 class FileFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
-    provenance: ProvenanceFilter | None
     
-@strawberry.django.filter(models.Experiment)
+@strawberry_django.filter(models.Experiment)
 class ExperimentFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
-    provenance: ProvenanceFilter | None
-
 
     
-@strawberry.django.filter(models.ModelCollection)
+@strawberry_django.filter(models.ModelCollection)
 class ModelCollectionFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
-    provenance: ProvenanceFilter | None
     
     
-@strawberry.django.filter(models.Simulation)
+@strawberry_django.filter(models.Simulation)
 class SimulationFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
-    provenance: ProvenanceFilter | None
     
     
-@strawberry.django.filter(models.Recording)
+@strawberry_django.filter(models.Recording)
 class RecordingFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
-    provenance: ProvenanceFilter | None
     
-@strawberry.django.filter(models.Recording)
+@strawberry_django.filter(models.Recording)
 class StimulusFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
-    provenance: ProvenanceFilter | None
 
 
-@strawberry.django.filter(models.NeuronModel)
+@strawberry_django.filter(models.NeuronModel)
 class NeuronModelFilter(IDFilterMixin, SearchFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
-    provenance: ProvenanceFilter | None
 
-@strawberry.django.filter(models.Instrument)
+@strawberry_django.filter(models.Instrument)
 class InstrumentFilter:
     id: auto
     name: auto
-    provenance: ProvenanceFilter | None
 
 
-
-
-
-
-@strawberry.django.filter(models.View)
+@strawberry_django.filter(models.View)
 class ViewFilter:
     is_global: auto
-    provenance: ProvenanceFilter | None
 
 
 
-
-
-@strawberry.django.filter(models.TimelineView)
+@strawberry_django.filter(models.TimelineView)
 class ContinousScanViewFilter(ViewFilter):
     start_time: auto
     end_time: auto
@@ -121,7 +102,6 @@ class TraceFilter:
     not_derived: bool | None = None
     search: str | None
 
-    provenance: ProvenanceFilter | None
 
     def filter_search(self, queryset, info):
         if self.search is None:
@@ -142,7 +122,7 @@ class TraceFilter:
         return queryset.filter(derived_views=None)
 
 
-@strawberry.django.filter(models.ROI)
+@strawberry_django.filter(models.ROI)
 class ROIFilter(IDFilterMixin):
     id: auto
     kind: auto

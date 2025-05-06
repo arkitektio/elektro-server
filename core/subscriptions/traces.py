@@ -3,15 +3,14 @@ from typing import AsyncGenerator
 import strawberry
 import strawberry_django
 from kante.types import Info
-from core import models, scalars, types
-from core.channel import image_listen
-
+from core import models, scalars, types, channels
 
 @strawberry.type
 class TraceEvent:
     create: types.Trace | None = None
-    delete: strawberry.ID | None = None
     update: types.Trace    | None = None
+
+    delete: strawberry.ID | None = None
 
 
 async def traces(
@@ -22,24 +21,24 @@ async def traces(
     """Join and subscribe to message sent tso the given rooms."""
 
     if dataset is None:
-        channels = ["images"]
+        schannels = ["images"]
     else:
-        channels = ["dataset_images_" + str(dataset)]
+        schannels = ["dataset_images_" + str(dataset)]
 
-    async for message in image_listen(info, channels):
+    async for message in channels.trace_channel.listen(info.context, schannels):
         print("Received message", message)
-        if message["type"] == "create":
-            roi = await models.Image.objects.aget(
-                id=message["id"]
+        if message.create:
+            roi = await models.Trace.objects.aget(
+                id=message.create
             )
-            yield ImageEvent(create=roi)
+            yield TraceEvent(create=roi)
 
-        elif message["type"] == "delete":
-            yield ImageEvent(delete=message["id"])
+        elif message.delete:
+            yield TraceEvent(delete=message.delete)
 
-        elif message["type"] == "update":
-            roi = await models.Image.objects.aget(
-                id=message["id"]
+        elif message.update:
+            roi = await models.Trace.objects.aget(
+                id=message.update
             )
-            yield ImageEvent(update=roi)
+            yield TraceEvent(update=roi)
 

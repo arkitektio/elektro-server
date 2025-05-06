@@ -1,14 +1,12 @@
 from core.base_models.type.model import ModelConfigModel
 from pydantic import BaseModel
 import strawberry
-import strawberry.django
+import strawberry_django
 from strawberry import auto
 from typing import List, Optional, Annotated, Union, cast
 import strawberry_django
 from core import models, scalars, filters, enums
 from django.contrib.auth import get_user_model
-from koherent.models import AppHistoryModel
-from authentikate.models import App as AppModel
 from kante.types import Info
 import datetime
 from asgiref.sync import sync_to_async
@@ -19,26 +17,12 @@ from core.render.objects import models as rmodels
 from strawberry.experimental import pydantic
 from typing import Union
 from strawberry import LazyType
-from core.duck import get_current_duck
 from core.base_models.type.graphql.cell import Cell
 from core.base_models.type.graphql.topology import Topology
 from core.base_models.type.graphql.model import ModelConfig
+from authentikate.strawberry.types import Client, User
+from koherent.strawberry.types import ProvenanceEntry
 
-
-
-@strawberry_django.type(AppModel, description="An app.")
-class App:
-    id: auto
-    name: str
-    client_id: str
-
-@strawberry_django.type(get_user_model(), description="A user.")
-class User:
-    id: auto
-    sub: str
-    username: str
-    email: str
-    password: str
 
 
 @strawberry.type(description="Temporary Credentials for a file upload that can be used by a Client (e.g. in a python datalayer)")
@@ -104,7 +88,7 @@ class ViewCollection:
     id: auto
     name: auto
     views: List["View"]
-    history: List["History"]
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @strawberry.enum
@@ -157,7 +141,7 @@ class ParquetStore:
 
 
 
-@strawberry.django.type(models.BigFileStore)
+@strawberry_django.type(models.BigFileStore)
 class BigFileStore:
     id: auto
     path: str
@@ -187,7 +171,7 @@ class MediaStore:
 class File:
     id: auto
     name: auto
-    origins: List["Trace"] = strawberry.django.field()
+    origins: List["Trace"] = strawberry_django.field()
     store: BigFileStore
    
    
@@ -195,7 +179,7 @@ class File:
 class ModelCollection:
     id: auto
     name: str
-    models: List["NeuronModel"] = strawberry.django.field()
+    models: List["NeuronModel"] = strawberry_django.field()
     description: str | None
  
  
@@ -308,13 +292,13 @@ class NeuronModel:
     description: str | None
     creator: User | None
     model_collections: list[ModelCollection] | None
-    simulations: List["Simulation"] = strawberry.django.field()
+    simulations: List["Simulation"] = strawberry_django.field()
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def config(self, info: Info) -> "ModelConfig":
         return ModelConfigModel(**self.json_model)
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def changes(self, info: Info, to: strawberry.ID | None = None) -> List[Change]:
         """ Gets the changes"""
         if to is None:
@@ -325,7 +309,7 @@ class NeuronModel:
         changes = compare_models(self.json_model, to_model.json_model)
         return changes
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def comparisons(self, info: Info) -> List["Comparison"]:
         """ Gets the changes"""
         comparisons = []
@@ -345,8 +329,8 @@ class Experiment:
     name: str
     description: str | None
     time_trace: "Trace"
-    recording_views: List["ExperimentRecordingView"] = strawberry.django.field()
-    stimulus_views: List["ExperimentStimulusView"] = strawberry.django.field()
+    recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
+    stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
     
 @strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, pagination=True)
 class Simulation:
@@ -359,8 +343,8 @@ class Simulation:
     duration: int = 400
     dt: float
     time_trace: "Trace"
-    stimuli: List["Stimulus"] = strawberry.django.field()
-    recordings: List["Recording"] = strawberry.django.field()
+    stimuli: List["Stimulus"] = strawberry_django.field()
+    recordings: List["Recording"] = strawberry_django.field()
     created_at: datetime.datetime
 
 
@@ -374,7 +358,7 @@ class Recording:
     position: float 
     cell: str
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def label(self, info: Info) -> str:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
@@ -391,7 +375,7 @@ class Stimulus:
     position: float 
     cell: str
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def label(self, info: Info) -> str:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
@@ -439,13 +423,13 @@ class Trace:
     name: auto = strawberry_django.field(description="The name of the image")
     store: ZarrStore = strawberry_django.field(description="The store where the image data is stored.")
     dataset: Optional["Dataset"] = strawberry_django.field(description="The dataset this image belongs to")
-    history: List["History"] = strawberry_django.field(description="History of changes to this image")
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
     creator: User | None = strawberry_django.field(description="Who created this image")
     rois: List["ROI"] = strawberry_django.field(description="The rois of this image")
 
 
 
-    @strawberry.django.field(description="Is this image pinned by the current user")
+    @strawberry_django.field(description="Is this image pinned by the current user")
     def pinned(self, info: Info) -> bool:
         return (
             cast(models.Image, self)
@@ -453,12 +437,12 @@ class Trace:
             .exists()
         )
 
-    @strawberry.django.field(description="The tags of this image")
+    @strawberry_django.field(description="The tags of this image")
     def tags(self, info: Info) -> list[str]:
         return cast(models.Image, self).tags.slugs()
 
 
-    @strawberry.django.field()
+    @strawberry_django.field()
     def events(
         self,
         info: Info,
@@ -481,12 +465,12 @@ class Dataset:
     children: List["Dataset"]
     description: str | None
     name: str
-    history: List["History"]
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
     is_default: bool
     created_at: datetime.datetime
     creator: User | None
 
-    @strawberry.django.field()
+    @strawberry_django.field()
     def pinned(self, info: Info) -> bool:
         return (
             cast(models.Dataset, self)
@@ -494,70 +478,9 @@ class Dataset:
             .exists()
         )
 
-    @strawberry.django.field()
+    @strawberry_django.field()
     def tags(self, info: Info) -> list[str]:
         return cast(models.Image, self).tags.slugs()
-
-
-
-@strawberry.enum
-class HistoryKind(str, Enum):
-    CREATE = "+"
-    UPDATE = "~"
-    DELETE = "-"
-
-
-@strawberry.type()
-class ModelChange:
-    field: str
-    old_value: str | None
-    new_value: str | None
-
-
-@strawberry_django.type(AppHistoryModel, pagination=True)
-class History:
-    app: App | None
-
-    @strawberry.django.field()
-    def user(self, info: Info) -> User | None:
-        return self.history_user
-
-    @strawberry.django.field()
-    def kind(self, info: Info) -> HistoryKind:
-        return self.history_type
-
-    @strawberry.django.field()
-    def date(self, info: Info) -> datetime.datetime:
-        return self.history_date
-
-    @strawberry.django.field()
-    def during(self, info: Info) -> str | None:
-        return self.assignation_id
-
-    @strawberry.django.field()
-    def id(self, info: Info) -> strawberry.ID:
-        return self.history_id
-
-    @strawberry.django.field()
-    def effective_changes(self, info: Info) -> list[ModelChange]:
-        new_record, old_record = self, self.prev_record
-
-        changes = []
-        if old_record is None:
-            return changes
-
-        delta = new_record.diff_against(old_record)
-        for change in delta.changes:
-            changes.append(
-                ModelChange(
-                    field=change.field, old_value=change.old, new_value=change.new
-                )
-            )
-
-        return changes
-
-
-OtherItem = Annotated[Union[Dataset, Trace], strawberry.union("OtherItem")]
 
 
 
@@ -578,7 +501,7 @@ def min_max_to_accessor(min, max):
 class View:
     """A view is a subset of an image."""
 
-    image: "Image"
+    image: "Trace"
     z_min: int | None = None
     z_max: int | None = None
     x_min: int | None = None
@@ -591,7 +514,7 @@ class View:
     c_max: int | None = None
     is_global: bool
 
-    @strawberry.django.field(description="The accessor")
+    @strawberry_django.field(description="The accessor")
     def accessor(self) -> List[str]:
         z_accessor = min_max_to_accessor(self.z_min, self.z_max)
         t_accessor = min_max_to_accessor(self.t_min, self.t_max)
@@ -618,7 +541,7 @@ class TimelineView(View):
     id: auto
     trace: Trace
 
-    @strawberry.django.field()
+    @strawberry_django.field()
     def label(self, info: Info) -> str:
         return self.label or "No Label"
 
@@ -635,9 +558,9 @@ class ROI:
     vectors: list[scalars.FiveDVector]
     created_at: datetime.datetime
     creator: User | None
-    history: List["History"]
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
-    @strawberry.django.field()
+    @strawberry_django.field()
     def pinned(self, info: Info) -> bool:
         return (
             self
@@ -646,11 +569,11 @@ class ROI:
         )
     
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def name(self, info: Info) -> str:
         return self.kind
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def label(self, info: Info) -> str | None:
         return self.label
     

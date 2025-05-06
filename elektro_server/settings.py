@@ -42,10 +42,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.postgres",
-    'health_check',                             # required
-    'health_check.db',                          # stock Django health checkers
-    "corsheaders",
-    "graphene_django",
     "channels_redis",
     "guardian",
     "simple_history",
@@ -57,6 +53,12 @@ INSTALLED_APPS = [
     "taggit",
     "core",
 ]
+
+
+STRAWBERRY_DJANGO = {
+    "USE_DEPRECATED_FILTERS": True,
+}
+
 
 
 AUTH_USER_MODEL = "authentikate.User"
@@ -100,7 +102,6 @@ CSRF_TRUSTED_ORIGINS = conf.get("csrf_trusted_origins", ["http://localhost", "ht
 MY_SCRIPT_NAME = conf.get("force_script_name", "")
 
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

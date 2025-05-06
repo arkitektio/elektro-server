@@ -3,8 +3,7 @@ from typing import AsyncGenerator
 import strawberry
 import strawberry_django
 from kante.types import Info
-from core import models, scalars, types
-from core.channel import roi_update_listen
+from core import models, scalars, types, channels
 
 
 @strawberry.type
@@ -17,26 +16,31 @@ class RoiEvent:
 async def rois(
     self,
     info: Info,
-    image: strawberry.ID,
+    trace: strawberry.ID,
 ) -> AsyncGenerator[RoiEvent, None]:
     """Join and subscribe to message sent to the given rooms."""
 
 
 
-    async for message in roi_update_listen(info, ["image_roi_" + str(image)]):
+    if trace is None:
+        schannels = ["rois"]
+    else:
+        schannels = ["rois_trace" + str(trace)]
+
+    async for message in channels.trace_channel.listen(info.context, schannels):
         print("Received message", message)
-        if message["type"] == "create":
-            roi = await models.ROI.objects.prefetch_related("image").aget(
-                id=message["id"]
+        if message.create:
+            roi = await models.ROI.objects.aget(
+                id=message.create
             )
             yield RoiEvent(create=roi)
 
-        elif message["type"] == "delete":
-            yield RoiEvent(delete=message["id"])
+        elif message.delete:
+            yield RoiEvent(delete=message.delete)
 
-        elif message["type"] == "update":
-            roi = await models.ROI.objects.prefetch_related("image").aget(
-                id=message["id"]
+        elif message.update:
+            roi = await models.ROI.objects.aget(
+                id=message.update
             )
             yield RoiEvent(update=roi)
 

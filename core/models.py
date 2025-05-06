@@ -5,8 +5,7 @@ from django.contrib.auth import get_user_model
 from django.forms import FileField
 from taggit.managers import TaggableManager
 from core import enums
-from koherent.fields import HistoryField, HistoricForeignKey
-import koherent.signals
+from koherent.fields import ProvenanceField, HistoricForeignKey
 from django_choices_field import TextChoicesField
 from core.fields import S3Field
 from core.datalayer import Datalayer
@@ -64,7 +63,7 @@ class Dataset(models.Model):
         help_text="Whether the dataset is the current default dataset for the user",
     )
     tags = TaggableManager(help_text="Tags for the dataset")
-    history = HistoryField()
+    provenance = ProvenanceField()
 
     objects = DatasetManager()
 
@@ -87,7 +86,7 @@ class Instrument(models.Model):
     model = models.CharField(max_length=1000, null=True, blank=True)
     serial_number = models.CharField(max_length=1000, unique=True)
 
-    history = HistoryField()
+    provenance = ProvenanceField()
 
 
 class S3Store(models.Model):
@@ -361,7 +360,7 @@ class Experiment(models.Model):
         on_delete=models.CASCADE,
         related_name="experiments",
     )
-    history = HistoryField()
+    provenance = ProvenanceField()
     
     
     
@@ -502,7 +501,7 @@ class Trace(models.Model):
         related_name="pinned_traces",
         help_text="The users that have pinned the images",
     )
-    history = HistoryField()
+    provenance = ProvenanceField()
 
     tags = TaggableManager()
 
@@ -622,7 +621,7 @@ class ViewCollection(models.Model):
     """
 
     name = models.CharField(max_length=1000, help_text="The name of the view")
-    history = HistoryField()
+    provenance = ProvenanceField()
 
 
 class View(models.Model):
@@ -729,7 +728,7 @@ class ROI(models.Model):
         help_text="The users that pinned this ROI",
     )
 
-    history = HistoryField()
+    provenance = ProvenanceField()
 
     def __str__(self):
         return f"Event by {self.creator} on {self.trace.name}"

@@ -181,19 +181,14 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 AUTHENTIKATE = {
-    "PUBLIC_KEY": conf.lok.get("public_key", None),
-    "PUBLIC_KEY_PEM_FILE": conf.lok.get("public_key_pem_file", None),
-    "KEY_TYPE": conf.lok.get("key_type", "RS256"),
-    "AUTHORIZATION_HEADERS": [
-        "Authorization",
-        "X-Auth-Token",
-        "AUTHORIZATION",
-        "authorization",
-    ],
-    "IMITATE_PERMISSION": "authentikate.imitate",
-    "ALLOW_IMITATE": True,
-    "STATIC_TOKENS": conf.lok.get("static_tokens", {}),
+    "ISSUERS": [{
+        "iss": "lok",
+        "kind": "rsa",
+        "public_key": conf.lok.get("public_key", None),
+    }]
 }
+
+
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 

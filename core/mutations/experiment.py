@@ -8,7 +8,7 @@ from core.base_models.input.graphql.biophysics import BiophysicsInput
 
 @strawberry.input()
 class StimulusViewInput:
-    stimulus: strawberry.ID | None = None
+    stimulus: strawberry.ID
     offset: float | None = None
     duration: float | None = None
     label: str | None = None
@@ -16,7 +16,7 @@ class StimulusViewInput:
   
 @strawberry.input()
 class RecordingViewInput:
-    recording: strawberry.ID | None = None
+    recording: strawberry.ID 
     offset: float | None = None
     duration: float | None = None
     label: str | None = None

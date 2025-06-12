@@ -126,13 +126,13 @@ class TraceFilter:
 class ROIFilter(IDFilterMixin):
     id: auto
     kind: auto
-    image: strawberry.ID | None = None
+    trace: strawberry.ID | None = None
     search: str | None
 
     def filter_image(self, queryset, info):
-        if self.image is None:
+        if self.trace is None:
             return queryset
-        return queryset.filter(image_id=self.image)
+        return queryset.filter(trace_id=self.trace)
     
     def filter_search(self, queryset, info):
         if self.search is None:

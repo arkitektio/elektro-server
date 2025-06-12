@@ -21,6 +21,7 @@ class StimulusInput:
     cell: strawberry.ID | None
     location: strawberry.ID | None
     position: float | None
+    
 
 @strawberry.input()
 class CreateSimulationInput:

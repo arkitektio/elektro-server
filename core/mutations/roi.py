@@ -58,7 +58,8 @@ def create_roi(
         max_t = max_t,
         min_t = min_t,
         kind=input.kind,
-        creator=info.context.request.user
+        creator=info.context.request.user,
+        label=input.label,
     )
 
 

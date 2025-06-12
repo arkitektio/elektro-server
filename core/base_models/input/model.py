@@ -1,6 +1,6 @@
 from typing import Dict, Union
 from .cell import CellInputModel
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Literal, Union, Optional
 import uuid
 from core import enums
@@ -44,11 +44,51 @@ class NetStimulatorInputModel(BaseModel):
 class ModelConfigInputModel(BaseModel):
     cells: List[CellInputModel] = Field(default_factory=list)
     net_stimulators: List[NetStimulatorInputModel] = Field(default_factory=list)
-    net_connections: List[NetStimulatorInputModel] = Field(default_factory=list)
+    net_connections: List[NetConnectionInputModel] = Field(default_factory=list)
     net_synapses: List[SynapseInputModel] = Field(default_factory=list)
     v_init: float = -67.0
     celsius: float = 36.0
     label: Optional[str] = None
+    
+    
+    @model_validator(mode="after")
+    def check_cells(cls, self: "ModelConfigInputModel") -> "ModelConfigInputModel":
+        
+        if self.net_synapses:
+            for synapse in self.net_synapses:
+        
+                cell: CellInputModel | None = next((cell for cell in self.cells if cell.id == synapse.cell), None)
+                if cell is None:
+                    raise ValueError(f"Cell {synapse.cell} not found in the model configuration.")
+                
+                location = next((loc for loc in cell.topology.sections if loc.id == synapse.location), None)
+                if location is None:
+                    raise ValueError(f"Location {synapse.location} not found in cell {cell.id}.")
+                
+            
+        if self.net_stimulators:
+            for connection in self.net_connections:
+                
+                synapse: NetConnectionInputModel | None = next((syn for syn in self.net_synapses if syn.id == connection.synapse), None)
+                if synapse is None:
+                    raise ValueError(f"Synapse {connection.synapse} not found in the model configuration.")
+                
+                net_stimulator: NetStimulatorInputModel | None = next((stim for stim in self.net_stimulators if stim.id == connection.net_stimulator), None)
+                if net_stimulator is None:
+                    raise ValueError(f"Net stimulator {connection.net_stimulator} not found in the model configuration.")
+            
+            
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        return self
+    
     
     
     

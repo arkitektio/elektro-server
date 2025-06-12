@@ -1,6 +1,6 @@
 from typing import Dict, Union
 from .cell import CellModel
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Literal, Union, Optional
 import uuid
 
@@ -15,7 +15,7 @@ class SynapseBaseModel(BaseModel):
 
 class Exp2SynModel(SynapseBaseModel):
     """Synaptic stimulus parameters."""
-    kind: Literal["Exp2Syn"] = "Exp2Syn"
+    kind: Literal["exp2syn"] = "exp2syn"
     e: float 
     tau2: float 
     tau1: float
@@ -45,12 +45,16 @@ class NetStimulatorModel(BaseModel):
 
 class ModelConfigModel(BaseModel):
     cells: List[CellModel] = Field(default_factory=list)
-    net_stimulators: List[NetStimulatorModel] = Field(default_factory=list)
-    net_connections: List[Union[SynapticConnectionModel]] = Field(default_factory=list)
-    net_synapses: List[Union[Exp2SynModel]] = Field(default_factory=list)
+    net_stimulators: List[NetStimulatorModel] | None = Field(default_factory=list)
+    net_connections: List[Union[SynapticConnectionModel]] | None= Field(default_factory=list)
+    net_synapses: List[Union[Exp2SynModel]] | None = Field(default_factory=list)
     v_init: float = -67.0
     celsius: float = 36.0
     label: Optional[str] = None
+    
+    
+    
+    
     
     
     

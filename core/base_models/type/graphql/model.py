@@ -49,9 +49,9 @@ class NetStimulator:
 @pydantic.type(ModelConfigModel)
 class ModelConfig:
     cells: List[Cell] 
-    net_stimulators: List[NetStimulator] 
-    net_connections: List[NetConnection] 
-    net_synapses: List[NetSynapse] 
+    net_stimulators: List[NetStimulator]  | None
+    net_connections: List[NetConnection] | None
+    net_synapses: List[NetSynapse] | None
     v_init: float 
     celsius: float 
     label: str | None = None

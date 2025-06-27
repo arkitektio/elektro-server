@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     "django_probes",
     "taggit",
     "core",
+    "health_check",  # required for health checks
+    "health_check.db",  # stock Django health checkers
 ]
 
 

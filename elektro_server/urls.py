@@ -19,8 +19,11 @@ from django.urls import path, include
 from strawberry.django.views import AsyncGraphQLView
 from kante.path import dynamicpath
 
-from elektro_server.schema import schema
+from health_check.views import MainView
+from django.views.decorators.csrf import csrf_exempt
+
 
 urlpatterns = [
     dynamicpath("admin/", admin.site.urls),
+    dynamicpath("ht",  csrf_exempt(MainView.as_view()), name="health_check"),
 ]

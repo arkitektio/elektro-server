@@ -27,6 +27,7 @@ dependencies = [
     "semver>=3.0.4",
     "duckdb>=1.2.2",
     "django-taggit>=6.1.0",
+    "django-health-check>=3.20.0",
 ]
 
 [dependency-groups]

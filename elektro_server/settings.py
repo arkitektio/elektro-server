@@ -28,7 +28,7 @@ SECRET_KEY = "django-insecure-6vh8x**%4mm0yxjbghipsalf5$wum10_satqhxg$vo9jninehx
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS: list[str] = []
+ALLOWED_HOSTS: list[str] = ["*"]
 
 
 # Application definition
@@ -62,7 +62,6 @@ STRAWBERRY_DJANGO = {
 }
 
 
-
 AUTH_USER_MODEL = "authentikate.User"
 
 # S3_PUBLIC_DOMAIN = f"{conf.s3.public.host}:{conf.s3.public.port}"  # TODO: FIx
@@ -75,7 +74,7 @@ AWS_S3_ENDPOINT_URL = f"{conf.s3.protocol}://{conf.s3.host}:{conf.s3.port}"
 AWS_S3_URL_PROTOCOL = f"{conf.s3.protocol}:"
 AWS_S3_FILE_OVERWRITE = False
 AWS_QUERYSTRING_EXPIRE = 3600
-AWS_S3_REGION_NAME = conf.s3.get("region", "us-east-1")  
+AWS_S3_REGION_NAME = conf.s3.get("region", "us-east-1")
 
 ZARR_BUCKET = conf.s3.buckets.zarr
 PARQUET_BUCKET = conf.s3.buckets.parquet
@@ -159,7 +158,7 @@ DATABASES = {
         "PASSWORD": conf.db.password,
         "HOST": "age",
         "PORT": conf.db.port,
-    }
+    },
 }
 
 
@@ -183,11 +182,13 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 AUTHENTIKATE = {
-    "ISSUERS": [{
-        "iss": "lok",
-        "kind": "rsa",
-        "public_key": conf.lok.get("public_key", None),
-    }],
+    "ISSUERS": [
+        {
+            "iss": "lok",
+            "kind": "rsa",
+            "public_key": conf.lok.get("public_key", None),
+        }
+    ],
     "STATIC_TOKENS": conf.lok.get("static_tokens", {}),
 }
 

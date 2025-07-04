@@ -23,7 +23,7 @@ conf = OmegaConf.load(os.path.join(BASE_DIR, "config.yaml"))
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-6vh8x**%4mm0yxjbghipsalf5$wum10_satqhxg$vo9jninehx"
+SECRET_KEY = conf.django.get("secret_key", "changeme")  # TODO: Change this in production
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True

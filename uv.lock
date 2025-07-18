@@ -129,7 +129,7 @@ wheels = [
 
 [[package]]
 name = "authentikate"
-version = "0.15.0"
+version = "0.22.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
@@ -138,9 +138,9 @@ dependencies = [
     { name = "kante" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2b/ef/7e8a3480f35a701968feec11cd4bb55af7b7c6ac2ee463666d30fb9eab74/authentikate-0.15.0.tar.gz", hash = "sha256:0bc1edb95f2486cf1f187a33b6e26f18c10a7b6d8d07f7272cb3629d153f4fd3", size = 13273, upload-time = "2025-07-10T11:53:43.806Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/27/bc13c41343b32e1d1bcdf7f1faa23d1b1f0d10d58b208aad28785cb31e53/authentikate-0.22.0.tar.gz", hash = "sha256:362d4abfb3e4de7c906990411a242e8b0ca39f150dc6aa3fbe3c3674118577b5", size = 14487, upload-time = "2025-07-18T14:02:15.98Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/22/44da01576c3f97af7abb8fca4045deb8471bf99a28dd4fe7b2daf4a639b9/authentikate-0.15.0-py3-none-any.whl", hash = "sha256:0c708e647bee1fa2f500dbd3d37eb63b349a1ace4155960a1067829007ea4ac8", size = 16793, upload-time = "2025-07-10T11:53:42.981Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/4e/71c3d7fd3fa5205ede37ca36a5e0a07bf722ffd99ed787765caf21d3987c/authentikate-0.22.0-py3-none-any.whl", hash = "sha256:9c596fdb555a0904746997d6cdad2c6b76e32c0ffea642bc0935a7506d7f81ac", size = 18339, upload-time = "2025-07-18T14:02:14.892Z" },
 ]
 
 [[package]]
@@ -483,7 +483,6 @@ dependencies = [
     { name = "django-taggit" },
     { name = "duckdb" },
     { name = "jsonpatch" },
-    { name = "kante" },
     { name = "koherent" },
     { name = "namegenerator" },
     { name = "omegaconf" },
@@ -503,7 +502,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
     { name = "aioredis", specifier = ">=2.0.1,<3" },
-    { name = "authentikate", specifier = ">=0.15" },
+    { name = "authentikate", specifier = ">=0.22" },
     { name = "boto3", specifier = ">=1.38.9" },
     { name = "channels-redis", specifier = ">=4.1.0,<5" },
     { name = "daphne", specifier = ">=4.0.0,<5" },
@@ -515,7 +514,6 @@ requires-dist = [
     { name = "django-taggit", specifier = ">=6.1.0" },
     { name = "duckdb", specifier = ">=1.2.2" },
     { name = "jsonpatch", specifier = "~=1.33" },
-    { name = "kante", specifier = "==0.9.0" },
     { name = "koherent", specifier = ">=0.2.0" },
     { name = "namegenerator", specifier = ">=1.0.6,<2" },
     { name = "omegaconf", specifier = ">=2.3.0,<3" },
@@ -677,7 +675,7 @@ wheels = [
 
 [[package]]
 name = "kante"
-version = "0.9.0"
+version = "0.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "channels" },
@@ -685,9 +683,9 @@ dependencies = [
     { name = "strawberry-graphql", extra = ["channels"] },
     { name = "strawberry-graphql-django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6e/1b/3627c53b3a996537957482994add6e36c4d14ce88cdce9dc7c9eca2142b9/kante-0.9.0.tar.gz", hash = "sha256:cefb82d6d7e230ee6b50fbe23dd8843a043b17b95eb42be4d39652b97f32a0b2", size = 9307, upload-time = "2025-05-06T09:33:33.163Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a3/dc/bdbb5c6fdfa864ee26481366a0d8c6293e1f99aaf6b0d36d85e588cd701c/kante-0.12.1.tar.gz", hash = "sha256:25840862607743c19a51d9681e9e422151ba13d4bdac14c333a6b32242c8cd20", size = 10331, upload-time = "2025-07-16T17:24:30.789Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/07/1f7ac673496df044bb68b189778ed084bb70a7e075ab3670836de0a51d53/kante-0.9.0-py3-none-any.whl", hash = "sha256:1430afdeb3247d3bc4d96462046299babc30211a34a2d52fd2f22bc7d0146a88", size = 11858, upload-time = "2025-05-06T09:33:31.876Z" },
+    { url = "https://files.pythonhosted.org/packages/15/5b/1b913c3b35545a63dba5237f1e987d82772d1e0438c7e3ef689ac150cba2/kante-0.12.1-py3-none-any.whl", hash = "sha256:f32b51294ac7e006bfd9243edaaea5002635adbb33d891e3c604463712afc0e2", size = 13118, upload-time = "2025-07-16T17:24:30.055Z" },
 ]
 
 [[package]]

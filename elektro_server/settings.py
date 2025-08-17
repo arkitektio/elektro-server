@@ -77,7 +77,7 @@ AWS_QUERYSTRING_EXPIRE = 3600
 AWS_S3_REGION_NAME = conf.s3.get("region", "us-east-1")
 
 ZARR_BUCKET = conf.s3.buckets.zarr
-PARQUET_BUCKET = conf.s3.buckets.parquet
+PARQUET_BUCKET = conf.s3.buckets.zarr
 FILE_BUCKET = conf.s3.buckets.media
 MEDIA_BUCKET = conf.s3.buckets.media
 

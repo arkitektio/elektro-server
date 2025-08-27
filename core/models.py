@@ -14,7 +14,7 @@ import boto3
 import json
 from django.conf import settings
 from django.core.cache import cache
-
+from authentikate.models import Organization
 
 class DatasetManager(models.Manager):
     def get_current_default_for_user(self, user):
@@ -64,6 +64,12 @@ class Dataset(models.Model):
     )
     tags = TaggableManager(help_text="Tags for the dataset")
     provenance = ProvenanceField()
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="datasets",
+        help_text="The organization that owns the dataset",
+    )
 
     objects = DatasetManager()
 
@@ -502,6 +508,18 @@ class Trace(models.Model):
         help_text="The users that have pinned the images",
     )
     provenance = ProvenanceField()
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="traces",
+        help_text="The organization that owns the dataset",
+    )
+    dataset = models.ForeignKey(
+        Dataset,
+        on_delete=models.CASCADE,
+        related_name="traces",
+        help_text="The dataset that the trace belongs to",
+    )
 
     tags = TaggableManager()
 

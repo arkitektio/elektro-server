@@ -25,7 +25,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: jhnnsrs/elektro:stable
+          tags: jhnnsrs/elektro:latest
       - name: Refresh Go-Arkitekt-live
         uses: appleboy/ssh-action@v1.0.0
         with:

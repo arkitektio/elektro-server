@@ -25,7 +25,7 @@ ID = Annotated[StrawberryID, strawberry.argument(description="The unique identif
 
 @strawberry.type
 class Query:
-    traces: list[types.Trace] = strawberry.django.field(extensions=[])
+    traces: list[types.Trace] = strawberry_django.field(extensions=[])
     rois: list[types.ROI] = strawberry_django.field()
     datasets: list[types.Dataset] = strawberry_django.field()
     mydatasets: list[types.Dataset] = strawberry_django.field()
@@ -40,7 +40,7 @@ class Query:
     myfiles: list[types.File] = strawberry_django.field()
     random_trace: types.Trace = strawberry_django.field(resolver=queries.random_trace)
     
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[],
         description="Returns a list of images"
     )
@@ -49,7 +49,7 @@ class Query:
         return models.Stimulus.objects.get(id=id)
     
     
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[],
         description="Returns a list of cells in a model"
     )
@@ -67,7 +67,7 @@ class Query:
         return l.cells
     
     
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[],
         description="Returns a list of images"
     )
@@ -89,7 +89,7 @@ class Query:
         raise ValueError(f"Cell with ID {cellID} not found in model {modelId}")
         
     
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[],
         description="Returns a list of images"
     )
@@ -97,28 +97,28 @@ class Query:
         """Get all stimuli"""
         return models.Recording.objects.get(id=id)
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def experiment(self, info: Info, id: ID) -> types.Experiment:
         """Get all experiments"""
         return models.Experiment.objects.get(id=id)
     
-    @strawberry.django.field()
+    @strawberry_django.field()
     def model_collection(self, info: Info, id: ID) -> types.ModelCollection:
         """Get all model collections"""
         return models.ModelCollection.objects.get(id=id)
 
-    @strawberry.django.field()
+    @strawberry_django.field()
     def simulation(self, info: Info, id: ID) -> types.Simulation:
         """Get all simulations"""
         return models.Simulation.objects.get(id=id)
 
-    @strawberry.django.field()
+    @strawberry_django.field()
     def neuron_model(self, info: Info, id: ID) -> types.NeuronModel:
         """Get all simulations"""
         return models.NeuronModel.objects.get(id=id)
 
 
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[],
         description="Returns a single image by ID"
     )
@@ -126,7 +126,7 @@ class Query:
         print(id)
         return models.Trace.objects.get(id=id)
     
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[],
         description="Returns a single image by ID"
     )
@@ -134,7 +134,7 @@ class Query:
         print(id)
         return models.NeuronModel.objects.get(id=id)
     
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[]
     )
     def roi(self, info: Info, id: ID) -> types.ROI:
@@ -143,7 +143,7 @@ class Query:
     
    
 
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[]
     )
     def file(self, info: Info, id: ID) -> types.File:
@@ -151,7 +151,7 @@ class Query:
         return models.File.objects.get(id=id)
 
     
-    @strawberry.django.field(
+    @strawberry_django.field(
         permission_classes=[]
     )
     def dataset(self, info: Info, id: ID) -> types.Dataset:

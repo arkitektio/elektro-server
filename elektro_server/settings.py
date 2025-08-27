@@ -23,7 +23,7 @@ conf = OmegaConf.load(os.path.join(BASE_DIR, "config.yaml"))
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-6vh8x**%4mm0yxjbghipsalf5$wum10_satqhxg$vo9jninehx"
+SECRET_KEY = conf.django.get("secret_key", "changeme")  # TODO: Change this in production
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -77,7 +77,7 @@ AWS_QUERYSTRING_EXPIRE = 3600
 AWS_S3_REGION_NAME = conf.s3.get("region", "us-east-1")
 
 ZARR_BUCKET = conf.s3.buckets.zarr
-PARQUET_BUCKET = conf.s3.buckets.parquet
+PARQUET_BUCKET = conf.s3.buckets.zarr
 FILE_BUCKET = conf.s3.buckets.media
 MEDIA_BUCKET = conf.s3.buckets.media
 
@@ -149,14 +149,6 @@ DATABASES = {
         "USER": conf.db.username,
         "PASSWORD": conf.db.password,
         "HOST": conf.db.host,
-        "PORT": conf.db.port,
-    },
-    "graph": {
-        "ENGINE": conf.db.engine,
-        "NAME": "mikro_graph",
-        "USER": conf.db.username,
-        "PASSWORD": conf.db.password,
-        "HOST": "age",
         "PORT": conf.db.port,
     },
 }

@@ -9,7 +9,6 @@ from django.contrib.auth import get_user_model
 from core.managers import auto_create_views
 
 
-
 def relate_to_dataset(
     info: Info,
     id: strawberry.ID,
@@ -39,7 +38,7 @@ class UpdateTraceInput:
     id: strawberry.ID
     tags: list[str] | None = None
     name: str | None = None
-    
+
 
 def update_trace(
     info: Info,
@@ -106,9 +105,7 @@ def request_upload(info: Info, input: RequestUploadInput) -> types.Credentials:
 
     path = f"s3://{settings.ZARR_BUCKET}/{input.key}"
 
-    store = models.ZarrStore.objects.create(
-        path=path, key=input.key, bucket=settings.ZARR_BUCKET
-    )
+    store = models.ZarrStore.objects.create(path=path, key=input.key, bucket=settings.ZARR_BUCKET)
 
     aws = {
         "access_key": response["Credentials"]["AccessKeyId"],
@@ -177,12 +174,10 @@ class FromTraceLikeInput:
     tags: list[str] | None = strawberry.field(default=None, description="Optional list of tags to associate with the image")
 
 
-
 def from_trace_like(
     info: Info,
     input: FromTraceLikeInput,
 ) -> types.Trace:
-    
     datalayer = get_current_datalayer()
 
     store = models.ZarrStore.objects.get(id=input.array)
@@ -193,6 +188,7 @@ def from_trace_like(
     image = models.Trace.objects.create(
         dataset_id=dataset,
         creator=info.context.request.user,
+        organization=info.context.request.organization,
         name=input.name,
         store=store,
     )
@@ -206,6 +202,4 @@ def from_trace_like(
 
 
 def get_trace_dataset(info: Info) -> models.Dataset:
-    return models.Dataset.objects.get_current_default_for_user(
-        info.context.request.user
-    ).id
+    return models.Dataset.objects.get_or_create(organization=info.context.request.organization, user=info.context.request.user, name="Default Dataset")[0]

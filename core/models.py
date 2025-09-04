@@ -9,12 +9,14 @@ from koherent.fields import ProvenanceField, HistoricForeignKey
 from django_choices_field import TextChoicesField
 from core.fields import S3Field
 from core.datalayer import Datalayer
+
 # Create your models here.
 import boto3
 import json
 from django.conf import settings
 from django.core.cache import cache
 from authentikate.models import Organization
+
 
 class DatasetManager(models.Manager):
     def get_current_default_for_user(self, user):
@@ -39,12 +41,8 @@ class Dataset(models.Model):
         related_name="created_datasets",
         help_text="The user that created the dataset",
     )
-    created_at = models.DateTimeField(
-        auto_now_add=True, help_text="The time the dataset was created"
-    )
-    parent = models.ForeignKey(
-        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="children"
-    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="The time the dataset was created")
+    parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="children")
     name = models.CharField(max_length=200, help_text="The name of the dataset")
     description = models.CharField(
         max_length=1000,
@@ -96,9 +94,7 @@ class Instrument(models.Model):
 
 
 class S3Store(models.Model):
-    path = S3Field(
-        null=True, blank=True, help_text="The store of the image", unique=True
-    )
+    path = S3Field(null=True, blank=True, help_text="The store of the image", unique=True)
     key = models.CharField(max_length=1000)
     bucket = models.CharField(max_length=1000)
     populated = models.BooleanField(default=False)
@@ -119,7 +115,6 @@ class ZarrStore(S3Store):
         # List all files under the given prefix
         response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
 
-
         # Check if the '.zarray' file exists and retrieve its content
         for obj in response.get("Contents", []):
             if obj["Key"].endswith(".zarray"):
@@ -139,46 +134,40 @@ class ZarrStore(S3Store):
                 self.version = "2"
                 break
 
-
             if obj["Key"].endswith("zarr.json"):
                 array_name = obj["Key"].split("/")[-2]
-
 
                 # Get the content of the '.zarray' file
                 zarray_file = s3.get_object(Bucket=bucket_name, Key=obj["Key"])
                 zarray_content = zarray_file["Body"].read().decode("utf-8")
                 zarray_json = json.loads(zarray_content)
                 if zarray_json["node_type"] == "array":
-
                     self.shape = zarray_json["shape"]
                     self.chunks = zarray_json.get("chunk_grid", {}).get("configuration", {}).get("chunk_shape", [])
                     self.dtype = zarray_json["data_type"]
                     self.version = "3"
                     break
 
-
         assert self.shape is not None, "Could not find shape in zarr store"
         self.populated = True
         self.save()
-        
-
 
     @property
     def c_size(self):
         return self.shape[0]
-    
+
     @property
     def t_size(self):
         return self.shape[1]
-    
+
     @property
     def z_size(self):
         return self.shape[2]
-    
+
     @property
     def y_size(self):
         return self.shape[3]
-    
+
     @property
     def x_size(self):
         return self.shape[4]
@@ -201,7 +190,12 @@ class BigFileStore(S3Store):
     def fill_info(self) -> None:
         pass
 
-    def get_presigned_url(self, info, datalayer: Datalayer, host: str | None = None, ) -> str:
+    def get_presigned_url(
+        self,
+        info,
+        datalayer: Datalayer,
+        host: str | None = None,
+    ) -> str:
         s3 = datalayer.s3
         url = s3.generate_presigned_url(
             ClientMethod="get_object",
@@ -215,12 +209,11 @@ class BigFileStore(S3Store):
 
 
 class MediaStore(S3Store):
-    
-    def get_presigned_url(self, info,  datalayer: Datalayer, host: str | None = None) -> str:
+    def get_presigned_url(self, info, datalayer: Datalayer, host: str | None = None) -> str:
         cache_key = f"presigned_url:{self.bucket}:{self.key}:{host}"
         # Check if the URL is in the cache
         url = cache.get(cache_key)
-        
+
         if not url:
             # Generate a new presigned URL if not cached
             s3 = datalayer.s3
@@ -246,9 +239,7 @@ class MediaStore(S3Store):
 
 
 class File(models.Model):
-    dataset = models.ForeignKey(
-        Dataset, on_delete=models.CASCADE, null=True, blank=True, related_name="files"
-    )
+    dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, null=True, blank=True, related_name="files")
     origins = models.ManyToManyField(
         "self",
         related_name="derived",
@@ -261,22 +252,19 @@ class File(models.Model):
         blank=True,
         help_text="The store of the file",
     )
-    name = models.CharField(
-        max_length=1000, help_text="The name of the file", default=""
-    )
+    name = models.CharField(max_length=1000, help_text="The name of the file", default="")
     created_at = models.DateTimeField(auto_now_add=True)
     creator = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, null=True)
 
 
-
-
 class ModelCollection(models.Model):
     """A ModelCollection is a collection of models,
-    
+
     that are comparable to each other.
-    
+
 
     """
+
     comparison = models.ForeignKey(
         "NeuronModel",
         on_delete=models.CASCADE,
@@ -303,13 +291,13 @@ class ModelCollection(models.Model):
         related_name="model_collections",
         help_text="The models that are in the collection",
     )
-    
 
 
 class NeuronModel(models.Model):
-    """ A NEURON model 
+    """A NEURON model
     that can be used t simulate a neuron
     """
+
     parent = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -342,8 +330,6 @@ class NeuronModel(models.Model):
         related_name="pinned_models",
         help_text="The users that have pinned the model",
     )
-    
-
 
 
 class Experiment(models.Model):
@@ -367,9 +353,8 @@ class Experiment(models.Model):
         related_name="experiments",
     )
     provenance = ProvenanceField()
-    
-    
-    
+
+
 class ExperimentRecordingView(models.Model):
     """A SimulationView is a view of a simulation.
 
@@ -377,6 +362,7 @@ class ExperimentRecordingView(models.Model):
     that are used to represent a specific channel.
 
     """
+
     recording = models.ForeignKey(
         "Recording",
         on_delete=models.CASCADE,
@@ -391,18 +377,15 @@ class ExperimentRecordingView(models.Model):
         null=True,
         blank=True,
     )
-    offset = models.FloatField(
-        help_text="The offset of the view in seconds", null=True, blank=True
-    )
-    duration = models.FloatField(
-        help_text="The duration of the view in seconds", null=True, blank=True
-    )
-    label= models.CharField(
+    offset = models.FloatField(help_text="The offset of the view in seconds", null=True, blank=True)
+    duration = models.FloatField(help_text="The duration of the view in seconds", null=True, blank=True)
+    label = models.CharField(
         max_length=1000,
         help_text="The label of the view",
         null=True,
         blank=True,
     )
+
 
 class ExperimentStimulusView(models.Model):
     """A SimulationView is a view of a simulation.
@@ -411,6 +394,7 @@ class ExperimentStimulusView(models.Model):
     that are used to represent a specific channel.
 
     """
+
     stimulus = models.ForeignKey(
         "Stimulus",
         on_delete=models.CASCADE,
@@ -425,23 +409,14 @@ class ExperimentStimulusView(models.Model):
         null=True,
         blank=True,
     )
-    offset = models.FloatField(
-        help_text="The offset of the view in seconds", null=True, blank=True
-    )
-    duration = models.FloatField(
-        help_text="The duration of the view in seconds", null=True, blank=True
-    )
-    label= models.CharField(
+    offset = models.FloatField(help_text="The offset of the view in seconds", null=True, blank=True)
+    duration = models.FloatField(help_text="The duration of the view in seconds", null=True, blank=True)
+    label = models.CharField(
         max_length=1000,
         help_text="The label of the view",
         null=True,
         blank=True,
     )
-
-    
-    
-    
-
 
 
 class Trace(models.Model):
@@ -489,9 +464,7 @@ class Trace(models.Model):
         blank=True,
         help_text="The store of the trace",
     )
-    name = models.CharField(
-        max_length=1000, help_text="The name of the image", default=""
-    )
+    name = models.CharField(max_length=1000, help_text="The name of the image", default="")
 
     description = models.CharField(max_length=1000, null=True, blank=True)
     kind = TextChoicesField(
@@ -517,6 +490,8 @@ class Trace(models.Model):
     dataset = models.ForeignKey(
         Dataset,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="traces",
         help_text="The dataset that the trace belongs to",
     )
@@ -528,23 +503,18 @@ class Trace(models.Model):
 
     def __str__(self) -> str:
         return f"Representation {self.id}"
-    
+
+
 class Simulation(models.Model):
-    """ A RUN is a run of a neuron model on a dataset.
+    """A RUN is a run of a neuron model on a dataset.
 
     It is used to store the results of the run, such as the
     parameters used and the output of the run.
     """
 
-    model = models.ForeignKey(
-        NeuronModel, on_delete=models.CASCADE, related_name="simulations"
-    )
-    duration = models.FloatField(
-        help_text="The duration of the run in seconds"
-    )
-    dt = models.FloatField(
-        help_text="The time step of the run in seconds", default=1.0
-    )
+    model = models.ForeignKey(NeuronModel, on_delete=models.CASCADE, related_name="simulations")
+    duration = models.FloatField(help_text="The duration of the run in seconds")
+    dt = models.FloatField(help_text="The time step of the run in seconds", default=1.0)
     time_trace = models.ForeignKey(
         Trace,
         on_delete=models.CASCADE,
@@ -558,8 +528,7 @@ class Simulation(models.Model):
         help_text="The user that created the run",
         null=True,
     )
-    
-    
+
 
 class Stimulus(models.Model):
     trace = models.ForeignKey(
@@ -595,7 +564,6 @@ class Stimulus(models.Model):
     )
 
 
- 
 class Recording(models.Model):
     trace = models.ForeignKey(
         Trace,
@@ -607,7 +575,7 @@ class Recording(models.Model):
         on_delete=models.CASCADE,
         related_name="recordings",
     )
-    kind= TextChoicesField(
+    kind = TextChoicesField(
         choices_enum=enums.RecodingKindChoices,
         default=enums.RecodingKindChoices.VOLTAGE.value,
         help_text="The Representation can have vasrying kind, consult your API",
@@ -628,7 +596,7 @@ class Recording(models.Model):
         max_length=1000,
         help_text="The label of the recording",
     )
-       
+
 
 class ViewCollection(models.Model):
     """A ViewCollection is a collection of views.
@@ -644,44 +612,22 @@ class ViewCollection(models.Model):
 
 class View(models.Model):
     trace = HistoricForeignKey(Trace, on_delete=models.CASCADE)
-    collection = models.ForeignKey(
-        ViewCollection, on_delete=models.CASCADE, null=True, blank=True
-    )
-    a_min = models.IntegerField(
-        help_text="The index of the channel", null=True, blank=True
-    )
-    a_max = models.IntegerField(
-        help_text="The index of the channel", null=True, blank=True
-    )
-    t_min = models.IntegerField(
-        help_text="The index of the channel", null=True, blank=True
-    )
-    t_max = models.IntegerField(
-        help_text="The index of the channel", null=True, blank=True
-    )
-    c_min = models.IntegerField(
-        help_text="The index of the channel", null=True, blank=True
-    )
-    c_max = models.IntegerField(
-        help_text="The index of the channel", null=True, blank=True
-    )
-    is_global = models.BooleanField(
-        help_text="Whether the view is global or not", default=False
-    )
+    collection = models.ForeignKey(ViewCollection, on_delete=models.CASCADE, null=True, blank=True)
+    a_min = models.IntegerField(help_text="The index of the channel", null=True, blank=True)
+    a_max = models.IntegerField(help_text="The index of the channel", null=True, blank=True)
+    t_min = models.IntegerField(help_text="The index of the channel", null=True, blank=True)
+    t_max = models.IntegerField(help_text="The index of the channel", null=True, blank=True)
+    c_min = models.IntegerField(help_text="The index of the channel", null=True, blank=True)
+    c_max = models.IntegerField(help_text="The index of the channel", null=True, blank=True)
+    is_global = models.BooleanField(help_text="Whether the view is global or not", default=False)
 
     class Meta:
         abstract = True
 
 
 class TimelineView(View):
-    start_time = models.DateTimeField(
-        help_text="The start time of the view", null=True, blank=True
-    )
-    end_time = models.DateTimeField(
-        help_text="The end time of the view", null=True, blank=True
-    )
-
-
+    start_time = models.DateTimeField(help_text="The start time of the view", null=True, blank=True)
+    end_time = models.DateTimeField(help_text="The end time of the view", null=True, blank=True)
 
 
 class ROI(models.Model):
@@ -698,6 +644,7 @@ class ROI(models.Model):
     his is used to display the ROI in the UI.
 
     """
+
     label = models.CharField(
         max_length=1000,
         help_text="The label of the ROI",
@@ -720,25 +667,15 @@ class ROI(models.Model):
         help_text="A list of the ROI Vectors (specific for each type)",
         default=list,
     )
-    max_t = models.IntegerField(
-        help_text="The maximum time of the ROI",
-        default=0
-    )
-    min_t = models.IntegerField(
-        help_text="The minimum time of the ROI",
-       default=0
-    )
+    max_t = models.IntegerField(help_text="The maximum time of the ROI", default=0)
+    min_t = models.IntegerField(help_text="The minimum time of the ROI", default=0)
     kind = TextChoicesField(
         choices_enum=enums.RoiKindChoices,
         default=enums.RoiKindChoices.SPIKE.value,
         help_text="The Roi can have vasrying kind, consult your API",
     )
-    color = models.CharField(
-        max_length=100, blank=True, null=True, help_text="The color of the ROI (for UI)"
-    )
-    created_at = models.DateTimeField(
-        auto_now=True, help_text="The time the ROI was created"
-    )
+    color = models.CharField(max_length=100, blank=True, null=True, help_text="The color of the ROI (for UI)")
+    created_at = models.DateTimeField(auto_now=True, help_text="The time the ROI was created")
     pinned_by = models.ManyToManyField(
         get_user_model(),
         related_name="pinned_rois",
@@ -750,7 +687,6 @@ class ROI(models.Model):
 
     def __str__(self):
         return f"Event by {self.creator} on {self.trace.name}"
-
 
 
 from core import signals

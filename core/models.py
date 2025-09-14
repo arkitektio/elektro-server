@@ -441,7 +441,7 @@ class Trace(models.Model):
     #Origins and Derivations
 
     Images can be filtered, which means that a new representation
-    is created from the other (original) representations.
+    is created from the other (soriginal) representations.
     This new representation is then linked to the original representations.
     This way, we can always trace back to the original representation.
     Both are encapsulaed in the origins and derived fields.

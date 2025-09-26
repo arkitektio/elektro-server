@@ -15,7 +15,9 @@ import boto3
 import json
 from django.conf import settings
 from django.core.cache import cache
-from authentikate.models import Organization
+from authentikate.models import Organization, Membership
+from polymorphic.models import PolymorphicModel
+
 
 
 class DatasetManager(models.Manager):
@@ -64,6 +66,12 @@ class Dataset(models.Model):
     provenance = ProvenanceField()
     organization = models.ForeignKey(
         Organization,
+        on_delete=models.CASCADE,
+        related_name="datasets",
+        help_text="The organization that owns the dataset",
+    )
+    membership = models.ForeignKey(
+        Membership,
         on_delete=models.CASCADE,
         related_name="datasets",
         help_text="The organization that owns the dataset",
@@ -417,6 +425,182 @@ class ExperimentStimulusView(models.Model):
         null=True,
         blank=True,
     )
+  
+  
+  
+    
+ 
+ 
+class Block(models.Model):
+    """A RecordingSession is a session of recordings.
+
+    It is used to group recordings together, for example to group all recordings
+    that are part of the same experiment.
+
+    """
+    dataset = models.ForeignKey(
+        Dataset,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="blocks",
+    )
+    origin = models.ForeignKey(
+        "File",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="blocks",
+    )
+    name = models.CharField(max_length=1000, help_text="The name of the recording session")
+    description = models.CharField(max_length=1000, null=True, blank=True)
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        help_text="The user that created the recording session",
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    pinned_by = models.ManyToManyField(
+        get_user_model(),
+        related_name="pinned_recording_sessions",
+        help_text="The users that have pinned the recording session",
+    )
+    recording_time = models.DateTimeField(help_text="The time the recording session was acquired", null=True, blank=True)
+    provenance = ProvenanceField()   
+  
+  
+class BlockGroup(models.Model):
+    session = models.ForeignKey(
+        Block,
+        on_delete=models.CASCADE,
+        related_name="groups",
+    )
+    label = models.CharField(max_length=1000, help_text="The label of the recording group")  
+   
+   
+   
+class BlockSegment(models.Model):
+    session = models.ForeignKey(
+        Block,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="segments",
+    )
+   
+ 
+ 
+
+    
+    
+class AnalogSignal(models.Model): 
+    recording_segment = models.ForeignKey(
+        BlockSegment,
+        on_delete=models.CASCADE,
+        related_name="analog_signals",
+    ) 
+    time_trace = models.ForeignKey(
+        "Trace",
+        on_delete=models.CASCADE,
+        related_name="analog_signal_time_traces",
+    )
+    name = models.CharField(max_length=1000, help_text="The name of the signal", default="")
+    t_start = models.FloatField(help_text="The start time of the signal in seconds", default=0.0)
+    description = models.CharField(max_length=1000, null=True, blank=True)
+    sampling_rate = models.FloatField(help_text="The sampling frequency of the signal in Hz", default=1000.0)
+    unit = models.CharField(max_length=100, help_text="The unit of the signal", default="mV", null=True, blank=True)
+    color = models.CharField(max_length=7, help_text="The color of the signal in HEX", default="#000000")
+    
+    pinned_by = models.ManyToManyField(
+        get_user_model(),
+        related_name="pinned_analog_signals",
+        blank=True,
+        help_text="The users that pinned this segment",
+    )
+
+    provenance = ProvenanceField()
+
+    def __str__(self):
+        return f"Segment {self.label} on {self.trace.name}" 
+    
+    
+    
+class AnalogSignalChannel(models.Model):
+    signal = models.ForeignKey(
+        "AnalogSignal",
+        on_delete=models.CASCADE,
+        related_name="channels",
+    )
+    trace = models.ForeignKey(
+        "Trace",
+        on_delete=models.CASCADE,
+        related_name="analog_signal_channels",
+    )
+    index = models.IntegerField(help_text="The index of the channel in the signal")
+    name = models.CharField(max_length=1000, help_text="The name of the channel", default="")
+    description = models.CharField(max_length=1000, null=True, blank=True)
+    unit = models.CharField(max_length=100, help_text="The unit of the channel", default="mV", null=True, blank=True)
+    color = models.CharField(max_length=7, help_text="The color of the signal in HEX", null=True, blank=True)
+   
+    
+class IrregularlySampledSignal(models.Model):
+    recording_segment = models.ForeignKey(
+        BlockSegment,
+        on_delete=models.CASCADE,
+        related_name="irregularly_sampled_signals",
+    ) 
+    name = models.CharField(max_length=1000, help_text="The name of the signal", default="")
+    trace = models.ForeignKey(
+        "Trace",
+        on_delete=models.CASCADE,
+        related_name="irregularly_sampled_trace_signals",
+    )
+    time_trace = models.ForeignKey(
+        "Trace",
+        on_delete=models.CASCADE,
+        related_name="irregularly_sampled_time_signals",
+    )
+    
+    pinned_by = models.ManyToManyField(
+        get_user_model(),
+        related_name="pinned_irregularly_sampled_signals",
+        blank=True,
+        help_text="The users that pinned this segment",
+    )
+
+    provenance = ProvenanceField()
+
+    def __str__(self):
+        return f"IrregularlySampledSignal {self.label} on {self.trace.name}"
+
+
+
+class SpikeTrain(models.Model):
+    recording_segment = models.ForeignKey(
+        BlockSegment,
+        on_delete=models.CASCADE,
+        related_name="spike_trains",
+    ) 
+    name = models.CharField(max_length=1000, help_text="The name of the signal", default="")
+    trace = models.ForeignKey(
+        "Trace",
+        on_delete=models.CASCADE,
+        related_name="spike_trains",
+    )
+    unit = models.CharField(max_length=100, help_text="The unit of the signal", default="sec", null=True, blank=True)
+    
+    pinned_by = models.ManyToManyField(
+        get_user_model(),
+        related_name="pinned_spike_trains",
+        blank=True,
+        help_text="The users that pinned this segment",
+    )
+
+    provenance = ProvenanceField()
+
+    def __str__(self):
+        return f"SpikeTrain {self.label} on {self.trace.name}"
 
 
 class Trace(models.Model):

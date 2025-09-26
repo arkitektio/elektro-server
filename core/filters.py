@@ -140,3 +140,122 @@ class ROIFilter(IDFilterMixin):
         return queryset.filter(image__name__contains=self.search)
     
 
+
+
+@strawberry_django.filter(models.Block)
+class BlockFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    label: Optional[FilterLookup[str]]
+    trace: strawberry.ID | None = None
+    groups: list[strawberry.ID] | None = None
+
+    def filter_trace(self, queryset, info):
+        if self.trace is None:
+            return queryset
+        return queryset.filter(trace_id=self.trace)
+    
+    def filter_groups(self, queryset, info):
+        if self.groups is None:
+            return queryset
+        return queryset.filter(groups__id__in=self.groups).distinct()
+    
+@strawberry_django.filter(models.BlockSegment)
+class BlockSegmentFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    description: Optional[FilterLookup[str]]
+    search: str | None
+
+    def filter_search(self, queryset, info):
+        if self.search is None:
+            return queryset
+        return queryset.filter(name__contains=self.search)
+    
+   
+@strawberry_django.filter(models.BlockGroup)
+class BlockGroupFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    description: Optional[FilterLookup[str]]
+    search: str | None
+
+    def filter_search(self, queryset, info):
+        if self.search is None:
+            return queryset
+        return queryset.filter(name__contains=self.search)   
+   
+    
+@strawberry_django.filter(models.AnalogSignal)
+class AnalogSignalFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    label: Optional[FilterLookup[str]]
+    session: strawberry.ID | None = None
+    search: str | None
+
+    def filter_session(self, queryset, info):
+        if self.session is None:
+            return queryset
+        return queryset.filter(session_id=self.session)
+    
+    def filter_search(self, queryset, info):
+        if self.search is None:
+            return queryset
+        return queryset.filter(label__contains=self.search)
+    
+    
+@strawberry_django.filter(models.IrregularlySampledSignal)
+class IrregularlySampledSignalFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    label: Optional[FilterLookup[str]]
+    session: strawberry.ID | None = None
+    search: str | None
+
+    def filter_session(self, queryset, info):
+        if self.session is None:
+            return queryset
+        return queryset.filter(session_id=self.session)
+    
+    def filter_search(self, queryset, info):
+        if self.search is None:
+            return queryset
+        return queryset.filter(label__contains=self.search)
+    
+    
+@strawberry_django.filter(models.SpikeTrain)
+class SpikeTrainFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    label: Optional[FilterLookup[str]]
+    session: strawberry.ID | None = None
+    search: str | None
+
+    def filter_session(self, queryset, info):
+        if self.session is None:
+            return queryset
+        return queryset.filter(session_id=self.session)
+    
+    def filter_search(self, queryset, info):
+        if self.search is None:
+            return queryset
+        return queryset.filter(label__contains=self.search)
+    
+    
+    
+@strawberry_django.filter(models.AnalogSignalChannel)
+class AnalogSignalChannelFilter(IDFilterMixin, SearchFilterMixin):
+    id: auto
+    label: Optional[FilterLookup[str]]
+    session: strawberry.ID | None = None
+    search: str | None
+
+    def filter_session(self, queryset, info):
+        if self.session is None:
+            return queryset
+        return queryset.filter(session_id=self.session)
+    
+    def filter_search(self, queryset, info):
+        if self.search is None:
+            return queryset
+        return queryset.filter(label__contains=self.search)
+    
+    
+    

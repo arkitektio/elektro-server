@@ -25,6 +25,9 @@ ID = Annotated[StrawberryID, strawberry.argument(description="The unique identif
 
 @strawberry.type
 class Query:
+    analog_signals: list[types.AnalogSignal] = strawberry_django.field()
+    analog_signal_channels: list[types.AnalogSignalChannel] = strawberry_django.field()
+    blocks: list[types.Block] = strawberry_django.field()
     traces: list[types.Trace] = strawberry_django.field(extensions=[])
     rois: list[types.ROI] = strawberry_django.field()
     datasets: list[types.Dataset] = strawberry_django.field()
@@ -47,6 +50,23 @@ class Query:
     def stimulus(self, info: Info, id: ID) -> types.Stimulus:
         """Get all stimuli"""
         return models.Stimulus.objects.get(id=id)
+    
+    @strawberry_django.field(
+        permission_classes=[],
+        description="Returns a list of images"
+    )
+    def analog_signal(self, info: Info, id: ID) -> types.AnalogSignal:
+        """Get all stimuli"""
+        return models.AnalogSignal.objects.get(id=id)
+    
+    
+    @strawberry_django.field(
+        permission_classes=[],
+        description="Returns a list of images"
+    )
+    def analog_signal_channel(self, info: Info, id: ID) -> types.AnalogSignalChannel:
+        """Get all stimuli"""
+        return models.AnalogSignalChannel.objects.get(id=id)
     
     
     @strawberry_django.field(
@@ -96,6 +116,15 @@ class Query:
     def recording(self, info: Info, id: ID) -> types.Recording:
         """Get all stimuli"""
         return models.Recording.objects.get(id=id)
+    
+    
+    @strawberry_django.field()
+    def block(self, info: Info, id: ID) -> types.Block:
+        """Get all blocks"""
+        return models.Block.objects.get(id=id)
+    
+    
+    
     
     @strawberry_django.field()
     def experiment(self, info: Info, id: ID) -> types.Experiment:
@@ -161,6 +190,14 @@ class Query:
 
 @strawberry.type
 class Mutation:
+    create_block = strawberry_django.mutation(
+        resolver=mutations.create_block,
+        description="Create a new block"
+    )
+    delete_block = strawberry_django.mutation(
+        resolver=mutations.delete_block,
+        description="Delete an existing block"
+    )
 
     # Image
     request_upload: types.Credentials = strawberry_django.mutation(

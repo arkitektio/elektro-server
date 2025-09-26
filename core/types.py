@@ -398,6 +398,91 @@ class ExperimentStimulusView:
     duration: float | None
     
     
+    
+  
+  
+@strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True)
+class Block:
+    id: auto
+    name: str
+    description: str | None
+    trace: "Trace"
+    acquired_at: datetime.datetime | None
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+    creator: User | None = strawberry.field(description="Who created this recording session")
+    groups: List["BlockGroup"] = strawberry_django.field(description="The groups in this recording session")
+    segments: List["BlockSegment"] = strawberry_django.field(description="The segments in this recording session")  
+    
+    
+    
+@strawberry_django.type(models.BlockSegment, filters=filters.BlockSegmentFilter, pagination=True)
+class BlockSegment:
+    id: auto
+    block: Block
+    label: str
+    description: str | None
+    start_time: float
+    end_time: float
+    creator: User | None = strawberry.field(description="Who created this segment")
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+    groups: List["BlockGroup"] = strawberry_django.field(description="The groups that this segment belongs to")
+    analog_signals: List[LazyType["AnalogSignal", __name__]] = strawberry_django.field(description="The analog signals in this group")
+    irregularly_sampled_signals: List[LazyType["IrregularlySampledSignal", __name__]]  = strawberry_django.field(description="The irregularly sampled signals in this group")
+    spike_trains: List[LazyType["SpikeTrain", __name__]]  = strawberry_django.field(description="The spike trains in this group")
+    
+    
+@strawberry_django.type(models.BlockGroup, filters=filters.BlockGroupFilter, pagination=True)
+class BlockGroup:
+    id: auto
+    name: str 
+    block: Block
+    description: str | None
+    analog_signals: List[LazyType["AnalogSignal", __name__]] = strawberry_django.field(description="The analog signals in this group")
+    irregularly_sampled_signals: List[LazyType["IrregularlySampledSignal", __name__]]  = strawberry_django.field(description="The irregularly sampled signals in this group")
+    spike_trains: List[LazyType["SpikeTrain", __name__]]  = strawberry_django.field(description="The spike trains in this group")
+    
+    
+    
+@strawberry.interface(description="A signal recorded during a recording session")
+class Signal:
+    name: str
+    segment: BlockSegment
+    
+    
+@strawberry_django.type(models.AnalogSignalChannel, filters=filters.AnalogSignalChannelFilter, pagination=True)
+class AnalogSignalChannel:
+    id: auto
+    name: str | None
+    description: str | None
+    label: str | None
+    unit: str | None
+    index: int
+    trace: "Trace"
+    signal: "AnalogSignal"
+    
+@strawberry_django.type(models.AnalogSignal, filters=filters.AnalogSignalFilter, pagination=True)
+class AnalogSignal(Signal):
+    id: auto
+    sampling_rate: float
+    unit: str | None
+    time_trace: "Trace"
+    channels: List[AnalogSignalChannel] = strawberry_django.field()
+    
+    
+@strawberry_django.type(models.SpikeTrain, filters=filters.SpikeTrainFilter, pagination=True)
+class SpikeTrain(Signal):
+    id: auto
+    trace: "Trace"
+    
+    
+@strawberry_django.type(models.IrregularlySampledSignal, filters=filters.IrregularlySampledSignalFilter, pagination=True)
+class IrregularlySampledSignal(Signal):
+    id: auto
+    trace: "Trace"
+    unit: str | None
+
+    
+    
 
 @strawberry_django.type(
     models.Trace, filters=filters.TraceFilter, order=filters.TraceOrder, pagination=True

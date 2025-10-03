@@ -14,7 +14,8 @@ async def test_dataset_upper(db, authenticated_context: HttpContext):
     dataset = await Dataset.objects.acreate(
         name="Test Model", description="This is a test model",
         creator=authenticated_context.request.user,
-        organization=authenticated_context.request.organization
+        organization=authenticated_context.request.organization,
+        membership=authenticated_context.request.membership
     )
     my_model = await Trace.objects.acreate(
         dataset=dataset,

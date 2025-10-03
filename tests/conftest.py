@@ -7,7 +7,11 @@ import os
 import pytest
 from django.contrib.auth import get_user_model
 from elektro_server.schema import schema
-from authentikate.models import Client, Organization, User
+from guardian.shortcuts import get_perms
+from asgiref.sync import sync_to_async
+from authentikate.models import Client, Organization, User, Membership
+from guardian.shortcuts import get_perms
+from asgiref.sync import sync_to_async
 from kante.context import HttpContext, UniversalRequest
 
 @pytest.fixture(scope="function")
@@ -41,14 +45,21 @@ def authenticated_context(db):
     user = User.objects.create(username="fart", password="123456789", sub="1")
     client = Client.objects.create(client_id="oinsoins")
     org = Organization.objects.create(slug="test-organization")
+    membership = Membership.objects.create(
+        user=user,
+        organization=org,
+    )
+    
+    request = UniversalRequest(
+        _extensions={"token": "test"},
+        _client=client,  # type: ignore
+        _user=user, # type: ignore
+        _organization=org, #type: ignore
+    )
+    request.set_membership(membership)  # type: ignore
 
     return HttpContext(
-            request=UniversalRequest(
-                _extensions={"token": "test"},
-                _client=client,  # type: ignore
-                _user=user, # type: ignore
-                _organization=org, #type: ignore
-            ),
+            request=request,
             headers={"Authorization": "Bearer test"},
             type="http"
         )

@@ -88,6 +88,24 @@ class ViewFilter:
 
 
 
+@strawberry_django.order(models.Block)
+class BlockOrder:
+    created_at: auto
+    
+    
+@strawberry_django.order(models.NeuronModel)
+class NeuronModelOrder:
+    created_at: auto
+
+
+
+
+
+
+
+
+
+
 @strawberry_django.filter(models.TimelineView)
 class ContinousScanViewFilter(ViewFilter):
     start_time: auto

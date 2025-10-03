@@ -285,7 +285,7 @@ class Comparison:
     changes: List[Change]
    
     
-@strawberry_django.type(models.NeuronModel,  filters=filters.NeuronModelFilter, pagination=True)
+@strawberry_django.type(models.NeuronModel,  filters=filters.NeuronModelFilter, pagination=True, order=filters.NeuronModelOrder)
 class NeuronModel:
     id: auto
     name: auto
@@ -401,7 +401,7 @@ class ExperimentStimulusView:
     
   
   
-@strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True)
+@strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True, order=filters.BlockOrder)
 class Block:
     id: auto
     name: str

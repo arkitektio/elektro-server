@@ -89,6 +89,8 @@ def create_block(
         name=input.name,
         recording_time=input.recording_time or datetime.datetime.now(),
         origin=models.File.objects.get(id=input.file) if input.file else None,
+        organization=info.context.request.organization,
+        creator=info.context.request.user,
     )
 
 

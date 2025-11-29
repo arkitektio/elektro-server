@@ -300,6 +300,32 @@ class ModelCollection(models.Model):
     )
 
 
+class HocEnvironment(models.Model):
+    """A hoc environment is a set of hoc.mode
+    file  that can be used to simulate a neuron model.
+
+    They are stored as zip files in S3 and will be
+    downloaded and extracted when a neuron model
+    is simulated. They will be cached locally for
+    faster access.
+
+    """
+
+    hash = models.CharField(
+        max_length=1000,
+        help_text="The hash of the hoc file",
+        unique=True,
+    )
+    name = models.CharField(max_length=1000, help_text="The name of the hoc environment")
+    store = models.ForeignKey(
+        BigFileStore,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="The store of the file",
+    )
+
+
 class NeuronModel(models.Model):
     """A NEURON model
     that can be used t simulate a neuron

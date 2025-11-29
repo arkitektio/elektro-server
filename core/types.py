@@ -300,17 +300,18 @@ class NeuronModel:
         return comparisons
 
 
-@strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, pagination=True)
+@strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, order=filters.ExperimentOrder, pagination=True)
 class Experiment:
     id: auto
     name: str
     description: str | None
     time_trace: "Trace"
+    created_at: datetime.datetime
     recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
     stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
 
 
-@strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, pagination=True)
+@strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, order=filters.SimulationOrder, pagination=True)
 class Simulation:
     id: auto
     name: str
@@ -324,9 +325,11 @@ class Simulation:
     stimuli: List["Stimulus"] = strawberry_django.field()
     recordings: List["Recording"] = strawberry_django.field()
     created_at: datetime.datetime
+    recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
+    stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
 
 
-@strawberry_django.type(models.Recording, filters=filters.RecordingFilter, pagination=True)
+@strawberry_django.type(models.Recording, filters=filters.RecordingFilter, order=filters.RecordingOrder, pagination=True)
 class Recording:
     id: auto
     simulation: Simulation
@@ -341,7 +344,7 @@ class Recording:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
 
-@strawberry_django.type(models.Stimulus, filters=filters.StimulusFilter, pagination=True)
+@strawberry_django.type(models.Stimulus, filters=filters.StimulusFilter, order=filters.StimulusOrder, pagination=True)
 class Stimulus:
     id: auto
     simulation: Simulation
@@ -356,22 +359,24 @@ class Stimulus:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
 
-@strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentFilter, pagination=True)
+@strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentFilter, order=filters.ExperimentOrder, pagination=True)
 class ExperimentRecordingView:
     id: auto
     recording: Recording
     label: str | None
     offset: float | None
     duration: float | None
+    experiment: "Experiment"
 
 
-@strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentFilter, pagination=True)
+@strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentFilter, order=filters.ExperimentOrder, pagination=True)
 class ExperimentStimulusView:
     id: auto
     stimulus: Stimulus
     label: str | None
     offset: float | None
     duration: float | None
+    experiment: "Experiment"
 
 
 @strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True, order=filters.BlockOrder)

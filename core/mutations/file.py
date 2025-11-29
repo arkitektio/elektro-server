@@ -11,6 +11,7 @@ from django.conf import settings
 class RequestFileUploadInput:
     key: str
     datalayer: str
+    hash: str | None = None
 
 
 @strawberry.input
@@ -46,7 +47,6 @@ def request_file_upload(info: Info, input: RequestFileUploadInput) -> types.Cred
     """Request upload credentials for a given key"""
     print("Desired Datalayer")
 
-
     policy = {
         "Version": "2012-10-17",
         "Statement": [
@@ -73,9 +73,7 @@ def request_file_upload(info: Info, input: RequestFileUploadInput) -> types.Cred
 
     path = f"s3://{settings.FILE_BUCKET}/{input.key}"
 
-    store = models.BigFileStore.objects.create(
-        path=path, key=input.key, bucket=settings.FILE_BUCKET
-    )
+    store = models.BigFileStore.objects.create(path=path, key=input.key, bucket=settings.FILE_BUCKET)
 
     aws = {
         "access_key": response["Credentials"]["AccessKeyId"],
@@ -91,11 +89,9 @@ def request_file_upload(info: Info, input: RequestFileUploadInput) -> types.Cred
     return types.Credentials(**aws)
 
 
-
 def request_file_upload_presigned(info: Info, input: RequestFileUploadInput) -> types.PresignedPostCredentials:
-    """Request upload credentials for a given key with """
+    """Request upload credentials for a given key with"""
     print("Desired Datalayer")
-
 
     policy = {
         "Version": "2012-10-17",
@@ -113,20 +109,18 @@ def request_file_upload_presigned(info: Info, input: RequestFileUploadInput) -> 
     datalayer = get_current_datalayer()
 
     response = datalayer.s3v4.generate_presigned_post(
-            Bucket=settings.FILE_BUCKET,
-            Key=input.key,
-            Fields=None,
-            Conditions=None,
-            ExpiresIn=50000,
-        )
+        Bucket=settings.FILE_BUCKET,
+        Key=input.key,
+        Fields=None,
+        Conditions=None,
+        ExpiresIn=50000,
+    )
 
     print(response)
 
     path = f"s3://{settings.FILE_BUCKET}/{input.key}"
 
-    store, _ = models.BigFileStore.objects.get_or_create(
-        path=path, key=input.key, bucket=settings.FILE_BUCKET
-    )
+    store, _ = models.BigFileStore.objects.get_or_create(path=path, key=input.key, bucket=settings.FILE_BUCKET)
 
     aws = {
         "key": response["fields"]["key"],
@@ -140,7 +134,6 @@ def request_file_upload_presigned(info: Info, input: RequestFileUploadInput) -> 
         "store": store.id,
     }
 
-
     return types.PresignedPostCredentials(**aws)
 
 
@@ -150,9 +143,7 @@ class RequestFileAccessInput:
     duration: int | None
 
 
-def request_file_access(
-    info: Info, input: RequestFileAccessInput
-) -> types.AccessCredentials:
+def request_file_access(info: Info, input: RequestFileAccessInput) -> types.AccessCredentials:
     """Request upload credentials for a given key"""
 
     store = models.BigFileStore.objects.get(id=input.store)

@@ -24,14 +24,9 @@ class StimulusInput:
 
 
 @strawberry.input()
-class CreateSimulationInput:
+class CreateEnvironmentInput:
+    hash: str
     name: str
-    model: strawberry.ID
-    recordings: list[RecordingInput]
-    stimuli: list[StimulusInput]
-    time_trace: scalars.TraceLike | None = None
-    duration: scalars.Milliseconds
-    dt: scalars.Milliseconds | None = None
 
 
 def create_simulation(

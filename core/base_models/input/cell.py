@@ -6,11 +6,6 @@ import uuid
 
 
 class CellInputModel(BaseConfig):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str
     biophysics: BiophysicsInputModel
     topology: TopologyInputModel
-        
-    
-
-
-

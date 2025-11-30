@@ -42,7 +42,7 @@ def create_dataset(
     info: Info,
     input: CreateDatasetInput,
 ) -> types.Dataset:
-    view = models.Dataset.objects.create(name=input.name, creator=info.context.request.user, organization=info.context.request.organization)
+    view = models.Dataset.objects.create(name=input.name, creator=info.context.request.user, organization=info.context.request.organization, membership=info.context.request.membership)
     return cast(types.Dataset, view)
 
 

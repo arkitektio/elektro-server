@@ -246,12 +246,12 @@ class MechanismMapping(models.Model):
     model = models.ForeignKey(
         "NeuronModel",
         on_delete=models.CASCADE,
-        related_name="environment_mappings",
+        related_name="mappings",
     )
     mechanism = models.ForeignKey(
         Mechanism,
         on_delete=models.CASCADE,
-        related_name="model_mappings",
+        related_name="mappings",
     )
     cell_id = models.CharField(max_length=1000, help_text="The id of the cell that the mechanism is mapped to")
     name = models.CharField(max_length=1000, help_text="The name of the mapping")

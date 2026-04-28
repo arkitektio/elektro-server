@@ -181,6 +181,7 @@ class NeuronModel:
     creator: User | None
     model_collections: list[ModelCollection] | None
     simulations: List["Simulation"] = strawberry_django.field()
+    mappings: List["MechanismMapping"] = strawberry_django.field()
 
     @strawberry_django.field()
     def config(self, info: Info) -> "ModelConfig":
@@ -210,6 +211,8 @@ class NeuronModel:
 @strawberry_django.type(models.MechanismMapping, filters=filters.MechanismFilter, pagination=True)
 class MechanismMapping:
     id: auto
+    name: str
+    cell_id: str
     model: NeuronModel
     mechanism: Mechanism
 

@@ -14,16 +14,17 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
 from django.urls import path, include
 from strawberry.django.views import AsyncGraphQLView
 from kante.path import dynamicpath
 
-from health_check.views import MainView
+from health_check.views import HealthCheckView
 from django.views.decorators.csrf import csrf_exempt
 
 
 urlpatterns = [
     dynamicpath("admin/", admin.site.urls),
-    dynamicpath("ht",  csrf_exempt(MainView.as_view()), name="health_check"),
+    dynamicpath("ht", csrf_exempt(HealthCheckView.as_view(checks=["health_check.Database"])), name="health_check"),
 ]

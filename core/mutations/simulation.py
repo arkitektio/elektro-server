@@ -1,5 +1,5 @@
 from kante.types import Info
-from core.datalayer import get_current_datalayer
+from datalayer.datalayer import get_current_datalayer
 import strawberry
 from core import types, models, scalars, enums
 from core.base_models.input.graphql.biophysics import BiophysicsInput

@@ -12,17 +12,17 @@ import datetime
 from asgiref.sync import sync_to_async
 from itertools import chain
 from enum import Enum
-from core.datalayer import get_current_datalayer
+from datalayer.datalayer import get_current_datalayer
 from core.render.objects import models as rmodels
 from strawberry.experimental import pydantic
 from typing import Union
-from strawberry import LazyType
 from core.base_models.type.graphql.cell import Cell
 from core.base_models.type.graphql.topology import Topology
 from core.base_models.type.graphql.model import ModelConfig
 from authentikate.strawberry.types import Client, User
 from koherent.strawberry.types import ProvenanceEntry
 from .type_gen import create_stats_type
+from datalayer import types as dt
 
 
 def build_prescoped_queryset(info, queryset, field="organization"):
@@ -40,47 +40,6 @@ def build_prescoper(field="organization"):
         return build_prescoped_queryset(info, queryset, field=field)
 
     return prescoper
-
-
-@strawberry.type(description="Temporary Credentials for a file upload that can be used by a Client (e.g. in a python datalayer)")
-class Credentials:
-    """Temporary Credentials for a a file upload."""
-
-    status: str
-    access_key: str
-    secret_key: str
-    session_token: str
-    datalayer: str
-    bucket: str
-    key: str
-    store: str
-
-
-@strawberry.type(description="Temporary Credentials for a file upload that can be used by a Client (e.g. in a python datalayer)")
-class PresignedPostCredentials:
-    """Temporary Credentials for a a file upload."""
-
-    key: str
-    x_amz_algorithm: str
-    x_amz_credential: str
-    x_amz_date: str
-    x_amz_signature: str
-    policy: str
-    datalayer: str
-    bucket: str
-    store: str
-
-
-@strawberry.type(description="Temporary Credentials for a file download that can be used by a Client (e.g. in a python datalayer)")
-class AccessCredentials:
-    """Temporary Credentials for a a file upload."""
-
-    access_key: str
-    secret_key: str
-    session_token: str
-    bucket: str
-    key: str
-    path: str
 
 
 @strawberry_django.type(
@@ -123,71 +82,12 @@ class ViewKind(str, Enum):
     TIMEPOINT = "timepoint_views"
 
 
-@strawberry_django.type(models.ZarrStore)
-class ZarrStore:
-    """Zarr Store.
-
-    A ZarrStore is a store that contains a Zarr dataset on a connected
-    S3 compatible storage backend. The store will contain the path to the
-    dataset in the corresponding bucket.
-
-    Importantly to retrieve the data, you will need to ask this API for
-    temporary credentials to access the data. This is an additional step
-    and is required to ensure that the data is only accessible to authorized
-    users.
-
-    """
-
-    id: auto
-    path: str | None = strawberry.field(description="The path to the data. Relative to the bucket.")
-    shape: List[int] | None = strawberry.field(description="The shape of the data.")
-    dtype: str | None = strawberry.field(description="The dtype of the data.")
-    bucket: str = strawberry.field(description="The bucket where the data is stored.")
-    key: str = strawberry.field(description="The key where the data is stored.")
-    chunks: List[int] | None = strawberry.field(description="The chunks of the data.")
-    populated: bool = strawberry.field(description="Whether the zarr store was populated (e.g. was a dataset created).")
-
-
-@strawberry_django.type(models.ParquetStore)
-class ParquetStore:
-    id: auto
-    path: str
-    bucket: str
-    key: str
-
-
-@strawberry_django.type(models.BigFileStore)
-class BigFileStore:
-    id: auto
-    path: str
-    bucket: str
-    key: str
-
-    @strawberry.field()
-    def presigned_url(self, info: Info) -> str:
-        datalayer = get_current_datalayer()
-        return cast(models.BigFileStore, self).get_presigned_url(info, datalayer=datalayer)
-
-
-@strawberry_django.type(models.MediaStore)
-class MediaStore:
-    id: auto
-    path: str
-    bucket: str
-    key: str
-
-    @strawberry_django.field()
-    def presigned_url(self, info: Info, host: str | None = None) -> str:
-        datalayer = get_current_datalayer()
-        return cast(models.MediaStore, self).get_presigned_url(info, datalayer=datalayer, host=host)
-
-
 @strawberry_django.type(models.File, filters=filters.FileFilter, pagination=True)
 class File:
     id: auto
     name: auto
     origins: List["Trace"] = strawberry_django.field()
-    store: BigFileStore
+    store: dt.BigFileStore
 
 
 @strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, pagination=True)
@@ -414,9 +314,9 @@ class BlockSegment:
     creator: User | None = strawberry.field(description="Who created this segment")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
     groups: List["BlockGroup"] = strawberry_django.field(description="The groups that this segment belongs to")
-    analog_signals: List[LazyType["AnalogSignal", __name__]] = strawberry_django.field(description="The analog signals in this group")
-    irregularly_sampled_signals: List[LazyType["IrregularlySampledSignal", __name__]] = strawberry_django.field(description="The irregularly sampled signals in this group")
-    spike_trains: List[LazyType["SpikeTrain", __name__]] = strawberry_django.field(description="The spike trains in this group")
+    analog_signals: List[Annotated["AnalogSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The analog signals in this group")
+    irregularly_sampled_signals: List[Annotated["IrregularlySampledSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The irregularly sampled signals in this group")
+    spike_trains: List[Annotated["SpikeTrain", strawberry.lazy(__name__)]] = strawberry_django.field(description="The spike trains in this group")
 
 
 @strawberry_django.type(models.BlockGroup, filters=filters.BlockGroupFilter, pagination=True)
@@ -425,9 +325,9 @@ class BlockGroup:
     name: str
     block: Block
     description: str | None
-    analog_signals: List[LazyType["AnalogSignal", __name__]] = strawberry_django.field(description="The analog signals in this group")
-    irregularly_sampled_signals: List[LazyType["IrregularlySampledSignal", __name__]] = strawberry_django.field(description="The irregularly sampled signals in this group")
-    spike_trains: List[LazyType["SpikeTrain", __name__]] = strawberry_django.field(description="The spike trains in this group")
+    analog_signals: List[Annotated["AnalogSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The analog signals in this group")
+    irregularly_sampled_signals: List[Annotated["IrregularlySampledSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The irregularly sampled signals in this group")
+    spike_trains: List[Annotated["SpikeTrain", strawberry.lazy(__name__)]] = strawberry_django.field(description="The spike trains in this group")
 
 
 @strawberry.interface(description="A signal recorded during a recording session")
@@ -489,7 +389,7 @@ class Trace:
 
     id: auto
     name: auto = strawberry_django.field(description="The name of the image")
-    store: ZarrStore = strawberry_django.field(description="The store where the image data is stored.")
+    store: dt.ZarrStore = strawberry_django.field(description="The store where the image data is stored.")
     dataset: Optional["Dataset"] = strawberry_django.field(description="The dataset this image belongs to")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
     creator: User | None = strawberry_django.field(description="Who created this image")

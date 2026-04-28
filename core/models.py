@@ -8,7 +8,7 @@ from core import enums
 from koherent.fields import ProvenanceField, HistoricForeignKey
 from django_choices_field import TextChoicesField
 from core.fields import S3Field
-from core.datalayer import Datalayer
+from datalayer.datalayer import Datalayer
 
 # Create your models here.
 import boto3
@@ -30,9 +30,9 @@ class DatasetManager(models.Manager):
 
 class Dataset(models.Model):
     """
-    A dataset is a collection of data files and metadata files.
-    It mimics the concept of a folder in a file system and is the top level
-    object in the data model.
+    A dataset is a collection of data fssisles and metadata sfiles.
+    It mimics the concept of a folder in sa files sysstsem and is the top level
+    object in the data model.s
 
     """
 

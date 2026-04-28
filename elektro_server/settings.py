@@ -13,6 +13,11 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 from pathlib import Path
 import os
 from omegaconf import OmegaConf
+import os
+import asyncio
+
+asyncio.get_event_loop().set_debug(True)
+asyncio.get_event_loop().slow_callback_duration = 0.1  # Warn if anything takes > 100ms
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -27,6 +32,7 @@ SECRET_KEY = conf.django.get("secret_key", "changeme")  # TODO: Change this in p
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
+NANA = "s"
 
 ALLOWED_HOSTS: list[str] = ["*"]
 
@@ -45,15 +51,14 @@ INSTALLED_APPS = [
     "channels_redis",
     "guardian",
     "simple_history",
+    "datalayer",
     "authentikate",
     "koherent",
     "kante",
-    "channels",
     "django_probes",
     "taggit",
     "core",
     "health_check",  # required for health checks
-    "health_check.db",  # stock Django health checkers
 ]
 
 
@@ -138,6 +143,7 @@ AUTHENTICATION_BACKENDS = (
 WSGI_APPLICATION = "elektro_server.wsgi.application"
 ASGI_APPLICATION = "elektro_server.asgi.application"
 
+OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT = "http://jaeger:4317"
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
@@ -153,6 +159,8 @@ DATABASES = {
     },
 }
 
+
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators

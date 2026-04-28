@@ -90,6 +90,13 @@ class File:
     store: dt.BigFileStore
 
 
+@strawberry_django.type(models.Mechanism, filters=filters.MechanismFilter, pagination=True)
+class Mechanism:
+    id: auto
+    name: auto
+    store: dt.BigFileStore
+
+
 @strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, pagination=True)
 class ModelCollection:
     id: auto
@@ -198,6 +205,13 @@ class NeuronModel:
             changes = compare_models(self.json_model, col.models.first().json_model)
             comparisons.append(Comparison(collection=col, changes=changes))
         return comparisons
+
+
+@strawberry_django.type(models.MechanismMapping, filters=filters.MechanismFilter, pagination=True)
+class MechanismMapping:
+    id: auto
+    model: NeuronModel
+    mechanism: Mechanism
 
 
 @strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, order=filters.ExperimentOrder, pagination=True)

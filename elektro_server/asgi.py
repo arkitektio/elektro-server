@@ -44,5 +44,5 @@ if PsycopgInstrumentor:
     PsycopgInstrumentor().instrument()
 
 application = OpenTelemetryMiddleware(
-    router(schema=schema, django_asgi_app=django_asgi_app)
+    router(schema=schema, django_asgi_app=django_asgi_app, schema_path="schema")
 )

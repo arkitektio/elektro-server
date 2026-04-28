@@ -78,6 +78,15 @@ def create_neuron_model(
     info: Info,
     input: CreateNeuronModelInput,
 ) -> types.NeuronModel:
+    for cell in input.config.cells:
+        if cell.biophysics is not None:
+            for mech in cell.biophysics.mapped_mechanisms:
+                if mech.mechanism is not None:
+                    try:
+                        models.Mechanism.objects.get(id=mech.mechanism)
+                    except models.Mechanism.DoesNotExist:
+                        raise ValueError(f"Mechanism with id {mech.mechanism} does not exist. Have you uploaded the mod file?")
+
     model, _ = models.NeuronModel.objects.update_or_create(
         hash=get_model_hash(input.config),
         defaults=dict(
@@ -88,5 +97,23 @@ def create_neuron_model(
             json_model=strawberry.asdict(input.config),
         ),
     )
+
+    mapped_ids = set()
+
+    for cell in input.config.cells:
+        if cell.biophysics is not None:
+            for mech in cell.biophysics.mapped_mechanisms:
+                if mech.mechanism is not None:
+                    x = models.Mechanism.objects.get(id=mech.mechanism)
+                    mapped_id, _ = models.MechanismMapping.objects.get_or_create(
+                        mechanism=x,
+                        model=model,
+                        name=mech.name,
+                        cell_id=cell.id,
+                    )
+                    mapped_ids.add(mapped_id.pk)
+
+    # Clean up unmapped mechanisms
+    models.MechanismMapping.objects.filter(model=model).exclude(id__in=mapped_ids).delete()
 
     return model

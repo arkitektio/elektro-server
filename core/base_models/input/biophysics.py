@@ -33,7 +33,13 @@ class CompartmentInputModel(BaseConfig):
         return next((comp for comp in self.section_params if comp.param == name), None)
 
 
+class MechanismMappingInputModel(BaseConfig):
+    name: str
+    mechanism: str
+
+
 class BiophysicsInputModel(BaseConfig):
+    mapped_mechanisms: List[MechanismMappingInputModel] = Field(default_factory=list)
     compartments: List[CompartmentInputModel] = Field(default_factory=list)
 
     def add_compartment(self, compartment: CompartmentInputModel):

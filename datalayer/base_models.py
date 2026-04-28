@@ -36,10 +36,8 @@ class RequestBigFileUploadInput(BaseModel):
     original_file_name: str
     file_size: Optional[int] = None
     content_type: Optional[str] = None
-    datalayer: str = "s3"
     host: Optional[str] = None
     port: Optional[int] = None
-    protocol: str = "https"
 
 
 class FinishBigFileUploadInput(BaseModel):
@@ -119,7 +117,9 @@ class ZarrMetadata(BaseModel):
             return None
 
         chunk_shape = configuration.get("chunk_shape")
-        if not isinstance(chunk_shape, list) or not all(isinstance(item, int) for item in chunk_shape):
+        if not isinstance(chunk_shape, list) or not all(
+            isinstance(item, int) for item in chunk_shape
+        ):
             return None
 
         return cast(list[int], chunk_shape)

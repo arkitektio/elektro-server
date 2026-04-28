@@ -135,6 +135,8 @@ TEMPLATES = [
     },
 ]
 
+DATALAYER = conf.get("datalayer", {})
+
 AUTHENTICATION_BACKENDS = (
     "django.contrib.auth.backends.ModelBackend",  # this is default
     "guardian.backends.ObjectPermissionBackend",

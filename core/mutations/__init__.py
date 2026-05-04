@@ -32,14 +32,14 @@ from .simulation import *
 from .experiment import *
 from .model_collection import *
 from .block import delete_block
-from .mechanism import from_mod_file
+from .environment import create_mod_environment
 
 __all__ = [
     "from_trace_like",
     "delete_trace",
     "update_trace",
     "relate_to_dataset",
-    "from_mod_file",
+    "create_mod_environment",
     "create_dataset",
     "delete_dataset",
     "pin_dataset",

@@ -1,86 +1,118 @@
 from kante.types import Info
-from datalayer.datalayer import get_current_datalayer
 import strawberry
-from core import types, models, scalars, enums
-from core.base_models.input.graphql.biophysics import BiophysicsInput
+
+from core import types, models, scalars
+from datalayer.datalayer import get_current_datalayer
+from datalayer.scalars import BigFileLike
+import json
+from django.conf import settings
+from rekuest_core.inputs import models as rekuest_models
+from rekuest_core.inputs import types as rekuest_types
+from datalayer import models as datalayer_models
+import kante
+from pydantic import BaseModel
 
 
 @strawberry.input()
-class RecordingInput:
-    trace: scalars.TraceLike
-    kind: enums.RecordingKind
-    cell: strawberry.ID | None
-    location: strawberry.ID | None
-    position: float | None
+class RequestFileUploadInput:
+    key: str
+    datalayer: str
+    hash: str | None = None
 
 
-@strawberry.input()
-class StimulusInput:
-    trace: scalars.TraceLike
-    kind: enums.StimulusKind
-    cell: strawberry.ID | None
-    location: strawberry.ID | None
-    position: float | None
+@strawberry.input
+class DeleteFileInput:
+    id: strawberry.ID
 
 
-@strawberry.input()
-class CreateEnvironmentInput:
-    hash: str
-    name: str
-
-
-def create_simulation(
+def delete_file(
     info: Info,
-    input: CreateSimulationInput,
-) -> types.Simulation:
-    model = models.NeuronModel.objects.get(
-        id=input.model,
+    input: DeleteFileInput,
+) -> strawberry.ID:
+    view = models.File.objects.get(
+        id=input.id,
     )
+    view.delete()
+    return input.id
 
-    datalayer = get_current_datalayer()
 
-    time_store = models.ZarrStore.objects.get(id=input.time_trace)
-    time_store.fill_info(datalayer)
+@strawberry.input
+class PinFileInput:
+    id: strawberry.ID
+    pin: bool
 
-    time_trace = models.Trace.objects.create(
-        creator=info.context.request.user,
+
+def pin_file(
+    info: Info,
+    input: PinFileInput,
+) -> types.File:
+    raise NotImplementedError("TODO")
+
+
+class MechanismInputModel(BaseModel):
+    name: str
+    description: str | None = None
+    parameters: list[rekuest_models.ArgPortInputModel]
+
+
+@kante.pydantic_input(MechanismInputModel, description="Input for creating a mechanism")
+class MechanismInput:
+    name: str
+    description: str | None = None
+    parameters: list[rekuest_types.ArgPortInput]
+
+
+class ModEnvironmentInputModel(BaseModel):
+    name: str
+    description: str | None = None
+    zip_file: str
+    mechanisms: list[MechanismInputModel]
+
+
+@kante.pydantic_input(ModEnvironmentInputModel, description="Input for creating a mod environment")
+class CreateModEnvironmentInput:
+    name: str
+    description: str | None = None
+    zip_file: BigFileLike
+    mechanisms: list[MechanismInput]
+
+
+def create_mod_environment(
+    info: Info,
+    input: CreateModEnvironmentInput,
+) -> types.ModEnvironment:
+    input = input.to_pydantic()
+
+    store = datalayer_models.BigFileStore.objects.get(id=input.zip_file)
+    store.fill_info()
+
+    environment = models.ModEnvironment.objects.create(
+        name=input.name,
+        description=input.description,
         organization=info.context.request.organization,
-        name=input.name,
-        store=time_store,
+        store=store,
     )
 
-    sims = models.Simulation.objects.create(
-        model=model,
-        duration=input.duration,
-        name=input.name,
-        time_trace=time_trace,
-        dt=input.dt or 1.0,
-    )
-
-    for recording in input.recordings:
-        store = models.ZarrStore.objects.get(id=recording.trace)
-        store.fill_info(datalayer)
-
-        trace = models.Trace.objects.create(
-            creator=info.context.request.user,
-            organization=info.context.request.organization,
-            name=input.name,
-            store=store,
+    for mechanism_input in input.mechanisms:
+        models.Mechanism.objects.create(
+            name=mechanism_input.name,
+            description=mechanism_input.description,
+            parameters=[p.model_dump() for p in mechanism_input.parameters],
+            environment=environment,
         )
 
-        recording = models.Recording.objects.create(trace=trace, kind=recording.kind, cell=recording.cell, location=recording.location, position=recording.position, simulation=sims)
+    return environment
 
-    for stimulus in input.stimuli:
-        store = models.ZarrStore.objects.get(id=stimulus.trace)
-        store.fill_info(datalayer)
 
-        trace = models.Trace.objects.create(
-            creator=info.context.request.user,
-            organization=info.context.request.organization,
-            name=input.name,
-            store=store,
-        )
+@strawberry.input
+class DeleteMechanismInput:
+    id: strawberry.ID
 
-        stim = models.Stimulus.objects.create(trace=trace, kind=stimulus.kind, cell=stimulus.cell, location=stimulus.location, position=stimulus.position, simulation=sims)
 
-    return sims
+def delete_mechanism(
+    info: Info,
+    input: DeleteMechanismInput,
+) -> strawberry.ID:
+    item = models.Mechanism.objects.get(id=input.id)
+    item.delete()
+    return input.id

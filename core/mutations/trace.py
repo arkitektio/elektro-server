@@ -8,6 +8,8 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from core.managers import auto_create_views
 
+from datalayer.scalars import ArrayLike
+
 
 def relate_to_dataset(
     info: Info,
@@ -73,7 +75,7 @@ def delete_trace(
 
 @strawberry.input(description="Input type for creating an image from an array-like object")
 class FromTraceLikeInput:
-    array: scalars.TraceLike = strawberry.field(description="The array-like object to create the image from")
+    array: ArrayLike = strawberry.field(description="The array-like object to create the image from")
     name: str = strawberry.field(description="The name of the image")
     dataset: strawberry.ID | None = strawberry.field(default=None, description="Optional dataset ID to associate the image with")
     tags: list[str] | None = strawberry.field(default=None, description="Optional list of tags to associate with the image")

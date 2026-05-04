@@ -46,6 +46,11 @@ class Query:
 
     block_stats: types.BlockStats = strawberry_django.field(resolver=types.BlockStatsResolver)
 
+    mod_environments: list[types.ModEnvironment] = strawberry_django.field()
+    mechanisms: list[types.Mechanism] = strawberry_django.field()
+    mechanism: types.Mechanism = strawberry_django.field()
+    mod_environment: types.ModEnvironment = strawberry_django.field()
+
     @strawberry_django.field(permission_classes=[], description="Returns a list of images")
     def stimulus(self, info: Info, id: ID) -> types.Stimulus:
         """Get all stimuli"""
@@ -225,8 +230,8 @@ class Mutation:
         description="Create an image from array-like data",
     )
 
-    from_mod_file = strawberry_django.mutation(
-        resolver=mutations.from_mod_file,
+    create_mod_environment = strawberry_django.mutation(
+        resolver=mutations.create_mod_environment,
         description="Create a mechanism from a mod file",
     )
 

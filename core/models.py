@@ -156,6 +156,36 @@ class ModelCollection(models.Model):
     )
 
 
+class ModEnvironment(models.Model):
+    """A mod environment is a set of mod files
+    that can be used to simulate a neuron model.
+
+    They are stored as zip files in S3 and will be
+    downloaded and extracted when a neuron model
+    is simulated. They will be cached locally for
+    faster access.
+
+    """
+
+    name = models.CharField(max_length=1000, help_text="The name of the mod environment")
+    store = models.ForeignKey(
+        BigFileStore,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="The .mod file, stored in S3",
+    )
+    description = models.CharField(max_length=1000, null=True, blank=True)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="mod_environments",
+        help_text="The organization that owns the mod environment",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class Mechanism(models.Model):
     """A mod environment is a set of mod files
     that can be used to simulate a neuron model.
@@ -167,35 +197,23 @@ class Mechanism(models.Model):
 
     """
 
+    environment = models.ForeignKey(
+        ModEnvironment,
+        on_delete=models.CASCADE,
+        related_name="mechanisms",
+        help_text="The mod environment that the mechanism sbelongs to",
+    )
     name = models.CharField(
         max_length=1000,
         help_text="The mechanism that can be simulated with the mod environment",
     )
-    name = models.CharField(max_length=1000, help_text="The name of the mod environment")
-    store = models.ForeignKey(
-        BigFileStore,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        help_text="The .mod file, stored in S3",
-    )
     description = models.CharField(max_length=1000, null=True, blank=True)
-    parameter_ports = models.JSONField(
+    parameters = models.JSONField(
         help_text="The parameter ports of the mechanism, stored as a json object with the port name as key and the port type as value",
-        default=dict,
-    )
-    organization = models.ForeignKey(
-        Organization,
-        on_delete=models.CASCADE,
-        related_name="mechanisms",
-        help_text="The organization that owns the mechanism",
+        default=list,
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
-
-    @property
-    def parameters(self) -> list[str]:
-        return self.parameter_ports.keys()
 
 
 class NeuronModel(models.Model):
@@ -203,6 +221,13 @@ class NeuronModel(models.Model):
     that can be used t simulate a neuron
     """
 
+    environment = models.ForeignKey(
+        ModEnvironment,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="The mod environment that the neuron model belongs to",
+    )
     parent = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -237,33 +262,13 @@ class NeuronModel(models.Model):
     )
 
 
-class MechanismMapping(models.Model):
-    """An environment mapping is a mapping between a neuron model and a hoc environment.
-
-    It specifies which hoc environment should be used to simulate a neuron model.
-    """
-
-    model = models.ForeignKey(
-        "NeuronModel",
-        on_delete=models.CASCADE,
-        related_name="mappings",
-    )
-    mechanism = models.ForeignKey(
-        Mechanism,
-        on_delete=models.CASCADE,
-        related_name="mappings",
-    )
-    cell_id = models.CharField(max_length=1000, help_text="The id of the cell that the mechanism is mapped to")
-    name = models.CharField(max_length=1000, help_text="The name of the mapping")
-
-
 class Experiment(models.Model):
     name = models.CharField(max_length=1000, help_text="The name of the experiment")
     description = models.CharField(max_length=1000, null=True, blank=True)
     creator = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
-        help_text="The user that created the experiment",
+        help_text="The user that created the experimesnt",
         null=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)

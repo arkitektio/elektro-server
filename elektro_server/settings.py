@@ -64,8 +64,8 @@ INSTALLED_APPS = [
 
 STRAWBERRY_DJANGO = {
     "USE_DEPRECATED_FILTERS": True,
+    "DEFAULT_PK_FIELD_NAME": "id",
 }
-
 
 AUTH_USER_MODEL = "authentikate.User"
 

@@ -23,6 +23,9 @@ from authentikate.strawberry.types import Client, User
 from koherent.strawberry.types import ProvenanceEntry
 from .type_gen import create_stats_type
 from datalayer import types as dt
+import kante
+from rekuest_core.objects.types import ArgPort
+from rekuest_core.objects.models import ArgPortModel
 
 
 def build_prescoped_queryset(info, queryset, field="organization"):
@@ -90,11 +93,24 @@ class File:
     store: dt.BigFileStore
 
 
-@strawberry_django.type(models.Mechanism, filters=filters.MechanismFilter, pagination=True)
+@kante.django_type(models.ModEnvironment, filters=filters.ModEnvironmentFilter, pagination=True, ordering=filters.ModEnvironmentOrder)
+class ModEnvironment:
+    id: auto
+    name: auto
+    description: str | None
+    store: dt.BigFileStore
+    mechanisms: List["Mechanism"] = strawberry_django.field()
+
+
+@strawberry_django.type(models.Mechanism, filters=filters.MechanismFilter, pagination=True, ordering=filters.MechanismOrder)
 class Mechanism:
     id: auto
     name: auto
-    store: dt.BigFileStore
+    description: str | None
+
+    @kante.django_field(description="The parameter ports of the mechanism")
+    def parameters(self, info: Info) -> list[ArgPort]:
+        return [ArgPortModel(**param) for param in self.parameters]
 
 
 @strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, pagination=True)
@@ -179,9 +195,9 @@ class NeuronModel:
     name: auto
     description: str | None
     creator: User | None
+    environment: ModEnvironment
     model_collections: list[ModelCollection] | None
     simulations: List["Simulation"] = strawberry_django.field()
-    mappings: List["MechanismMapping"] = strawberry_django.field()
 
     @strawberry_django.field()
     def config(self, info: Info) -> "ModelConfig":
@@ -206,15 +222,6 @@ class NeuronModel:
             changes = compare_models(self.json_model, col.models.first().json_model)
             comparisons.append(Comparison(collection=col, changes=changes))
         return comparisons
-
-
-@strawberry_django.type(models.MechanismMapping, filters=filters.MechanismFilter, pagination=True)
-class MechanismMapping:
-    id: auto
-    name: str
-    cell_id: str
-    model: NeuronModel
-    mechanism: Mechanism
 
 
 @strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, order=filters.ExperimentOrder, pagination=True)

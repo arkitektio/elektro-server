@@ -3,7 +3,7 @@ from typing import Optional, List, Dict, Set
 from strawberry.experimental import pydantic
 import strawberry
 import re
-from ..biophysics import SectionParamMapInputModel, GlobalParamMapInputModel, CompartmentInputModel, BiophysicsInputModel, MechanismMappingInputModel
+from ..biophysics import SectionParamMapInputModel, GlobalParamMapInputModel, CompartmentInputModel, BiophysicsInputModel
 
 
 @pydantic.input(SectionParamMapInputModel)
@@ -29,13 +29,6 @@ class CompartmentInput:
     global_params: List[GlobalParamMapInput] | None = strawberry.field(default_factory=list)
 
 
-@pydantic.input(MechanismMappingInputModel)
-class MechanismMappingInput:
-    name: str
-    mechanism: strawberry.ID
-
-
 @pydantic.input(BiophysicsInputModel)
 class BiophysicsInput:
-    mapped_mechanisms: List[MechanismMappingInput] = strawberry.field(default_factory=list)
     compartments: List[CompartmentInput] = strawberry.field(default_factory=list)

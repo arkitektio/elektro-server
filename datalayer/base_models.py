@@ -59,10 +59,8 @@ class RequestZarrUploadInput(BaseModel):
     shape: Optional[list[int]] = None
     chunks: Optional[list[int]] = None
     version: Optional[str] = None
-    datalayer: str = "s3"
     host: Optional[str] = None
     port: Optional[int] = None
-    protocol: str = "https"
 
 
 class FinishZarrUploadInput(BaseModel):
@@ -117,9 +115,7 @@ class ZarrMetadata(BaseModel):
             return None
 
         chunk_shape = configuration.get("chunk_shape")
-        if not isinstance(chunk_shape, list) or not all(
-            isinstance(item, int) for item in chunk_shape
-        ):
+        if not isinstance(chunk_shape, list) or not all(isinstance(item, int) for item in chunk_shape):
             return None
 
         return cast(list[int], chunk_shape)
@@ -130,10 +126,8 @@ class RequestParquetUploadInput(BaseModel):
 
     original_file_name: str
     content_type: Optional[str] = None
-    datalayer: str = "s3"
     host: Optional[str] = None
     port: Optional[int] = None
-    protocol: str = "https"
 
 
 class FinishParquetUploadInput(BaseModel):

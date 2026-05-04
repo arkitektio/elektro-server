@@ -69,51 +69,43 @@ def get_model_hash(model_instance: ModelConfigInput, float_precision: int = 5) -
 @strawberry.input()
 class CreateNeuronModelInput:
     name: str
+    environment: strawberry.ID | None
     parent: strawberry.ID | None
     description: str | None = None
     config: ModelConfigInput
+
+
+BUILT_IN_MECHANISMS = {"hh", "pas", "leak", "extracellular", "capacitance"}
 
 
 def create_neuron_model(
     info: Info,
     input: CreateNeuronModelInput,
 ) -> types.NeuronModel:
-    for cell in input.config.cells:
-        if cell.biophysics is not None:
-            for mech in cell.biophysics.mapped_mechanisms:
-                if mech.mechanism is not None:
-                    try:
-                        models.Mechanism.objects.get(id=mech.mechanism)
-                    except models.Mechanism.DoesNotExist:
-                        raise ValueError(f"Mechanism with id {mech.mechanism} does not exist. Have you uploaded the mod file?")
+    if input.environment is not None:
+        environment = models.ModEnvironment.objects.get(id=input.environment)
+    else:
+        environment = None
+
+    if environment is not None:
+        for cell in input.config.cells:
+            if cell.biophysics is not None:
+                for comp in cell.biophysics.compartments:
+                    for mech in comp.mechanisms:
+                        if not models.Mechanism.objects.filter(name=mech, environment=environment).exists():
+                            if mech not in BUILT_IN_MECHANISMS:
+                                raise ValueError(f"Mechanism with name {mech} not found in environment {environment.name}. And not a built-in mechanism.")
 
     model, _ = models.NeuronModel.objects.update_or_create(
         hash=get_model_hash(input.config),
         defaults=dict(
             creator=info.context.request.user,
             parent=input.parent,
+            environment_id=input.environment,
             description=input.description,
             name=input.name,
             json_model=strawberry.asdict(input.config),
         ),
     )
-
-    mapped_ids = set()
-
-    for cell in input.config.cells:
-        if cell.biophysics is not None:
-            for mech in cell.biophysics.mapped_mechanisms:
-                if mech.mechanism is not None:
-                    x = models.Mechanism.objects.get(id=mech.mechanism)
-                    mapped_id, _ = models.MechanismMapping.objects.get_or_create(
-                        mechanism=x,
-                        model=model,
-                        name=mech.name,
-                        cell_id=cell.id,
-                    )
-                    mapped_ids.add(mapped_id.pk)
-
-    # Clean up unmapped mechanisms
-    models.MechanismMapping.objects.filter(model=model).exclude(id__in=mapped_ids).delete()
 
     return model

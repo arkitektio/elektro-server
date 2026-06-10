@@ -30,6 +30,18 @@ class RequestGeneralMediaAccessInput(BaseModel):
     expires_in: Optional[int] = None
 
 
+class RequestGeneralZarrAccessInput(BaseModel):
+    """Request temporary S3 access credentials for media objects in the organization."""
+
+    expires_in: Optional[int] = None
+
+
+class RequestGeneralParquetAccessInput(BaseModel):
+    """Request temporary S3 access credentials for media objects in the organization."""
+
+    expires_in: Optional[int] = None
+
+
 class RequestBigFileUploadInput(BaseModel):
     """Request temporary S3 upload credentials for a big file."""
 
@@ -124,7 +136,6 @@ class ZarrMetadata(BaseModel):
 class RequestParquetUploadInput(BaseModel):
     """Request temporary S3 upload credentials for a Parquet store."""
 
-    original_file_name: str
     content_type: Optional[str] = None
     host: Optional[str] = None
     port: Optional[int] = None
@@ -171,6 +182,14 @@ class GeneralAccessGrant(BaseModel):
 
 
 class GeneralMediaAccessGrant(GeneralAccessGrant):
+    """Temporary S3 credentials for an existing media object, without a store reference."""
+
+
+class GeneralZarrAccessGrant(GeneralAccessGrant):
+    """Temporary S3 credentials for an existing media object, without a store reference."""
+
+
+class GeneralParquetAccessGrant(GeneralAccessGrant):
     """Temporary S3 credentials for an existing media object, without a store reference."""
 
 

@@ -73,6 +73,36 @@ class ZarrAccessGrant:
     store: str | None
 
 
+@kante.pydantic_type(base_models.GeneralZarrAccessGrant, description="Temporary S3 credentials for reading a Zarr store.")
+class GeneralZarrAccessGrant:
+    """Temporary S3 credentials for a Zarr store."""
+
+    status: str
+    access_key: str
+    secret_key: str
+    session_token: str
+    region: str
+    bucket: str
+    path: str
+    expires_in: int
+    store: str | None
+
+
+@kante.pydantic_type(base_models.GeneralZarrAccessGrant, description="Temporary S3 credentials for reading a Zarr store.")
+class GeneralParquetAccessGrant:
+    """Temporary S3 credentials for a Zarr store."""
+
+    status: str
+    access_key: str
+    secret_key: str
+    session_token: str
+    region: str
+    bucket: str
+    path: str
+    expires_in: int
+    store: str | None
+
+
 @kante.pydantic_type(base_models.ParquetAccessGrant, description="Temporary S3 credentials for reading a parquet object.")
 class ParquetAccessGrant:
     """Temporary S3 credentials for a parquet object."""

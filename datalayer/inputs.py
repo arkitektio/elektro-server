@@ -92,6 +92,24 @@ class RequestZarrAccessInput:
     pass
 
 
+@pydantic.input(model=base_models.RequestGeneralZarrAccessInput, all_fields=True)
+class RequestGeneralZarrAccessInput:
+    """
+    Docstring for RequestGeneralZarrAccessInput
+    """
+
+    pass
+
+
+@pydantic.input(model=base_models.RequestGeneralParquetAccessInput, all_fields=True)
+class RequestGeneralParquetAccessInput:
+    """
+    Docstring for RequestGeneralParquetAccessInput
+    """
+
+    pass
+
+
 @pydantic.input(model=base_models.RequestParquetUploadInput, all_fields=True)
 class RequestParquetUploadInput:
     """

@@ -224,8 +224,6 @@ class NeuronModel(models.Model):
     environment = models.ForeignKey(
         ModEnvironment,
         on_delete=models.CASCADE,
-        null=True,
-        blank=True,
         help_text="The mod environment that the neuron model belongs to",
     )
     parent = models.ForeignKey(

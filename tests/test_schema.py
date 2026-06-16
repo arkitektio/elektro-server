@@ -21,11 +21,28 @@ def test_datalayer_scalars_registered():
 
 def test_datalayer_mutations_exposed():
     sdl = schema.as_str()
+    # Every datalayer action must be wired into the Mutation type. Each store
+    # type exposes upload (request + finish) and read access; media/zarr/parquet
+    # also expose an organization-wide "general" access grant.
     for field in [
+        # media
         "requestMediaUpload",
+        "finishMediaUpload",
         "requestMediaAccess",
-        "requestZarrUpload",
-        "requestParquetUpload",
+        "requestGeneralMediaAccess",
+        # big files
         "requestBigfileUpload",
+        "finishBigfileUpload",
+        "requestBigfileAccess",
+        # zarr
+        "requestZarrUpload",
+        "finishZarrUpload",
+        "requestZarrAccess",
+        "requestGeneralZarrAccess",
+        # parquet
+        "requestParquetUpload",
+        "finishParquetUpload",
+        "requestParquetAccess",
+        "requestGeneralParquetAccess",
     ]:
-        assert field in sdl, f"{field} missing from schema"
+        assert f"{field}(" in sdl, f"{field} missing from schema"

@@ -36,12 +36,24 @@ def _cell(mechanisms):
     }
 
 
-async def test_create_neuron_model_minimal(aexecute):
-    # environment/parent omitted entirely -> guards the optional-default bug fixed earlier.
-    res = await aexecute(CREATE_NEURON_MODEL, {"input": {"name": "NM", "config": _config()}})
+async def test_create_neuron_model_minimal(aexecute, authenticated_context):
+    # environment is NOT NULL, so a minimal create must still supply one.
+    env = await ModEnvironment.objects.acreate(
+        name="env-min", organization=authenticated_context.request.organization
+    )
+    res = await aexecute(
+        CREATE_NEURON_MODEL, {"input": {"name": "NM", "environment": str(env.id), "config": _config()}}
+    )
     assert not res.errors, res.errors
     assert res.data["createNeuronModel"]["name"] == "NM"
     assert await NeuronModel.objects.filter(name="NM").aexists()
+
+
+async def test_create_neuron_model_requires_environment(aexecute):
+    # environment/parent both omitted -> NOT NULL environment can't be resolved.
+    res = await aexecute(CREATE_NEURON_MODEL, {"input": {"name": "NoEnv", "config": _config()}})
+    assert res.errors
+    assert not await NeuronModel.objects.filter(name="NoEnv").aexists()
 
 
 async def test_create_neuron_model_builtin_mechanism(aexecute, authenticated_context, bigfile_store):
@@ -56,6 +68,70 @@ async def test_create_neuron_model_builtin_mechanism(aexecute, authenticated_con
     # "hh" is a built-in mechanism, so validation passes even though env has no mechanisms.
     assert not res.errors, res.errors
     assert await NeuronModel.objects.filter(name="WithEnv").aexists()
+
+
+async def test_create_neuron_model_with_parent(aexecute, make_neuron_model):
+    # Regression: parent is passed as a GraphQL ID (string), and the resolver must
+    # assign it via parent_id. Assigning the raw string to the FK (parent=...) used
+    # to raise "Cannot assign '<id>': NeuronModel.parent must be a NeuronModel instance".
+    parent = await make_neuron_model(name="Parent")
+    res = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "Child", "parent": str(parent.id), "config": _config()}},
+    )
+    assert not res.errors, res.errors
+    assert res.data["createNeuronModel"]["name"] == "Child"
+    child = await NeuronModel.objects.aget(name="Child")
+    assert child.parent_id == parent.id
+
+
+async def test_create_neuron_model_inherits_parent_environment(
+    aexecute, authenticated_context, bigfile_store, make_neuron_model
+):
+    # When parent is set but environment is omitted, the child inherits the
+    # parent's environment.
+    store = await bigfile_store()
+    env = await ModEnvironment.objects.acreate(
+        name="parent-env", store=store, organization=authenticated_context.request.organization
+    )
+    parent = await make_neuron_model(name="ParentWithEnv", environment=env)
+    res = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "Inheritor", "parent": str(parent.id), "config": _config()}},
+    )
+    assert not res.errors, res.errors
+    child = await NeuronModel.objects.aget(name="Inheritor")
+    assert child.environment_id == env.id
+
+
+async def test_create_neuron_model_explicit_environment_overrides_parent(
+    aexecute, authenticated_context, bigfile_store, make_neuron_model
+):
+    # An explicit environment wins over the parent's environment.
+    parent_store = await bigfile_store()
+    parent_env = await ModEnvironment.objects.acreate(
+        name="parent-env2", store=parent_store, organization=authenticated_context.request.organization
+    )
+    parent = await make_neuron_model(name="ParentWithEnv2", environment=parent_env)
+
+    own_store = await bigfile_store()
+    own_env = await ModEnvironment.objects.acreate(
+        name="own-env", store=own_store, organization=authenticated_context.request.organization
+    )
+    res = await aexecute(
+        CREATE_NEURON_MODEL,
+        {
+            "input": {
+                "name": "OwnEnv",
+                "parent": str(parent.id),
+                "environment": str(own_env.id),
+                "config": _config(),
+            }
+        },
+    )
+    assert not res.errors, res.errors
+    child = await NeuronModel.objects.aget(name="OwnEnv")
+    assert child.environment_id == own_env.id
 
 
 # --- negatives ---------------------------------------------------------------

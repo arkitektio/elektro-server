@@ -323,12 +323,20 @@ def make_trace(authenticated_context):
 
 @pytest.fixture
 def make_neuron_model(authenticated_context):
-    """Factory: create a NeuronModel row (unique hash per row)."""
-    from core.models import NeuronModel
+    """Factory: create a NeuronModel row (unique hash per row).
+
+    environment is NOT NULL on NeuronModel, so one is minted automatically when
+    not supplied by the caller.
+    """
+    from core.models import ModEnvironment, NeuronModel
 
     @sync_to_async
     def _make(context=None, name="NeuronModel", environment=None, json_model=None):
         ctx = context or authenticated_context
+        if environment is None:
+            environment = ModEnvironment.objects.create(
+                name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization
+            )
         return NeuronModel.objects.create(
             name=name,
             hash=uuid.uuid4().hex,
@@ -352,8 +360,15 @@ def make_simulation_chain(authenticated_context):
     @sync_to_async
     def _make(context=None):
         ctx = context or authenticated_context
+        environment = models.ModEnvironment.objects.create(
+            name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization
+        )
         nm = models.NeuronModel.objects.create(
-            name="NeuronModel", hash=uuid.uuid4().hex, json_model={}, creator=ctx.request.user
+            name="NeuronModel",
+            hash=uuid.uuid4().hex,
+            json_model={},
+            creator=ctx.request.user,
+            environment=environment,
         )
         time_trace = models.Trace.objects.create(
             name="time", creator=ctx.request.user, organization=ctx.request.organization

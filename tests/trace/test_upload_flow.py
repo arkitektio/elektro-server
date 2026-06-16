@@ -108,6 +108,27 @@ async def test_zarr_upload_to_trace_flow(
     assert data.tolist() == np.arange(16, dtype="float64").reshape(4, 4).tolist()
 
 
+REQUEST_GENERAL_ZARR_ACCESS = """
+mutation ($input: RequestGeneralZarrAccessInput!) {
+  requestGeneralZarrAccess(input: $input) {
+    accessKey
+    secretKey
+    sessionToken
+    bucket
+  }
+}
+"""
+
+
+async def test_request_general_zarr_access(aexecute):
+    # Org-wide read grant: no store needed, just issues credentials.
+    res = await aexecute(REQUEST_GENERAL_ZARR_ACCESS, {"input": {}})
+    assert not res.errors, res.errors
+    grant = res.data["requestGeneralZarrAccess"]
+    assert grant["bucket"] == "zarr"
+    assert grant["accessKey"]
+
+
 # --- negative ----------------------------------------------------------------
 
 

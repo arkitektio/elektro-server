@@ -170,7 +170,12 @@ class Mutation:
     create_block = strawberry_django.mutation(resolver=mutations.create_block, description="Create a new block")
     delete_block = strawberry_django.mutation(resolver=mutations.delete_block, description="Delete an existing block")
 
-    # Image
+    # --- Datalayer actions -------------------------------------------------
+    # One block per store type. Each exposes: upload (request + finish),
+    # single-object read access, and (where available) an organization-wide
+    # "general" read access grant.
+
+    # Media
     request_media_upload = kante.django_mutation(
         description="Upload media and return a URL for access",
         resolver=datalayer_mutations.request_media_upload,
@@ -188,6 +193,7 @@ class Mutation:
         resolver=datalayer_mutations.request_general_media_access,
     )
 
+    # Big files
     request_bigfile_upload = kante.django_mutation(
         description="Request an upload grant for a big file store",
         resolver=datalayer_mutations.request_bigfile_upload,
@@ -201,6 +207,7 @@ class Mutation:
         resolver=datalayer_mutations.request_bigfile_access,
     )
 
+    # Zarr
     request_zarr_upload = kante.django_mutation(
         description="Request an upload grant for a Zarr store",
         resolver=datalayer_mutations.request_zarr_upload,
@@ -213,7 +220,12 @@ class Mutation:
         description="Request temporary S3 read credentials for a Zarr store",
         resolver=datalayer_mutations.request_zarr_access,
     )
+    request_general_zarr_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for Zarr stores in the organization",
+        resolver=datalayer_mutations.request_general_zarr_access,
+    )
 
+    # Parquet
     request_parquet_upload = kante.django_mutation(
         description="Request an upload grant for a Parquet store",
         resolver=datalayer_mutations.request_parquet_upload,
@@ -225,6 +237,10 @@ class Mutation:
     request_parquet_access = kante.django_mutation(
         description="Request temporary S3 read credentials for a Parquet file",
         resolver=datalayer_mutations.request_parquet_access,
+    )
+    request_general_parquet_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for Parquet files in the organization",
+        resolver=datalayer_mutations.request_general_parquet_access,
     )
 
     from_trace_like = strawberry_django.mutation(

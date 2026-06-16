@@ -94,19 +94,28 @@ def create_neuron_model(
 ) -> types.NeuronModel:
     parsed = input.to_pydantic()
 
+    parent = models.NeuronModel.objects.get(id=parsed.parent) if parsed.parent is not None else None
+
     if parsed.environment is not None:
         environment = models.ModEnvironment.objects.get(id=parsed.environment)
+    elif parent is not None:
+        # Inherit the environment from the parent when none is given explicitly.
+        environment = parent.environment
     else:
         environment = None
 
-    if environment is not None:
-        for cell in parsed.config.cells:
-            if cell.biophysics is not None:
-                for comp in cell.biophysics.compartments:
-                    for mech in comp.mechanisms:
-                        if not models.Mechanism.objects.filter(name=mech, environment=environment).exists():
-                            if mech not in BUILT_IN_MECHANISMS:
-                                raise ValueError(f"Mechanism with name {mech} not found in environment {environment.name}. And not a built-in mechanism.")
+    if environment is None:
+        # environment is NOT NULL at the database level; fail with a clear message
+        # rather than letting the insert raise an opaque IntegrityError.
+        raise ValueError("An environment is required, either directly or inherited from a parent.")
+
+    for cell in parsed.config.cells:
+        if cell.biophysics is not None:
+            for comp in cell.biophysics.compartments:
+                for mech in comp.mechanisms:
+                    if not models.Mechanism.objects.filter(name=mech, environment=environment).exists():
+                        if mech not in BUILT_IN_MECHANISMS:
+                            raise ValueError(f"Mechanism with name {mech} not found in environment {environment.name}. And not a built-in mechanism.")
 
     config_dict = parsed.config.model_dump(mode="json")
 
@@ -117,8 +126,8 @@ def create_neuron_model(
         hash=get_model_hash(input.config),
         defaults=dict(
             creator=info.context.request.user,
-            parent=parsed.parent,
-            environment_id=parsed.environment,
+            parent=parent,
+            environment=environment,
             description=parsed.description,
             name=parsed.name,
             json_model=config_dict,

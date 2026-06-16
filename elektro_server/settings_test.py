@@ -3,16 +3,21 @@ from .settings import DATABASES, AUTHENTIKATE
 import logging
 
 DATABASES["default"] = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": "local_test_db.sqlite3",
-    "OPTIONS": {
-        "timeout": 30,
-    },
-    "TEST": {
-        "NAME": "local_test_db.sqlite3",
+    "ENGINE": "django.db.backends.postgresql",
+    "NAME": "testdb",
+    "USER": "test",
+    "PASSWORD": "test",
+    "HOST": "localhost",
+    "PORT": "5555",
+}
+AUTHENTIKATE = {
+    **AUTHENTIKATE,
+    "STATIC_TOKENS": {
+        "test": {"sub": "1"},
+        # A user in a different organization, for cross-tenant scoping tests.
+        "othertest": {"sub": "9", "active_org": "other_org"},
     },
 }
-AUTHENTIKATE = {**AUTHENTIKATE, "STATIC_TOKENS": {"test": {"sub": "1"}}}
 
 
 OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
@@ -31,8 +36,10 @@ class DisableMigrations:
         return None
 
 
-# For faster test execution, you can uncomment this:
-# MIGRATION_MODULES = DisableMigrations()
+MIGRATION_MODULES = DisableMigrations()
+
+# Disable logging during tests to reduce noise
+logging.disable(logging.CRITICAL)
 
 # Enable database access from async code in tests
 DATABASE_ROUTERS = []

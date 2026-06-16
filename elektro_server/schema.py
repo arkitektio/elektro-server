@@ -18,8 +18,10 @@ from core.base_models.type.graphql.topology import Section
 from authentikate.strawberry.extension import AuthentikateExtension
 from strawberry_django.optimizer import DjangoOptimizerExtension
 from datalayer import mutations as datalayer_mutations
+from datalayer import scalars as datalayer_scalars
 import kante
 from strawberry.extensions.tracing import OpenTelemetryExtension
+from strawberry.schema.config import StrawberryConfig
 
 ID = Annotated[StrawberryID, strawberry.argument(description="The unique identifier of an object")]
 
@@ -329,4 +331,5 @@ schema = kante.Schema(
         DuckExtension,
     ],
     types=[SynapticConnection, Exp2Synapse],
+    config=StrawberryConfig(scalar_map={**datalayer_scalars.SCALAR_MAP}),
 )

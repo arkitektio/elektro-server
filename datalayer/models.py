@@ -32,6 +32,11 @@ class DatalayerStore(PolymorphicModel):
 
     objects: models.Manager["DatalayerStore"]  # type: ignore[assignment]
 
+    organization = models.ForeignKey(
+        "authentikate.Organization",
+        on_delete=models.CASCADE,
+        help_text="The organization this store belongs to.",
+    )
     path = models.CharField(max_length=1000, null=True, blank=True, help_text="The object-store URI of the file", unique=True)
     key = models.CharField(max_length=1000, help_text="The object key/path within the datalayer bucket.")
     bucket = models.CharField(max_length=1000, help_text="The datalayer bucket/service this store belongs to.")

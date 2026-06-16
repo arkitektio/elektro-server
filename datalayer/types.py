@@ -88,9 +88,9 @@ class GeneralZarrAccessGrant:
     store: str | None
 
 
-@kante.pydantic_type(base_models.GeneralZarrAccessGrant, description="Temporary S3 credentials for reading a Zarr store.")
+@kante.pydantic_type(base_models.GeneralParquetAccessGrant, description="Temporary S3 credentials for reading a parquet object.")
 class GeneralParquetAccessGrant:
-    """Temporary S3 credentials for a Zarr store."""
+    """Temporary S3 credentials for a parquet object."""
 
     status: str
     access_key: str

@@ -8,6 +8,7 @@ from core import enums
 from koherent.fields import ProvenanceField, HistoricForeignKey
 from django_choices_field import TextChoicesField
 from core.fields import S3Field
+from kanne.fields import QuantityField
 from datalayer.datalayer import Datalayer
 
 # Create your models here.
@@ -305,8 +306,8 @@ class ExperimentRecordingView(models.Model):
         null=True,
         blank=True,
     )
-    offset = models.FloatField(help_text="The offset of the view in seconds", null=True, blank=True)
-    duration = models.FloatField(help_text="The duration of the view in seconds", null=True, blank=True)
+    offset = QuantityField(base_unit="picosecond", help_text="The offset of the view, stored in picoseconds", null=True, blank=True)
+    duration = QuantityField(base_unit="picosecond", help_text="The duration of the view, stored in picoseconds", null=True, blank=True)
     label = models.CharField(
         max_length=1000,
         help_text="The label of the view",
@@ -337,8 +338,8 @@ class ExperimentStimulusView(models.Model):
         null=True,
         blank=True,
     )
-    offset = models.FloatField(help_text="The offset of the view in seconds", null=True, blank=True)
-    duration = models.FloatField(help_text="The duration of the view in seconds", null=True, blank=True)
+    offset = QuantityField(base_unit="picosecond", help_text="The offset of the view, stored in picoseconds", null=True, blank=True)
+    duration = QuantityField(base_unit="picosecond", help_text="The duration of the view, stored in picoseconds", null=True, blank=True)
     label = models.CharField(
         max_length=1000,
         help_text="The label of the view",
@@ -405,6 +406,8 @@ class BlockSegment(models.Model):
         blank=True,
         related_name="segments",
     )
+    start_time = QuantityField(base_unit="picosecond", help_text="The start time of the segment, stored in picoseconds", null=True, blank=True)
+    end_time = QuantityField(base_unit="picosecond", help_text="The end time of the segment, stored in picoseconds", null=True, blank=True)
 
 
 class AnalogSignal(models.Model):
@@ -419,9 +422,9 @@ class AnalogSignal(models.Model):
         related_name="analog_signal_time_traces",
     )
     name = models.CharField(max_length=1000, help_text="The name of the signal", default="")
-    t_start = models.FloatField(help_text="The start time of the signal in seconds", default=0.0)
+    t_start = QuantityField(base_unit="picosecond", help_text="The start time of the signal, stored in picoseconds", default=0)
     description = models.CharField(max_length=1000, null=True, blank=True)
-    sampling_rate = models.FloatField(help_text="The sampling frequency of the signal in Hz", default=1000.0)
+    sampling_rate = QuantityField(base_unit="nanohertz", help_text="The sampling frequency of the signal, stored in nanohertz", default=1_000_000_000_000)
     unit = models.CharField(max_length=100, help_text="The unit of the signal", default="mV", null=True, blank=True)
     color = models.CharField(max_length=7, help_text="The color of the signal in HEX", default="#000000")
 
@@ -608,8 +611,8 @@ class Simulation(models.Model):
     """
 
     model = models.ForeignKey(NeuronModel, on_delete=models.CASCADE, related_name="simulations")
-    duration = models.FloatField(help_text="The duration of the run in seconds")
-    dt = models.FloatField(help_text="The time step of the run in seconds", default=1.0)
+    duration = QuantityField(base_unit="picosecond", help_text="The duration of the run, stored in picoseconds")
+    dt = QuantityField(base_unit="picosecond", help_text="The time step of the run, stored in picoseconds", default=1_000_000_000_000)
     time_trace = models.ForeignKey(
         Trace,
         on_delete=models.CASCADE,

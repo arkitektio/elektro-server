@@ -7,37 +7,37 @@ from core import enums
 
 
 class SynapseInputModel(BaseModel):
-    """Synaptic stimulus parameters."""
+    """Synaptic stimulus parameters. Quantities stored as nano-base ints."""
 
     kind: enums.SynapseKind = Field(default=enums.SynapseKind.EXP2SYN)
-    e: float
-    tau2: float
-    tau1: float
-    delay: float = 100.0
+    e: int          # femtovolts
+    tau2: int       # picoseconds
+    tau1: int       # picoseconds
+    delay: int = 100_000_000_000   # picoseconds (100 ms)
     cell: str
     location: str
-    position: float = 0.5  # Be# ms
+    position: float = 0.5  # Between 0 and 1
 
 
 class NetConnectionInputModel(BaseModel):
-    """Base class for net connection parameters."""
+    """Base class for net connection parameters. Quantities stored as nano-base ints."""
 
     kind: enums.ConnectionKind = Field(default=enums.ConnectionKind.SYNAPSE)
     id: str
-    weight: float | None = None
-    threshold: float | None = None
-    delay: float | None = None
+    weight: int | None = None      # femtosiemens
+    threshold: int | None = None   # femtovolts
+    delay: int | None = None       # picoseconds
     net_stimulator: Optional[str] = None
     synapse: Optional[str] = None
 
 
 class NetStimulatorInputModel(BaseModel):
-    """Base class for net stimulation parameters."""
+    """Base class for net stimulation parameters. Quantities stored as nano-base ints."""
 
     id: str
-    start: float = 100.0  # Start time (ms)
+    start: int = 100_000_000_000  # picoseconds (100 ms)
     number: int = 1  # Number of spikes
-    interval: float | None = None
+    interval: int | None = None    # picoseconds
     net_stimulator: str
     synapse: str
 
@@ -47,7 +47,7 @@ class ModelConfigInputModel(BaseModel):
     net_stimulators: List[NetStimulatorInputModel] = Field(default_factory=list)
     net_connections: List[NetConnectionInputModel] = Field(default_factory=list)
     net_synapses: List[SynapseInputModel] = Field(default_factory=list)
-    v_init: float = -67.0
+    v_init: int = -67_000_000_000_000   # femtovolts (-67 mV)
     celsius: float = 36.0
     label: Optional[str] = None
     environments: List[str] = Field(default_factory=list)

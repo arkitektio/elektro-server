@@ -45,8 +45,8 @@ async def test_create_block_with_analog_signal(aexecute, zarr_store):
                             {
                                 "name": "sig0",
                                 "timeTrace": str(time_store.id),
-                                "samplingRate": 1000.0,
-                                "tStart": 0.0,
+                                "samplingRate": "1000 Hz",
+                                "tStart": "0 s",
                                 "channels": [
                                     {"name": "c0", "index": 0, "trace": str(channel_store.id)}
                                 ],
@@ -97,7 +97,7 @@ async def test_create_block_missing_zarr_metadata(aexecute, zarr_store):
             "input": {
                 "name": "BlockBad",
                 "segments": [
-                    {"analogSignals": [{"timeTrace": str(time_store.id), "samplingRate": 1.0, "tStart": 0.0, "channels": []}]}
+                    {"analogSignals": [{"timeTrace": str(time_store.id), "samplingRate": "1 Hz", "tStart": "0 s", "channels": []}]}
                 ],
             }
         },

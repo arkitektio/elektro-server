@@ -25,7 +25,7 @@ async def test_create_simulation(aexecute, make_neuron_model, zarr_store):
                 "name": "Sim",
                 "model": str(nm.id),
                 "timeTrace": str(store.id),
-                "duration": 400,
+                "duration": "400 ms",
                 "recordings": [],
                 "stimuli": [],
             }
@@ -49,7 +49,7 @@ async def test_create_simulation_missing_zarr_metadata(aexecute, make_neuron_mod
                 "name": "SimBad",
                 "model": str(nm.id),
                 "timeTrace": str(store.id),
-                "duration": 400,
+                "duration": "400 ms",
                 "recordings": [],
                 "stimuli": [],
             }
@@ -67,7 +67,7 @@ async def test_create_simulation_unknown_model(aexecute, zarr_store):
                 "name": "SimNoModel",
                 "model": "999999",
                 "timeTrace": str(store.id),
-                "duration": 400,
+                "duration": "400 ms",
                 "recordings": [],
                 "stimuli": [],
             }

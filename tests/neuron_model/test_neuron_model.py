@@ -22,7 +22,7 @@ mutation ($input: CreateNeuronModelInput!) {
 def _config(cells=None):
     return {
         "cells": cells or [],
-        "vInit": -67.0,
+        "vInit": "-67 mV",
         "celsius": 36.0,
         "environments": [],
     }

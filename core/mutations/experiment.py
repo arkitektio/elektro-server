@@ -3,36 +3,37 @@ import strawberry
 import kante
 from pydantic import BaseModel
 from core import types, models, scalars, enums
+from kanne import scalars as quantities
 from core.base_models.input.graphql.biophysics import BiophysicsInput
 
 
 class StimulusViewInputModel(BaseModel):
     stimulus: str
-    offset: float | None = None
-    duration: float | None = None
+    offset: int | None = None
+    duration: int | None = None
     label: str | None = None
 
 
 @kante.pydantic_input(StimulusViewInputModel)
 class StimulusViewInput:
     stimulus: strawberry.ID
-    offset: float | None = None
-    duration: float | None = None
+    offset: quantities.Duration | None = None
+    duration: quantities.Duration | None = None
     label: str | None = None
 
 
 class RecordingViewInputModel(BaseModel):
     recording: str
-    offset: float | None = None
-    duration: float | None = None
+    offset: int | None = None
+    duration: int | None = None
     label: str | None = None
 
 
 @kante.pydantic_input(RecordingViewInputModel)
 class RecordingViewInput:
     recording: strawberry.ID
-    offset: float | None = None
-    duration: float | None = None
+    offset: quantities.Duration | None = None
+    duration: quantities.Duration | None = None
     label: str | None = None
 
 

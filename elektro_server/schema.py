@@ -19,6 +19,7 @@ from authentikate.strawberry.extension import AuthentikateExtension
 from strawberry_django.optimizer import DjangoOptimizerExtension
 from datalayer import mutations as datalayer_mutations
 from datalayer import scalars as datalayer_scalars
+from kanne import scalars as kanne_scalars
 import kante
 from strawberry.extensions.tracing import OpenTelemetryExtension
 from strawberry.schema.config import StrawberryConfig
@@ -347,5 +348,5 @@ schema = kante.Schema(
         DuckExtension,
     ],
     types=[SynapticConnection, Exp2Synapse],
-    config=StrawberryConfig(scalar_map={**datalayer_scalars.SCALAR_MAP}),
+    config=StrawberryConfig(scalar_map={**datalayer_scalars.SCALAR_MAP, **kanne_scalars.SCALAR_MAP}),
 )

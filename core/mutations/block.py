@@ -5,6 +5,7 @@ import kante
 from typing import Any
 from pydantic import BaseModel, Field
 from core import types, models, scalars, enums
+from kanne import scalars as quantities
 from core.base_models.input.graphql.biophysics import BiophysicsInput
 import datetime
 
@@ -32,8 +33,8 @@ class AnalogSignalInputModel(BaseModel):
     time_trace: Any
     name: str | None = None
     description: str | None = None
-    sampling_rate: float
-    t_start: float
+    sampling_rate: int
+    t_start: int
     unit: str | None = None
     channels: list[AnalogSignalChannelInputModel]
 
@@ -43,8 +44,8 @@ class AnalogSignalInput:
     time_trace: scalars.TraceLike
     name: str | None = None
     description: str | None = None
-    sampling_rate: float
-    t_start: float
+    sampling_rate: quantities.Frequency
+    t_start: quantities.Duration
     unit: str | None = None
     channels: list[AnalogSignalChannelInput]
 
@@ -68,23 +69,23 @@ class IrregularlySampledSignalInput:
 
 class SpikeTrainInputModel(BaseModel):
     times: Any
-    t_start: float
-    t_stop: float
+    t_start: int
+    t_stop: int
     waveforms: Any = None
     name: str | None = None
     description: str | None = None
-    left_sweep: float | None = None
+    left_sweep: int | None = None
 
 
 @kante.pydantic_input(SpikeTrainInputModel)
 class SpikeTrainInput:
     times: scalars.TraceLike
-    t_start: float
-    t_stop: float
+    t_start: quantities.Duration
+    t_stop: quantities.Duration
     waveforms: scalars.TraceLike | None = None
     name: str | None = None
     description: str | None = None
-    left_sweep: float | None = None
+    left_sweep: quantities.Duration | None = None
 
 
 class BlockSegmentInputModel(BaseModel):

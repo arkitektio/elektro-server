@@ -5,6 +5,7 @@ import kante
 from typing import Any
 from pydantic import BaseModel
 from core import types, models, scalars, enums
+from kanne import scalars as quantities
 from core.base_models.input.graphql.biophysics import BiophysicsInput
 from datalayer.scalars import ArrayLike
 
@@ -49,8 +50,8 @@ class CreateSimulationInputModel(BaseModel):
     recordings: list[RecordingInputModel]
     stimuli: list[StimulusInputModel]
     time_trace: Any = None
-    duration: float
-    dt: float | None = None
+    duration: int
+    dt: int | None = None
 
 
 @kante.pydantic_input(CreateSimulationInputModel)
@@ -60,8 +61,8 @@ class CreateSimulationInput:
     recordings: list[RecordingInput]
     stimuli: list[StimulusInput]
     time_trace: ArrayLike | None = None
-    duration: scalars.Milliseconds
-    dt: scalars.Milliseconds | None = None
+    duration: quantities.Duration
+    dt: quantities.Duration | None = None
 
 
 def create_simulation(
@@ -90,7 +91,7 @@ def create_simulation(
         duration=parsed.duration,
         name=parsed.name,
         time_trace=time_trace,
-        dt=parsed.dt or 1.0,
+        dt=parsed.dt or 1_000_000_000_000,
     )
 
     for recording in parsed.recordings:

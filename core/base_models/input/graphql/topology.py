@@ -3,13 +3,14 @@ from typing import Optional, List, Dict, Set
 from strawberry.experimental import pydantic
 import strawberry
 import re
+from kanne import scalars as quantities
 from ..topology import TopologyInputModel, CoordInputModel, ConnectionInputModel, SectionInputModel
 
 @pydantic.input(CoordInputModel)
 class CoordInput:
-    x: float
-    y: float
-    z: float
+    x: quantities.Length
+    y: quantities.Length
+    z: quantities.Length
 
 @pydantic.input(ConnectionInputModel)
 class ConnectionInput:
@@ -21,8 +22,8 @@ class SectionInput:
     id: str
     category: Optional[str] = None
     nseg: int = 1
-    diam: float = 1.0
-    length: Optional[float] = strawberry.field(default=None, description="Length of the section. Required if coords is not provided.")
+    diam: quantities.Length = 1_000_000
+    length: Optional[quantities.Length] = strawberry.field(default=None, description="Length of the section. Required if coords is not provided.")
     coords: List[CoordInput] | None = strawberry.field(default=None)
     connections: List[ConnectionInput] | None = strawberry.field(default_factory=list)
     

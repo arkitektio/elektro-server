@@ -4,6 +4,7 @@ from .topology import Topology
 from strawberry.experimental import pydantic
 import strawberry
 from .cell import Cell
+from kanne import scalars as quantities
 from ..model import Exp2SynModel, SynapticConnectionModel, SynapseBaseModel, NetConnectionModel, NetStimulatorModel, ModelConfigModel
 
 
@@ -18,18 +19,18 @@ class NetSynapse:
 @pydantic.type(Exp2SynModel, description="Represents an exponential synapse model, which is a type of synaptic stimulus that has an exponential rise and decay. This will be used to specify the parameters of synapses in the model.")
 class Exp2Synapse(NetSynapse):
     """Synaptic stimulus parameters."""
-    e: float = strawberry.field(description="Reversal potential (mV)")
-    tau2: float  = strawberry.field(description="Decay time constant (ms)")
-    tau1: float = strawberry.field(description="Rise time constant (ms)")
-    delay: float = 100.0       # ms
+    e: quantities.ElectricPotential = strawberry.field(description="Reversal potential")
+    tau2: quantities.Duration = strawberry.field(description="Decay time constant")
+    tau1: quantities.Duration = strawberry.field(description="Rise time constant")
+    delay: quantities.Duration = 100_000_000_000       # 100 ms
 
 @pydantic.interface(NetConnectionModel, description="Base class for net connection parameters.")
 class NetConnection:
     """Base class for net connection parameters."""
     id: strawberry.ID  = strawberry.field(description="The unique identifier of the connection within the model.")
-    weight: float | None = strawberry.field(default=None, description="The weight of the connection.")
-    threshold: float | None = strawberry.field(default=None, description="The threshold for the connection.")
-    delay: float | None = strawberry.field(default=None, description="The delay for the connection.")
+    weight: quantities.ElectricalConductance | None = strawberry.field(default=None, description="The weight (conductance) of the connection.")
+    threshold: quantities.ElectricPotential | None = strawberry.field(default=None, description="The threshold for the connection.")
+    delay: quantities.Duration | None = strawberry.field(default=None, description="The delay for the connection.")
 
 @pydantic.type(SynapticConnectionModel, description="Represents a synaptic connection between two cells in the model. This will be used to specify the connections between cells in the model, where each connection has a pre-synaptic cell (the net stimulator) and a post-synaptic cell (the synapse).")
 class SynapticConnection(NetConnection):
@@ -40,9 +41,9 @@ class SynapticConnection(NetConnection):
 class NetStimulator:
     """Base class for net stimulation parameters."""
     id: strawberry.ID = strawberry.field(description="The unique identifier of the stimulator within the model.")
-    start: float = strawberry.field(default=100.0, description="Start time (ms)")
+    start: quantities.Duration = strawberry.field(default=100_000_000_000, description="Start time")
     number: int = strawberry.field(default=1, description="Number of spikes")
-    interval: float | None = strawberry.field(default=None, description="Interval between spikes (ms)")
+    interval: quantities.Duration | None = strawberry.field(default=None, description="Interval between spikes")
 
 
 
@@ -52,7 +53,7 @@ class ModelConfig:
     net_stimulators: List[NetStimulator]  | None = strawberry.field(default=None, description="The list of net stimulators in the model.")
     net_connections: List[NetConnection] | None = strawberry.field(default=None, description="The list of net connections in the model.")
     net_synapses: List[NetSynapse] | None = strawberry.field(default=None, description="The list of net synapses in the model.")
-    v_init: float  = strawberry.field(description="Initial membrane potential (mV)")
+    v_init: quantities.ElectricPotential = strawberry.field(description="Initial membrane potential")
     celsius: float  = strawberry.field(description="Temperature (°C)")
     label: str | None = strawberry.field(description="An optional label for the model configuration.")
     

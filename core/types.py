@@ -6,6 +6,7 @@ from strawberry import auto
 from typing import List, Optional, Annotated, Union, cast
 import strawberry_django
 from core import models, scalars, filters, enums
+from kanne import scalars as quantities
 from django.contrib.auth import get_user_model
 from kante.types import Info
 import datetime
@@ -242,8 +243,8 @@ class Simulation:
     kind: enums.StimulusKind
     creator: User | None
     model: NeuronModel
-    duration: int = 400
-    dt: float
+    duration: quantities.Duration
+    dt: quantities.Duration
     time_trace: "Trace"
     stimuli: List["Stimulus"] = strawberry_django.field()
     recordings: List["Recording"] = strawberry_django.field()
@@ -287,8 +288,8 @@ class ExperimentRecordingView:
     id: auto
     recording: Recording
     label: str | None
-    offset: float | None
-    duration: float | None
+    offset: quantities.Duration | None
+    duration: quantities.Duration | None
     experiment: "Experiment"
 
 
@@ -297,8 +298,8 @@ class ExperimentStimulusView:
     id: auto
     stimulus: Stimulus
     label: str | None
-    offset: float | None
-    duration: float | None
+    offset: quantities.Duration | None
+    duration: quantities.Duration | None
     experiment: "Experiment"
 
 
@@ -332,8 +333,8 @@ class BlockSegment:
     block: Block
     label: str
     description: str | None
-    start_time: float
-    end_time: float
+    start_time: quantities.Duration | None
+    end_time: quantities.Duration | None
     creator: User | None = strawberry.field(description="Who created this segment")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
     groups: List["BlockGroup"] = strawberry_django.field(description="The groups that this segment belongs to")
@@ -374,7 +375,7 @@ class AnalogSignalChannel:
 @strawberry_django.type(models.AnalogSignal, filters=filters.AnalogSignalFilter, ordering=filters.AnalogSignalOrder, pagination=True)
 class AnalogSignal(Signal):
     id: auto
-    sampling_rate: float
+    sampling_rate: quantities.Frequency
     unit: str | None
     time_trace: "Trace"
     channels: List[AnalogSignalChannel] = strawberry_django.field()

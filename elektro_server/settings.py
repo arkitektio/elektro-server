@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "guardian",
     "simple_history",
     "datalayer",
+    "kanne",
     "authentikate",
     "koherent",
     "kante",

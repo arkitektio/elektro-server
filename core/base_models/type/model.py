@@ -14,32 +14,32 @@ class SynapseBaseModel(BaseModel):
 
 
 class Exp2SynModel(SynapseBaseModel):
-    """Synaptic stimulus parameters."""
+    """Synaptic stimulus parameters. Quantity fields are stored as nano-base ints."""
     kind: Literal["exp2syn"] = "exp2syn"
-    e: float 
-    tau2: float 
-    tau1: float
-    delay: float = 100.0       # ms
+    e: int          # femtovolts
+    tau2: int       # picoseconds
+    tau1: int       # picoseconds
+    delay: int = 100_000_000_000   # picoseconds (100 ms)
 
 
 class NetConnectionModel(BaseModel):
-    """Base class for net connection parameters."""
+    """Base class for net connection parameters. Quantities stored as nano-base ints."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))  # Name of the net connection
-    weight: float | None = None
-    threshold: float | None = None 
-    delay: float | None = None
-    
-    
+    weight: int | None = None      # femtosiemens
+    threshold: int | None = None   # femtovolts
+    delay: int | None = None       # picoseconds
+
+
 class SynapticConnectionModel(NetConnectionModel):
     net_stimulator: str
     synapse: str
-    
+
 class NetStimulatorModel(BaseModel):
-    """Base class for net stimulation parameters."""
+    """Base class for net stimulation parameters. Quantities stored as nano-base ints."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))  # Name of the net stimulator
-    start: float = 100.0       # Start time (ms)
+    start: int = 100_000_000_000   # picoseconds (100 ms)
     number: int = 1            # Number of spikes
-    interval: float | None = None
+    interval: int | None = None    # picoseconds
 
 
 
@@ -48,7 +48,7 @@ class ModelConfigModel(BaseModel):
     net_stimulators: List[NetStimulatorModel] | None = Field(default_factory=list)
     net_connections: List[Union[SynapticConnectionModel]] | None= Field(default_factory=list)
     net_synapses: List[Union[Exp2SynModel]] | None = Field(default_factory=list)
-    v_init: float = -67.0
+    v_init: int = -67_000_000_000_000   # femtovolts (-67 mV)
     celsius: float = 36.0
     label: Optional[str] = None
     

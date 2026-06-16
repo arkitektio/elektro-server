@@ -6,8 +6,7 @@ from datalayer.datalayer import get_current_datalayer
 from datalayer.scalars import BigFileLike
 import json
 from django.conf import settings
-from rekuest_core.inputs import models as rekuest_models
-from rekuest_core.inputs import types as rekuest_types
+from core.parameters import ParameterInput, ParameterInputModel
 from datalayer import models as datalayer_models
 import kante
 from pydantic import BaseModel
@@ -52,14 +51,14 @@ def pin_file(
 class MechanismInputModel(BaseModel):
     name: str
     description: str | None = None
-    parameters: list[rekuest_models.ArgPortInputModel]
+    parameters: list[ParameterInputModel]
 
 
 @kante.pydantic_input(MechanismInputModel, description="Input for creating a mechanism")
 class MechanismInput:
     name: str
     description: str | None = None
-    parameters: list[rekuest_types.ArgPortInput]
+    parameters: list[ParameterInput]
 
 
 class ModEnvironmentInputModel(BaseModel):

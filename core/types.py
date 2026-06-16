@@ -24,8 +24,7 @@ from koherent.strawberry.types import ProvenanceEntry
 from .type_gen import create_stats_type
 from datalayer import types as dt
 import kante
-from rekuest_core.objects.types import ArgPort
-from rekuest_core.objects.models import ArgPortModel
+from core.parameters import Parameter, ParameterModel
 
 
 def build_prescoped_queryset(info, queryset, field="organization"):
@@ -47,8 +46,8 @@ def build_prescoper(field="organization"):
 
 @strawberry_django.type(
     models.ViewCollection,
-    filters=filters.TraceFilter,
-    order=filters.TraceOrder,
+    filters=filters.ViewCollectionFilter,
+    ordering=filters.ViewCollectionOrder,
     pagination=True,
 )
 class ViewCollection:
@@ -85,7 +84,7 @@ class ViewKind(str, Enum):
     TIMEPOINT = "timepoint_views"
 
 
-@strawberry_django.type(models.File, filters=filters.FileFilter, pagination=True)
+@strawberry_django.type(models.File, filters=filters.FileFilter, ordering=filters.FileOrder, pagination=True)
 class File:
     id: auto
     name: auto
@@ -109,11 +108,11 @@ class Mechanism:
     description: str | None
 
     @kante.django_field(description="The parameter ports of the mechanism")
-    def parameters(self, info: Info) -> list[ArgPort]:
-        return [ArgPortModel(**param) for param in self.parameters]
+    def parameters(self, info: Info) -> list[Parameter]:
+        return [ParameterModel(**param) for param in self.parameters]
 
 
-@strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, pagination=True)
+@strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, ordering=filters.ModelCollectionOrder, pagination=True)
 class ModelCollection:
     id: auto
     name: str
@@ -189,7 +188,7 @@ class Comparison:
     changes: List[Change]
 
 
-@strawberry_django.type(models.NeuronModel, filters=filters.NeuronModelFilter, pagination=True, order=filters.NeuronModelOrder)
+@strawberry_django.type(models.NeuronModel, filters=filters.NeuronModelFilter, pagination=True, ordering=filters.NeuronModelOrder)
 class NeuronModel:
     id: auto
     name: auto
@@ -224,7 +223,7 @@ class NeuronModel:
         return comparisons
 
 
-@strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, order=filters.ExperimentOrder, pagination=True)
+@strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, ordering=filters.ExperimentOrder, pagination=True)
 class Experiment:
     id: auto
     name: str
@@ -235,7 +234,7 @@ class Experiment:
     stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
 
 
-@strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, order=filters.SimulationOrder, pagination=True)
+@strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, ordering=filters.SimulationOrder, pagination=True)
 class Simulation:
     id: auto
     name: str
@@ -253,7 +252,7 @@ class Simulation:
     stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
 
 
-@strawberry_django.type(models.Recording, filters=filters.RecordingFilter, order=filters.RecordingOrder, pagination=True)
+@strawberry_django.type(models.Recording, filters=filters.RecordingFilter, ordering=filters.RecordingOrder, pagination=True)
 class Recording:
     id: auto
     simulation: Simulation
@@ -268,7 +267,7 @@ class Recording:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
 
-@strawberry_django.type(models.Stimulus, filters=filters.StimulusFilter, order=filters.StimulusOrder, pagination=True)
+@strawberry_django.type(models.Stimulus, filters=filters.StimulusFilter, ordering=filters.StimulusOrder, pagination=True)
 class Stimulus:
     id: auto
     simulation: Simulation
@@ -283,7 +282,7 @@ class Stimulus:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
 
-@strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentFilter, order=filters.ExperimentOrder, pagination=True)
+@strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentRecordingViewFilter, ordering=filters.ExperimentRecordingViewOrder, pagination=True)
 class ExperimentRecordingView:
     id: auto
     recording: Recording
@@ -293,7 +292,7 @@ class ExperimentRecordingView:
     experiment: "Experiment"
 
 
-@strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentFilter, order=filters.ExperimentOrder, pagination=True)
+@strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentStimulusViewFilter, ordering=filters.ExperimentStimulusViewOrder, pagination=True)
 class ExperimentStimulusView:
     id: auto
     stimulus: Stimulus
@@ -303,7 +302,7 @@ class ExperimentStimulusView:
     experiment: "Experiment"
 
 
-@strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True, order=filters.BlockOrder)
+@strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True, ordering=filters.BlockOrder)
 class Block:
     id: auto
     name: str
@@ -327,7 +326,7 @@ BlockStats, BlockStatsResolver = create_stats_type(
 )
 
 
-@strawberry_django.type(models.BlockSegment, filters=filters.BlockSegmentFilter, pagination=True)
+@strawberry_django.type(models.BlockSegment, filters=filters.BlockSegmentFilter, ordering=filters.BlockSegmentOrder, pagination=True)
 class BlockSegment:
     id: auto
     block: Block
@@ -343,7 +342,7 @@ class BlockSegment:
     spike_trains: List[Annotated["SpikeTrain", strawberry.lazy(__name__)]] = strawberry_django.field(description="The spike trains in this group")
 
 
-@strawberry_django.type(models.BlockGroup, filters=filters.BlockGroupFilter, pagination=True)
+@strawberry_django.type(models.BlockGroup, filters=filters.BlockGroupFilter, ordering=filters.BlockGroupOrder, pagination=True)
 class BlockGroup:
     id: auto
     name: str
@@ -360,7 +359,7 @@ class Signal:
     segment: BlockSegment
 
 
-@strawberry_django.type(models.AnalogSignalChannel, filters=filters.AnalogSignalChannelFilter, pagination=True)
+@strawberry_django.type(models.AnalogSignalChannel, filters=filters.AnalogSignalChannelFilter, ordering=filters.AnalogSignalChannelOrder, pagination=True)
 class AnalogSignalChannel:
     id: auto
     name: str | None
@@ -372,7 +371,7 @@ class AnalogSignalChannel:
     signal: "AnalogSignal"
 
 
-@strawberry_django.type(models.AnalogSignal, filters=filters.AnalogSignalFilter, pagination=True)
+@strawberry_django.type(models.AnalogSignal, filters=filters.AnalogSignalFilter, ordering=filters.AnalogSignalOrder, pagination=True)
 class AnalogSignal(Signal):
     id: auto
     sampling_rate: float
@@ -381,20 +380,20 @@ class AnalogSignal(Signal):
     channels: List[AnalogSignalChannel] = strawberry_django.field()
 
 
-@strawberry_django.type(models.SpikeTrain, filters=filters.SpikeTrainFilter, pagination=True)
+@strawberry_django.type(models.SpikeTrain, filters=filters.SpikeTrainFilter, ordering=filters.SpikeTrainOrder, pagination=True)
 class SpikeTrain(Signal):
     id: auto
     trace: "Trace"
 
 
-@strawberry_django.type(models.IrregularlySampledSignal, filters=filters.IrregularlySampledSignalFilter, pagination=True)
+@strawberry_django.type(models.IrregularlySampledSignal, filters=filters.IrregularlySampledSignalFilter, ordering=filters.IrregularlySampledSignalOrder, pagination=True)
 class IrregularlySampledSignal(Signal):
     id: auto
     trace: "Trace"
     unit: str | None
 
 
-@strawberry_django.type(models.Trace, filters=filters.TraceFilter, order=filters.TraceOrder, pagination=True)
+@strawberry_django.type(models.Trace, filters=filters.TraceFilter, ordering=filters.TraceOrder, pagination=True)
 class Trace:
     """An image.
 
@@ -442,7 +441,7 @@ class Trace:
         return qs
 
 
-@strawberry_django.type(models.Dataset, filters=filters.DatasetFilter, pagination=True)
+@strawberry_django.type(models.Dataset, filters=filters.DatasetFilter, ordering=filters.DatasetOrder, pagination=True)
 class Dataset:
     id: auto
     images: List["Trace"]
@@ -525,7 +524,7 @@ class TimelineView(View):
         return self.label or "No Label"
 
 
-@strawberry_django.type(models.ROI, filters=filters.ROIFilter, pagination=True)
+@strawberry_django.type(models.ROI, filters=filters.ROIFilter, ordering=filters.ROIOrder, pagination=True)
 class ROI:
     """A region of interest."""
 

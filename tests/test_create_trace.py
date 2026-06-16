@@ -25,11 +25,11 @@ async def test_dataset_upper(db, authenticated_context: HttpContext):
 
 
     query = """
-        query {
-            trace(id: 1) {
+        query ($id: ID!) {
+            trace(id: $id) {
                 id
                 dataset {
-                    name 
+                    name
                 }
             }
         }
@@ -37,6 +37,7 @@ async def test_dataset_upper(db, authenticated_context: HttpContext):
 
     sub = await schema.execute(
         query,
+        variable_values={"id": str(my_model.id)},
         context_value=authenticated_context,
     )
 

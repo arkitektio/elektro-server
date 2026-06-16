@@ -13,7 +13,7 @@ class ConnectionInputModel(BaseModel):
 
 class SectionInputModel(BaseModel):
     id: str
-    category: Optional[str]
+    category: Optional[str] = None
     nseg: int = 1
     diam: float = 1.0
     length: Optional[float] = Field(default=None, description="Length of the section. Required if coords is not provided.")

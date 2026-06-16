@@ -1,10 +1,19 @@
 from kante.types import Info
 import strawberry
+import kante
+from pydantic import BaseModel
 from core import types, models, scalars, enums
 from core.base_models.input.graphql.biophysics import BiophysicsInput
 
 
-@strawberry.input()
+class StimulusViewInputModel(BaseModel):
+    stimulus: str
+    offset: float | None = None
+    duration: float | None = None
+    label: str | None = None
+
+
+@kante.pydantic_input(StimulusViewInputModel)
 class StimulusViewInput:
     stimulus: strawberry.ID
     offset: float | None = None
@@ -12,7 +21,14 @@ class StimulusViewInput:
     label: str | None = None
 
 
-@strawberry.input()
+class RecordingViewInputModel(BaseModel):
+    recording: str
+    offset: float | None = None
+    duration: float | None = None
+    label: str | None = None
+
+
+@kante.pydantic_input(RecordingViewInputModel)
 class RecordingViewInput:
     recording: strawberry.ID
     offset: float | None = None
@@ -20,7 +36,15 @@ class RecordingViewInput:
     label: str | None = None
 
 
-@strawberry.input()
+class CreateExperimentInputModel(BaseModel):
+    name: str
+    time_trace: str | None = None
+    stimulus_views: list[StimulusViewInputModel]
+    recording_views: list[RecordingViewInputModel]
+    description: str | None = None
+
+
+@kante.pydantic_input(CreateExperimentInputModel)
 class CreateExperimentInput:
     name: str
     time_trace: strawberry.ID | None = None
@@ -33,14 +57,15 @@ def create_experiment(
     info: Info,
     input: CreateExperimentInput,
 ) -> types.Experiment:
+    parsed = input.to_pydantic()
     exp = models.Experiment.objects.create(
-        name=input.name,
+        name=parsed.name,
         creator=info.context.request.user,
-        description=input.description,
-        time_trace=models.Trace.objects.get(id=input.time_trace),
+        description=parsed.description,
+        time_trace=models.Trace.objects.get(id=parsed.time_trace),
     )
 
-    for view in input.stimulus_views:
+    for view in parsed.stimulus_views:
         stimulus = models.Stimulus.objects.get(id=view.stimulus)
 
         models.ExperimentStimulusView.objects.create(
@@ -51,7 +76,7 @@ def create_experiment(
             duration=view.duration,
         )
 
-    for view in input.recording_views:
+    for view in parsed.recording_views:
         recording = models.Recording.objects.get(id=view.recording)
 
         models.ExperimentRecordingView.objects.create(

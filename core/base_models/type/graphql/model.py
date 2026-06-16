@@ -7,54 +7,54 @@ from .cell import Cell
 from ..model import Exp2SynModel, SynapticConnectionModel, SynapseBaseModel, NetConnectionModel, NetStimulatorModel, ModelConfigModel
 
 
-@pydantic.interface(SynapseBaseModel)
+@pydantic.interface(SynapseBaseModel, description="Base class for synaptic stimulus parameters.")
 class NetSynapse:
     """Synaptic stimulus parameters."""
-    id: strawberry.ID  
-    cell: str
-    location: str
-    position: float = 0.5      # Between 0 and 1
+    id: strawberry.ID  = strawberry.field(description="The unique identifier of the synapse within the model.")
+    cell: str = strawberry.field(description="The ID of the cell this synapse is located on.")
+    location: str = strawberry.field(description="The location on the cell where the synapse is located. This can be a section name, a segment number, or a more complex specification depending on the model.")
+    position: float   = strawberry.field(default= 0.5, description="The position along the section where the synapse is located, specified as a value between 0 and 1. This is only relevant if the location is specified as a section name.")
 
-@pydantic.type(Exp2SynModel)
+@pydantic.type(Exp2SynModel, description="Represents an exponential synapse model, which is a type of synaptic stimulus that has an exponential rise and decay. This will be used to specify the parameters of synapses in the model.")
 class Exp2Synapse(NetSynapse):
     """Synaptic stimulus parameters."""
-    e: float 
-    tau2: float 
-    tau1: float
+    e: float = strawberry.field(description="Reversal potential (mV)")
+    tau2: float  = strawberry.field(description="Decay time constant (ms)")
+    tau1: float = strawberry.field(description="Rise time constant (ms)")
     delay: float = 100.0       # ms
 
-@pydantic.interface(NetConnectionModel)
+@pydantic.interface(NetConnectionModel, description="Base class for net connection parameters.")
 class NetConnection:
     """Base class for net connection parameters."""
-    id: strawberry.ID 
-    weight: float | None = None
-    threshold: float | None = None 
-    delay: float | None = None
-    
-@pydantic.type(SynapticConnectionModel)
-class SynapticConnection(NetConnection):
-    net_stimulator: strawberry.ID
-    synapse: strawberry.ID
+    id: strawberry.ID  = strawberry.field(description="The unique identifier of the connection within the model.")
+    weight: float | None = strawberry.field(default=None, description="The weight of the connection.")
+    threshold: float | None = strawberry.field(default=None, description="The threshold for the connection.")
+    delay: float | None = strawberry.field(default=None, description="The delay for the connection.")
 
-@pydantic.type(NetStimulatorModel)
+@pydantic.type(SynapticConnectionModel, description="Represents a synaptic connection between two cells in the model. This will be used to specify the connections between cells in the model, where each connection has a pre-synaptic cell (the net stimulator) and a post-synaptic cell (the synapse).")
+class SynapticConnection(NetConnection):
+    net_stimulator: strawberry.ID = strawberry.field(description="The ID of the net stimulator that is the pre-synaptic cell in this connection.")
+    synapse: strawberry.ID = strawberry.field(description="The ID of the synapse that is the post-synaptic cell in this connection.")
+
+@pydantic.type(NetStimulatorModel, description="Represents a net stimulator in the model. This will be used to specify the parameters of stimulators in the model.")
 class NetStimulator:
     """Base class for net stimulation parameters."""
-    id: strawberry.ID
-    start: float = 100.0       # Start time (ms)
-    number: int = 1            # Number of spikes
-    interval: float | None = None
+    id: strawberry.ID = strawberry.field(description="The unique identifier of the stimulator within the model.")
+    start: float = strawberry.field(default=100.0, description="Start time (ms)")
+    number: int = strawberry.field(default=1, description="Number of spikes")
+    interval: float | None = strawberry.field(default=None, description="Interval between spikes (ms)")
 
 
 
-@pydantic.type(ModelConfigModel)
+@pydantic.type(ModelConfigModel, description="Represents the configuration for the model.")
 class ModelConfig:
-    cells: List[Cell] 
-    net_stimulators: List[NetStimulator]  | None
-    net_connections: List[NetConnection] | None
-    net_synapses: List[NetSynapse] | None
-    v_init: float 
-    celsius: float 
-    label: str | None = None
+    cells: List[Cell] = strawberry.field(default_factory=list, description="The list of cells in the model.")
+    net_stimulators: List[NetStimulator]  | None = strawberry.field(default=None, description="The list of net stimulators in the model.")
+    net_connections: List[NetConnection] | None = strawberry.field(default=None, description="The list of net connections in the model.")
+    net_synapses: List[NetSynapse] | None = strawberry.field(default=None, description="The list of net synapses in the model.")
+    v_init: float  = strawberry.field(description="Initial membrane potential (mV)")
+    celsius: float  = strawberry.field(description="Temperature (°C)")
+    label: str | None = strawberry.field(description="An optional label for the model configuration.")
     
     
     

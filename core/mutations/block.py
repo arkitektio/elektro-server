@@ -1,12 +1,24 @@
 from kante.types import Info
 from datalayer.datalayer import get_current_datalayer
 import strawberry
+import kante
+from typing import Any
+from pydantic import BaseModel, Field
 from core import types, models, scalars, enums
 from core.base_models.input.graphql.biophysics import BiophysicsInput
 import datetime
 
 
-@strawberry.input()
+class AnalogSignalChannelInputModel(BaseModel):
+    name: str
+    index: int
+    unit: str | None = None
+    description: str | None = None
+    color: list[int] | None = None
+    trace: Any
+
+
+@kante.pydantic_input(AnalogSignalChannelInputModel)
 class AnalogSignalChannelInput:
     name: str
     index: int
@@ -16,7 +28,17 @@ class AnalogSignalChannelInput:
     trace: scalars.TraceLike
 
 
-@strawberry.input()
+class AnalogSignalInputModel(BaseModel):
+    time_trace: Any
+    name: str | None = None
+    description: str | None = None
+    sampling_rate: float
+    t_start: float
+    unit: str | None = None
+    channels: list[AnalogSignalChannelInputModel]
+
+
+@kante.pydantic_input(AnalogSignalInputModel)
 class AnalogSignalInput:
     time_trace: scalars.TraceLike
     name: str | None = None
@@ -27,7 +49,15 @@ class AnalogSignalInput:
     channels: list[AnalogSignalChannelInput]
 
 
-@strawberry.input()
+class IrregularlySampledSignalInputModel(BaseModel):
+    times: Any
+    trace: Any
+    name: str | None = None
+    unit: str | None = None
+    description: str | None = None
+
+
+@kante.pydantic_input(IrregularlySampledSignalInputModel)
 class IrregularlySampledSignalInput:
     times: scalars.TraceLike
     trace: scalars.TraceLike
@@ -36,7 +66,17 @@ class IrregularlySampledSignalInput:
     description: str | None = None
 
 
-@strawberry.input()
+class SpikeTrainInputModel(BaseModel):
+    times: Any
+    t_start: float
+    t_stop: float
+    waveforms: Any = None
+    name: str | None = None
+    description: str | None = None
+    left_sweep: float | None = None
+
+
+@kante.pydantic_input(SpikeTrainInputModel)
 class SpikeTrainInput:
     times: scalars.TraceLike
     t_start: float
@@ -47,7 +87,15 @@ class SpikeTrainInput:
     left_sweep: float | None = None
 
 
-@strawberry.input()
+class BlockSegmentInputModel(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    analog_signals: list[AnalogSignalInputModel] = Field(default_factory=list)
+    irregularly_sampled_signals: list[IrregularlySampledSignalInputModel] = Field(default_factory=list)
+    spike_trains: list[SpikeTrainInputModel] = Field(default_factory=list)
+
+
+@kante.pydantic_input(BlockSegmentInputModel)
 class BlockSegmentInput:
     name: str | None = None
     description: str | None = None
@@ -56,7 +104,14 @@ class BlockSegmentInput:
     spike_trains: list[SpikeTrainInput] = strawberry.field(default_factory=list)
 
 
-@strawberry.input()
+class CreateBlockInputModel(BaseModel):
+    file: str | None = None
+    name: str
+    recording_time: datetime.datetime | None = None
+    segments: list[BlockSegmentInputModel] = Field(default_factory=list)
+
+
+@kante.pydantic_input(CreateBlockInputModel)
 class CreateBlockInput:
     file: strawberry.ID | None = None
     name: str
@@ -68,6 +123,7 @@ def create_block(
     info: Info,
     input: CreateBlockInput,
 ) -> types.Block:
+    parsed = input.to_pydantic()
     datalayer = get_current_datalayer()
 
     block = models.Block.objects.create(
@@ -77,14 +133,14 @@ def create_block(
             membership=info.context.request.membership,
             name="Default Dataset",
         )[0],
-        name=input.name,
-        recording_time=input.recording_time or datetime.datetime.now(),
-        origin=models.File.objects.get(id=input.file) if input.file else None,
+        name=parsed.name,
+        recording_time=parsed.recording_time or datetime.datetime.now(),
+        origin=models.File.objects.get(id=parsed.file) if parsed.file else None,
         organization=info.context.request.organization,
         creator=info.context.request.user,
     )
 
-    for segment in input.segments:
+    for segment in parsed.segments:
         segment_model = models.BlockSegment.objects.create(
             session=block,
         )
@@ -96,7 +152,7 @@ def create_block(
             ttrace = models.Trace.objects.create(
                 creator=info.context.request.user,
                 organization=info.context.request.organization,
-                name=input.name,
+                name=parsed.name,
                 store=ttrace,
             )
 
@@ -117,7 +173,7 @@ def create_block(
                 trace = models.Trace.objects.create(
                     creator=info.context.request.user,
                     organization=info.context.request.organization,
-                    name=input.name,
+                    name=parsed.name,
                     store=trace,
                 )
 
@@ -138,7 +194,7 @@ def create_block(
             time_trace = models.Trace.objects.create(
                 creator=info.context.request.user,
                 organization=info.context.request.organization,
-                name=input.name,
+                name=parsed.name,
                 store=time_trace,
             )
             trace = models.ZarrStore.objects.get(id=irregularly_sampled_signal.trace)
@@ -147,7 +203,7 @@ def create_block(
             trace = models.Trace.objects.create(
                 creator=info.context.request.user,
                 organization=info.context.request.organization,
-                name=input.name,
+                name=parsed.name,
                 store=trace,
             )
 
@@ -167,7 +223,7 @@ def create_block(
             time_trace = models.Trace.objects.create(
                 creator=info.context.request.user,
                 organization=info.context.request.organization,
-                name=input.name,
+                name=parsed.name,
                 store=time_trace,
             )
             models.SpikeTrain.objects.create(
@@ -184,7 +240,11 @@ def create_block(
     return block
 
 
-@strawberry.input
+class DeleteBlockInputModel(BaseModel):
+    id: str
+
+
+@kante.pydantic_input(DeleteBlockInputModel)
 class DeleteBlockInput:
     id: strawberry.ID
 
@@ -193,12 +253,13 @@ def delete_block(
     info: Info,
     input: DeleteBlockInput,
 ) -> strawberry.ID:
+    parsed = input.to_pydantic()
     datalayer = get_current_datalayer()
     try:
-        block = models.Block.objects.get(id=input.id)
+        block = models.Block.objects.get(id=parsed.id)
         if block.dataset.organization != info.context.request.organization:
             raise Exception("Block does not belong to your organization")
         block.delete()
-        return input.id
+        return parsed.id
     except models.Block.DoesNotExist:
         raise Exception("Block does not exist")

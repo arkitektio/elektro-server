@@ -9,7 +9,7 @@ class SectionParamMapInputModel(BaseConfig):
     param: str
     mechanism: str = Field(description="The governing mechanism")
     value: float = Field(description="The value of the parameter")
-    description: Optional[str] = Field(description="Description of the parameter")
+    description: Optional[str] = Field(default=None, description="Description of the parameter")
 
 
 class GlobalParamMapInputModel(BaseModel):

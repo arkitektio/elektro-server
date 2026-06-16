@@ -12,14 +12,24 @@ import kante
 from pydantic import BaseModel
 
 
-@strawberry.input()
+class RequestFileUploadInputModel(BaseModel):
+    key: str
+    datalayer: str
+    hash: str | None = None
+
+
+@kante.pydantic_input(RequestFileUploadInputModel)
 class RequestFileUploadInput:
     key: str
     datalayer: str
     hash: str | None = None
 
 
-@strawberry.input
+class DeleteFileInputModel(BaseModel):
+    id: str
+
+
+@kante.pydantic_input(DeleteFileInputModel)
 class DeleteFileInput:
     id: strawberry.ID
 
@@ -28,14 +38,20 @@ def delete_file(
     info: Info,
     input: DeleteFileInput,
 ) -> strawberry.ID:
+    parsed = input.to_pydantic()
     view = models.File.objects.get(
-        id=input.id,
+        id=parsed.id,
     )
     view.delete()
-    return input.id
+    return parsed.id
 
 
-@strawberry.input
+class PinFileInputModel(BaseModel):
+    id: str
+    pin: bool
+
+
+@kante.pydantic_input(PinFileInputModel)
 class PinFileInput:
     id: strawberry.ID
     pin: bool
@@ -103,7 +119,11 @@ def create_mod_environment(
     return environment
 
 
-@strawberry.input
+class DeleteMechanismInputModel(BaseModel):
+    id: str
+
+
+@kante.pydantic_input(DeleteMechanismInputModel)
 class DeleteMechanismInput:
     id: strawberry.ID
 
@@ -112,6 +132,7 @@ def delete_mechanism(
     info: Info,
     input: DeleteMechanismInput,
 ) -> strawberry.ID:
-    item = models.Mechanism.objects.get(id=input.id)
+    parsed = input.to_pydantic()
+    item = models.Mechanism.objects.get(id=parsed.id)
     item.delete()
-    return input.id
+    return parsed.id

@@ -46,3 +46,19 @@ DATABASE_ROUTERS = []
 
 # Use in-memory channel layer for tests instead of Redis
 CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+
+# Point the datalayer at the MinIO service from tests/integration/docker-compose.yaml
+# (buckets + user are provisioned by the `initc` init container / configs/minio.yaml).
+# Datalayer() reads this dict (see datalayer/datalayer.py: DatalayerConfig).
+DATALAYER = {
+    "access_key": "mikro_access_key",
+    "secret_key": "mikro_secret_key",
+    "host": "localhost",
+    "port": 6890,
+    "protocol": "http",
+    "region": "us-east-1",
+    "zarr": {"bucket": "zarr"},
+    "parquet": {"bucket": "parquet"},
+    "media": {"bucket": "media"},
+    "bigfile": {"bucket": "media"},
+}

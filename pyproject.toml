@@ -43,8 +43,11 @@ dev = [
     "dokker>=2.5",
     "moto>=5.1.11",
     "mypy>=1.15.0",
+    "numpy>=2.4.6",
+    "obstore>=0.10.1",
     "pytest-asyncio>=1.1.0",
     "pytest-django>=4.11.1",
+    "zarr>=3",
 ]
 
 [tool.django-stubs]

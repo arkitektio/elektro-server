@@ -1,7 +1,9 @@
 from kante.types import Info
 import strawberry
+import kante
 from core import types, models, scalars, enums
 from core.base_models.input.graphql.model import ModelConfigInput
+from core.base_models.input.model import ModelConfigInputModel
 from pydantic import BaseModel
 import hashlib
 import json
@@ -13,7 +15,7 @@ import strawberry
 from operator import itemgetter
 
 
-def get_model_hash(model_instance: ModelConfigInput, float_precision: int = 5) -> str:
+def get_model_hash(model_instance, float_precision: int = 5) -> str:
     """
     Generates a deterministic SHA256 hash for a Strawberry/Pydantic model.
 
@@ -66,11 +68,19 @@ def get_model_hash(model_instance: ModelConfigInput, float_precision: int = 5) -
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-@strawberry.input()
+class CreateNeuronModelInputModel(BaseModel):
+    name: str
+    environment: str | None = None
+    parent: str | None = None
+    description: str | None = None
+    config: ModelConfigInputModel
+
+
+@kante.pydantic_input(CreateNeuronModelInputModel)
 class CreateNeuronModelInput:
     name: str
-    environment: strawberry.ID | None
-    parent: strawberry.ID | None
+    environment: strawberry.ID | None = None
+    parent: strawberry.ID | None = None
     description: str | None = None
     config: ModelConfigInput
 
@@ -82,13 +92,15 @@ def create_neuron_model(
     info: Info,
     input: CreateNeuronModelInput,
 ) -> types.NeuronModel:
-    if input.environment is not None:
-        environment = models.ModEnvironment.objects.get(id=input.environment)
+    parsed = input.to_pydantic()
+
+    if parsed.environment is not None:
+        environment = models.ModEnvironment.objects.get(id=parsed.environment)
     else:
         environment = None
 
     if environment is not None:
-        for cell in input.config.cells:
+        for cell in parsed.config.cells:
             if cell.biophysics is not None:
                 for comp in cell.biophysics.compartments:
                     for mech in comp.mechanisms:
@@ -96,15 +108,20 @@ def create_neuron_model(
                             if mech not in BUILT_IN_MECHANISMS:
                                 raise ValueError(f"Mechanism with name {mech} not found in environment {environment.name}. And not a built-in mechanism.")
 
+    config_dict = parsed.config.model_dump(mode="json")
+
     model, _ = models.NeuronModel.objects.update_or_create(
+        # Hash the strawberry config object (unchanged from before this refactor)
+        # so dedup keeps matching pre-existing rows. json_model uses model_dump(),
+        # which is byte-identical to the previous strawberry.asdict() output.
         hash=get_model_hash(input.config),
         defaults=dict(
             creator=info.context.request.user,
-            parent=input.parent,
-            environment_id=input.environment,
-            description=input.description,
-            name=input.name,
-            json_model=strawberry.asdict(input.config),
+            parent=parsed.parent,
+            environment_id=parsed.environment,
+            description=parsed.description,
+            name=parsed.name,
+            json_model=config_dict,
         ),
     )
 

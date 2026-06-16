@@ -1,5 +1,8 @@
 from kante.types import Info
 import strawberry
+import kante
+from typing import Any
+from pydantic import BaseModel
 
 from core import types, models, scalars
 from datalayer.datalayer import get_current_datalayer
@@ -7,14 +10,24 @@ import json
 from django.conf import settings
 
 
-@strawberry.input()
+class RequestFileUploadInputModel(BaseModel):
+    key: str
+    datalayer: str
+    hash: str | None = None
+
+
+@kante.pydantic_input(RequestFileUploadInputModel)
 class RequestFileUploadInput:
     key: str
     datalayer: str
     hash: str | None = None
 
 
-@strawberry.input
+class DeleteFileInputModel(BaseModel):
+    id: str
+
+
+@kante.pydantic_input(DeleteFileInputModel)
 class DeleteFileInput:
     id: strawberry.ID
 
@@ -23,14 +36,20 @@ def delete_file(
     info: Info,
     input: DeleteFileInput,
 ) -> strawberry.ID:
+    parsed = input.to_pydantic()
     view = models.File.objects.get(
-        id=input.id,
+        id=parsed.id,
     )
     view.delete()
-    return input.id
+    return parsed.id
 
 
-@strawberry.input
+class PinFileInputModel(BaseModel):
+    id: str
+    pin: bool
+
+
+@kante.pydantic_input(PinFileInputModel)
 class PinFileInput:
     id: strawberry.ID
     pin: bool
@@ -43,7 +62,14 @@ def pin_file(
     raise NotImplementedError("TODO")
 
 
-@strawberry.input
+class FromFileLikeModel(BaseModel):
+    name: str
+    file: Any
+    origins: list[str] | None = None
+    dataset: str | None = None
+
+
+@kante.pydantic_input(FromFileLikeModel)
 class FromFileLike:
     name: str
     file: scalars.FileLike
@@ -55,28 +81,34 @@ def from_file_like(
     info: Info,
     input: FromFileLike,
 ) -> types.File:
-    store = models.BigFileStore.objects.get(id=input.file)
+    parsed = input.to_pydantic()
+    store = models.BigFileStore.objects.get(id=parsed.file)
     store.fill_info()
 
     table = models.File.objects.create(
-        dataset_id=input.dataset,
+        dataset_id=parsed.dataset,
         creator=info.context.request.user,
-        name=input.name,
+        name=parsed.name,
         store=store,
     )
 
     return table
 
 
-@strawberry.input
-class DeleteFileInput:
+class DeleteEraInputModel(BaseModel):
+    id: str
+
+
+@kante.pydantic_input(DeleteEraInputModel)
+class DeleteEraInput:
     id: strawberry.ID
 
 
 def delete_era(
     info: Info,
-    input: DeleteFileInput,
+    input: DeleteEraInput,
 ) -> strawberry.ID:
-    item = models.File.objects.get(id=input.id)
+    parsed = input.to_pydantic()
+    item = models.File.objects.get(id=parsed.id)
     item.delete()
-    return input.id
+    return parsed.id

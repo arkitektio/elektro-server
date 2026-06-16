@@ -1,9 +1,14 @@
+import json
 import os
 import time
+import uuid
+from types import SimpleNamespace
 
 import boto3
 import psycopg
 import pytest
+from asgiref.sync import sync_to_async
+from botocore.config import Config
 from moto import mock_aws
 
 from authentikate.models import Client, Organization, User, Membership
@@ -50,6 +55,8 @@ def backend_stack():
         e.down()
 
         e.up()
+        
+        e.run("initc", command="python init.py")
 
         deadline = time.monotonic() + 30
         while True:
@@ -196,3 +203,237 @@ def simple_api_context(db, backend_stack) -> HttpContext:
     request.set_membership(membership)  # type: ignore
 
     return HttpContext(request=request, response=TemporalResponse(), headers={"Authorization": "Bearer test"}, type="http")
+
+
+# ---------------------------------------------------------------------------
+# Mutation-test helpers: execute against the schema + build prerequisite rows.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def aexecute(authenticated_context):
+    """Run a GraphQL document against the schema, defaulting to the authed context."""
+    from elektro_server.schema import schema
+
+    async def _run(query, variables=None, context=None):
+        return await schema.execute(
+            query,
+            variable_values=variables or {},
+            context_value=context or authenticated_context,
+        )
+
+    return _run
+
+
+# Minimal valid Zarr v3 array metadata — enough for Datalayer.get_zarr_metadata.
+ZARR_V3_METADATA = {
+    "zarr_format": 3,
+    "node_type": "array",
+    "shape": [4, 4],
+    "data_type": "float64",
+    "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 4]}},
+    "chunk_key_encoding": {"name": "default"},
+    "fill_value": 0,
+    "codecs": [],
+}
+
+
+@pytest.fixture
+def minio_client(backend_stack):
+    """boto3 S3 client pointed at the compose MinIO (see settings_test.DATALAYER)."""
+    from django.conf import settings
+
+    dl = settings.DATALAYER
+    client = boto3.client(
+        "s3",
+        aws_access_key_id=dl["access_key"],
+        aws_secret_access_key=dl["secret_key"],
+        endpoint_url=f"{dl['protocol']}://{dl['host']}:{dl['port']}",
+        region_name=dl["region"],
+        config=Config(signature_version="s3v4"),
+    )
+    # `initc` provisions these, but create-if-missing guards against init races.
+    for bucket in ("zarr", "media", "parquet"):
+        try:
+            client.create_bucket(Bucket=bucket)
+        except Exception:
+            pass
+    return client
+
+
+@pytest.fixture
+def zarr_store(authenticated_context, minio_client):
+    """Factory: create a ZarrStore row and (by default) seed its zarr.json in MinIO."""
+    from datalayer.models import ZarrStore
+
+    @sync_to_async
+    def _make(context=None, seed=True):
+        ctx = context or authenticated_context
+        key = uuid.uuid4().hex
+        store = ZarrStore.objects.create(
+            organization=ctx.request.organization,
+            key=key,
+            bucket="zarr",
+        )
+        if seed:
+            minio_client.put_object(
+                Bucket="zarr",
+                Key=f"{key}/zarr.json",
+                Body=json.dumps(ZARR_V3_METADATA).encode("utf-8"),
+            )
+        return store
+
+    return _make
+
+
+@pytest.fixture
+def bigfile_store(authenticated_context):
+    """Factory: create a BigFileStore row (fill_info is local, no S3 needed)."""
+    from datalayer.models import BigFileStore
+
+    @sync_to_async
+    def _make(context=None):
+        ctx = context or authenticated_context
+        return BigFileStore.objects.create(
+            organization=ctx.request.organization,
+            key=uuid.uuid4().hex,
+            bucket="media",
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_trace(authenticated_context):
+    """Factory: create a Trace row (store is nullable, so no object store needed)."""
+    from core.models import Trace
+
+    @sync_to_async
+    def _make(context=None, name="trace", dataset=None):
+        ctx = context or authenticated_context
+        return Trace.objects.create(
+            name=name,
+            dataset=dataset,
+            creator=ctx.request.user,
+            organization=ctx.request.organization,
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_neuron_model(authenticated_context):
+    """Factory: create a NeuronModel row (unique hash per row)."""
+    from core.models import NeuronModel
+
+    @sync_to_async
+    def _make(context=None, name="NeuronModel", environment=None, json_model=None):
+        ctx = context or authenticated_context
+        return NeuronModel.objects.create(
+            name=name,
+            hash=uuid.uuid4().hex,
+            json_model=json_model if json_model is not None else {},
+            creator=ctx.request.user,
+            environment=environment,
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_simulation_chain(authenticated_context):
+    """Factory: NeuronModel -> Trace -> Simulation -> Recording + Stimulus.
+
+    Returns a namespace with .neuron_model/.time_trace/.simulation/.recording/.stimulus
+    so experiment tests can reference real Stimulus/Recording ids without an object store.
+    """
+    from core import models
+
+    @sync_to_async
+    def _make(context=None):
+        ctx = context or authenticated_context
+        nm = models.NeuronModel.objects.create(
+            name="NeuronModel", hash=uuid.uuid4().hex, json_model={}, creator=ctx.request.user
+        )
+        time_trace = models.Trace.objects.create(
+            name="time", creator=ctx.request.user, organization=ctx.request.organization
+        )
+        sim = models.Simulation.objects.create(
+            model=nm, time_trace=time_trace, name="sim", duration=400.0, creator=ctx.request.user
+        )
+        rec = models.Recording.objects.create(
+            simulation=sim, trace=time_trace, kind="VOLTAGE", cell="soma", location="0", position="0.5"
+        )
+        stim = models.Stimulus.objects.create(
+            simulation=sim, trace=time_trace, kind="CURRENT", cell="soma", location="0", position="0.5"
+        )
+        return SimpleNamespace(
+            neuron_model=nm, time_trace=time_trace, simulation=sim, recording=rec, stimulus=stim
+        )
+
+    return _make
+
+
+@pytest.fixture
+def upload_zarr_to_grant(backend_stack):
+    """Write a real Zarr v3 array straight to MinIO through obstore, using the
+    credentials/bucket/key returned by a requestZarrUpload grant."""
+    from django.conf import settings
+
+    @sync_to_async
+    def _upload(grant, shape=(4, 4), chunks=(4, 4)):
+        import numpy as np
+        import zarr
+        from obstore.store import S3Store
+        from zarr.storage import ObjectStore
+
+        dl = settings.DATALAYER
+        kwargs = dict(
+            prefix=grant["key"],
+            access_key_id=grant["accessKey"],
+            secret_access_key=grant["secretKey"],
+            endpoint=f"{dl['protocol']}://{dl['host']}:{dl['port']}",
+            region=dl.get("region", "us-east-1"),
+            virtual_hosted_style_request=False,  # MinIO uses path-style addressing
+            client_options={"allow_http": True},  # http:// endpoint
+        )
+        if grant.get("sessionToken"):
+            kwargs["session_token"] = grant["sessionToken"]
+
+        s3 = S3Store(grant["bucket"], **kwargs)
+        arr = zarr.create_array(store=ObjectStore(s3), shape=shape, chunks=chunks, dtype="float64")
+        arr[:] = np.arange(int(np.prod(shape)), dtype="float64").reshape(shape)
+
+    return _upload
+
+
+@pytest.fixture
+def read_zarr_from_grant(backend_stack):
+    """Read a Zarr array back from MinIO through obstore using the credentials/
+    bucket/key returned by a requestZarrAccess grant. Returns the numpy array."""
+    from django.conf import settings
+
+    @sync_to_async
+    def _read(grant):
+        import zarr
+        from obstore.store import S3Store
+        from zarr.storage import ObjectStore
+
+        dl = settings.DATALAYER
+        kwargs = dict(
+            prefix=grant["key"],
+            access_key_id=grant["accessKey"],
+            secret_access_key=grant["secretKey"],
+            endpoint=f"{dl['protocol']}://{dl['host']}:{dl['port']}",
+            region=dl.get("region", "us-east-1"),
+            virtual_hosted_style_request=False,
+            client_options={"allow_http": True},
+        )
+        if grant.get("sessionToken"):
+            kwargs["session_token"] = grant["sessionToken"]
+
+        s3 = S3Store(grant["bucket"], **kwargs)
+        arr = zarr.open_array(store=ObjectStore(s3, read_only=True), mode="r")
+        return arr[:]
+
+    return _read

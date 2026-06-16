@@ -11,7 +11,7 @@ class SectionParamMapInput:
     param: str
     mechanism: str = strawberry.field(description="The governing mechanism")
     value: float = strawberry.field(description="The value of the parameter")
-    description: Optional[str] = strawberry.field(None, description="Description of the parameter")
+    description: Optional[str] = strawberry.field(default=None, description="Description of the parameter")
 
 
 @pydantic.input(GlobalParamMapInputModel)

@@ -1,5 +1,8 @@
 from kante.types import Info
 import strawberry
+import kante
+from typing import Any
+from pydantic import BaseModel, Field
 
 from core import types, models, scalars
 from datalayer.datalayer import get_current_datalayer
@@ -22,7 +25,12 @@ def relate_to_dataset(
     return image
 
 
-@strawberry.input
+class PinImageInputModel(BaseModel):
+    id: str
+    pin: bool
+
+
+@kante.pydantic_input(PinImageInputModel)
 class PinImageInput:
     id: strawberry.ID
     pin: bool
@@ -35,7 +43,13 @@ def pin_trace(
     raise NotImplementedError("TODO")
 
 
-@strawberry.input
+class UpdateTraceInputModel(BaseModel):
+    id: str
+    tags: list[str] | None = None
+    name: str | None = None
+
+
+@kante.pydantic_input(UpdateTraceInputModel)
 class UpdateTraceInput:
     id: strawberry.ID
     tags: list[str] | None = None
@@ -46,20 +60,25 @@ def update_trace(
     info: Info,
     input: UpdateTraceInput,
 ) -> types.Trace:
-    image = models.Trace.objects.get(id=input.id)
+    parsed = input.to_pydantic()
+    image = models.Trace.objects.get(id=parsed.id)
 
-    if input.tags:
-        image.tags.add(*input.tags)
+    if parsed.tags:
+        image.tags.add(*parsed.tags)
 
-    if input.name:
-        image.name = input.name
+    if parsed.name:
+        image.name = parsed.name
 
     image.save()
 
     return image
 
 
-@strawberry.input()
+class DeleteTraceInputModel(BaseModel):
+    id: str
+
+
+@kante.pydantic_input(DeleteTraceInputModel)
 class DeleteTraceInput:
     id: strawberry.ID
 
@@ -68,12 +87,20 @@ def delete_trace(
     info: Info,
     input: DeleteTraceInput,
 ) -> strawberry.ID:
-    item = models.Trace.objects.get(id=input.id)
+    parsed = input.to_pydantic()
+    item = models.Trace.objects.get(id=parsed.id)
     item.delete()
-    return input.id
+    return parsed.id
 
 
-@strawberry.input(description="Input type for creating an image from an array-like object")
+class FromTraceLikeInputModel(BaseModel):
+    array: Any = Field(description="The array-like object to create the image from")
+    name: str = Field(description="The name of the image")
+    dataset: str | None = Field(default=None, description="Optional dataset ID to associate the image with")
+    tags: list[str] | None = Field(default=None, description="Optional list of tags to associate with the image")
+
+
+@kante.pydantic_input(FromTraceLikeInputModel, description="Input type for creating an image from an array-like object")
 class FromTraceLikeInput:
     array: ArrayLike = strawberry.field(description="The array-like object to create the image from")
     name: str = strawberry.field(description="The name of the image")
@@ -85,25 +112,24 @@ def from_trace_like(
     info: Info,
     input: FromTraceLikeInput,
 ) -> types.Trace:
+    parsed = input.to_pydantic()
     datalayer = get_current_datalayer()
 
-    store = models.ZarrStore.objects.get(id=input.array)
+    store = models.ZarrStore.objects.get(id=parsed.array)
     store.fill_info(datalayer)
 
-    dataset = input.dataset or get_trace_dataset(info)
+    dataset = parsed.dataset or get_trace_dataset(info)
 
     image = models.Trace.objects.create(
         dataset_id=dataset,
         creator=info.context.request.user,
         organization=info.context.request.organization,
-        name=input.name,
+        name=parsed.name,
         store=store,
     )
 
-    if input.tags:
-        image.tags.add(*input.tags)
-
-    print(input)
+    if parsed.tags:
+        image.tags.add(*parsed.tags)
 
     return image
 

@@ -23,7 +23,7 @@ def _config(cells=None):
     return {
         "cells": cells or [],
         "vInit": "-67 mV",
-        "celsius": 36.0,
+        "temperature": "36 degC",
         "environments": [],
     }
 

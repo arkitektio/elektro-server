@@ -54,7 +54,7 @@ class ModelConfig:
     net_connections: List[NetConnection] | None = strawberry.field(default=None, description="The list of net connections in the model.")
     net_synapses: List[NetSynapse] | None = strawberry.field(default=None, description="The list of net synapses in the model.")
     v_init: quantities.ElectricPotential = strawberry.field(description="Initial membrane potential")
-    celsius: float  = strawberry.field(description="Temperature (°C)")
+    temperature: quantities.Temperature = strawberry.field(description="Simulation bath temperature")
     label: str | None = strawberry.field(description="An optional label for the model configuration.")
     
     

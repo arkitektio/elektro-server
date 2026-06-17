@@ -5,24 +5,27 @@ from pydantic import BaseModel, Field
 
 
 class SectionParamMapModel(BaseModel):
-    param: str
+    """A section parameter mapping for a biophysics model. (this will be set on the mechanisms of the compartments of the model)"""
+    param: str = Field(description="The name of the parameter to set.")
     mechanism: str = Field(description="The governing mechanism")
     value: float = Field(description="The value of the parameter")
     description: Optional[str] = Field(description="Description of the parameter")
-    
-    
-    
-    
+
+
+
+
 class GlobalParamMapModel(BaseModel):
-    param: str
-    value: float
-    description: Optional[str] = None
+    """A global parameter mapping for a biophysics model. (this will be set on non-mechanistic parameters (i.e PAS) of the model)"""
+    param: str = Field(description="The name of the parameter to set.")
+    value: float = Field(description="The value of the parameter")
+    description: Optional[str] = Field(default=None, description="Description of the parameter")
 
 class CompartmentModel(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    mechanisms: Set[str] = Field(default_factory=set)
-    section_params: List[SectionParamMapModel] = Field(default_factory=dict)
-    global_params: List[GlobalParamMapModel] = Field(default_factory=dict)
+    """A compartment in a biophysics model."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="The unique identifier of the compartment within the model.")
+    mechanisms: Set[str] = Field(default_factory=set, description="The set of mechanisms active in this compartment.")
+    section_params: List[SectionParamMapModel] = Field(default_factory=dict, description="The mechanism-specific parameters applied to the sections of this compartment.")
+    global_params: List[GlobalParamMapModel] = Field(default_factory=dict, description="The non-mechanistic (global) parameters applied to this compartment.")
     
     
     def section_param_for_key(self, name):

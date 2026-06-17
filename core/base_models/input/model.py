@@ -9,47 +9,48 @@ from core import enums
 class SynapseInputModel(BaseModel):
     """Synaptic stimulus parameters. Quantities stored as nano-base ints."""
 
-    kind: enums.SynapseKind = Field(default=enums.SynapseKind.EXP2SYN)
-    e: int          # femtovolts
-    tau2: int       # picoseconds
-    tau1: int       # picoseconds
-    delay: int = 100_000_000_000   # picoseconds (100 ms)
-    cell: str
-    location: str
-    position: float = 0.5  # Between 0 and 1
+    kind: enums.SynapseKind = Field(default=enums.SynapseKind.EXP2SYN, description="The kind of synapse model to use.")
+    e: int = Field(description="Reversal potential.")          # femtovolts
+    tau2: int = Field(description="Decay time constant.")      # picoseconds
+    tau1: int = Field(description="Rise time constant.")       # picoseconds
+    delay: int = Field(default=100_000_000_000, description="Delay before the synapse activates.")   # picoseconds (100 ms)
+    cell: str = Field(description="The ID of the cell this synapse is located on.")
+    location: str = Field(description="The location on the cell where the synapse is located. This can be a section name, a segment number, or a more complex specification depending on the model.")
+    position: float = Field(default=0.5, description="The position along the section where the synapse is located, specified as a value between 0 and 1. This is only relevant if the location is specified as a section name.")
 
 
 class NetConnectionInputModel(BaseModel):
-    """Base class for net connection parameters. Quantities stored as nano-base ints."""
+    """Net connection parameters. Quantities stored as nano-base ints."""
 
-    kind: enums.ConnectionKind = Field(default=enums.ConnectionKind.SYNAPSE)
-    id: str
-    weight: int | None = None      # femtosiemens
-    threshold: int | None = None   # femtovolts
-    delay: int | None = None       # picoseconds
-    net_stimulator: Optional[str] = None
-    synapse: Optional[str] = None
+    kind: enums.ConnectionKind = Field(default=enums.ConnectionKind.SYNAPSE, description="The kind of connection to create.")
+    id: str = Field(description="The unique identifier of the connection within the model.")
+    weight: int | None = Field(default=None, description="The weight (conductance) of the connection.")      # femtosiemens
+    threshold: int | None = Field(default=None, description="The threshold for the connection.")   # femtovolts
+    delay: int | None = Field(default=None, description="The delay for the connection.")       # picoseconds
+    net_stimulator: Optional[str] = Field(default=None, description="The ID of the net stimulator that is the pre-synaptic cell in this connection.")
+    synapse: Optional[str] = Field(default=None, description="The ID of the synapse that is the post-synaptic cell in this connection.")
 
 
 class NetStimulatorInputModel(BaseModel):
-    """Base class for net stimulation parameters. Quantities stored as nano-base ints."""
+    """Net stimulation parameters. Quantities stored as nano-base ints."""
 
-    id: str
-    start: int = 100_000_000_000  # picoseconds (100 ms)
-    number: int = 1  # Number of spikes
-    interval: int | None = None    # picoseconds
+    id: str = Field(description="The unique identifier of the stimulator within the model.")
+    start: int = Field(default=100_000_000_000, description="Start time of the first spike.")  # picoseconds (100 ms)
+    number: int = Field(default=1, description="Number of spikes to emit.")  # Number of spikes
+    interval: int | None = Field(default=None, description="Interval between spikes.")    # picoseconds
     net_stimulator: str
     synapse: str
 
 
 class ModelConfigInputModel(BaseModel):
-    cells: List[CellInputModel] = Field(default_factory=list)
-    net_stimulators: List[NetStimulatorInputModel] = Field(default_factory=list)
-    net_connections: List[NetConnectionInputModel] = Field(default_factory=list)
-    net_synapses: List[SynapseInputModel] = Field(default_factory=list)
-    v_init: int = -67_000_000_000_000   # femtovolts (-67 mV)
-    celsius: float = 36.0
-    label: Optional[str] = None
+    """Configuration for a model."""
+    cells: List[CellInputModel] = Field(default_factory=list, description="The list of cells in the model.")
+    net_stimulators: List[NetStimulatorInputModel] = Field(default_factory=list, description="The list of net stimulators in the model.")
+    net_connections: List[NetConnectionInputModel] = Field(default_factory=list, description="The list of net connections in the model.")
+    net_synapses: List[SynapseInputModel] = Field(default_factory=list, description="The list of net synapses in the model.")
+    v_init: int = Field(default=-67_000_000_000_000, description="Initial membrane potential.")   # femtovolts (-67 mV)
+    temperature: int = Field(default=309_150_000_000, description="Simulation bath temperature.")   # nanokelvin (36 °C)
+    label: Optional[str] = Field(default=None, description="An optional label for the model configuration.")
 
     @model_validator(mode="after")
     def check_cells(cls, self: "ModelConfigInputModel") -> "ModelConfigInputModel":

@@ -198,6 +198,7 @@ class NeuronModel:
     environment: ModEnvironment
     model_collections: list[ModelCollection] | None
     simulations: List["Simulation"] = strawberry_django.field()
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
     @strawberry_django.field()
     def config(self, info: Info) -> "ModelConfig":
@@ -233,6 +234,7 @@ class Experiment:
     created_at: datetime.datetime
     recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
     stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, ordering=filters.SimulationOrder, pagination=True)
@@ -379,12 +381,14 @@ class AnalogSignal(Signal):
     unit: str | None
     time_trace: "Trace"
     channels: List[AnalogSignalChannel] = strawberry_django.field()
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @strawberry_django.type(models.SpikeTrain, filters=filters.SpikeTrainFilter, ordering=filters.SpikeTrainOrder, pagination=True)
 class SpikeTrain(Signal):
     id: auto
     trace: "Trace"
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @strawberry_django.type(models.IrregularlySampledSignal, filters=filters.IrregularlySampledSignalFilter, ordering=filters.IrregularlySampledSignalOrder, pagination=True)
@@ -392,6 +396,7 @@ class IrregularlySampledSignal(Signal):
     id: auto
     trace: "Trace"
     unit: str | None
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @strawberry_django.type(models.Trace, filters=filters.TraceFilter, ordering=filters.TraceOrder, pagination=True)

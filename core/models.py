@@ -259,6 +259,7 @@ class NeuronModel(models.Model):
         related_name="pinned_models",
         help_text="The users that have pinned the model",
     )
+    provenance = ProvenanceField()
 
 
 class Experiment(models.Model):
@@ -408,6 +409,7 @@ class BlockSegment(models.Model):
     )
     start_time = QuantityField(base_unit="picosecond", help_text="The start time of the segment, stored in picoseconds", null=True, blank=True)
     end_time = QuantityField(base_unit="picosecond", help_text="The end time of the segment, stored in picoseconds", null=True, blank=True)
+    provenance = ProvenanceField()
 
 
 class AnalogSignal(models.Model):

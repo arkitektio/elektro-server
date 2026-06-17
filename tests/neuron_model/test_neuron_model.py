@@ -24,7 +24,6 @@ def _config(cells=None):
         "cells": cells or [],
         "vInit": "-67 mV",
         "temperature": "36 degC",
-        "environments": [],
     }
 
 

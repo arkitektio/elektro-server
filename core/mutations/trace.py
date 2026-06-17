@@ -137,4 +137,4 @@ def from_trace_like(
 
 
 def get_trace_dataset(info: Info) -> models.Dataset:
-    return models.Dataset.objects.get_or_create(organization=info.context.request.organization, creator=info.context.request.user, name="Default Dataset")[0]
+    return models.Dataset.objects.get_or_create(organization=info.context.request.organization, creator=info.context.request.user, membership=info.context.request.membership, name="Default Dataset")[0]

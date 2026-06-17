@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from core import types, models, scalars
+from core.guards import enforce_delete
 from datalayer.datalayer import get_current_datalayer
 import json
 from django.conf import settings
@@ -89,6 +90,7 @@ def delete_trace(
 ) -> strawberry.ID:
     parsed = input.to_pydantic()
     item = models.Trace.objects.get(id=parsed.id)
+    enforce_delete(info, item)
     item.delete()
     return parsed.id
 

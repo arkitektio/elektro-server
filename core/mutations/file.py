@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from core import types, models, scalars
+from core.guards import enforce_delete
 from datalayer.datalayer import get_current_datalayer
 import json
 from django.conf import settings
@@ -40,6 +41,7 @@ def delete_file(
     view = models.File.objects.get(
         id=parsed.id,
     )
+    enforce_delete(info, view)
     view.delete()
     return parsed.id
 

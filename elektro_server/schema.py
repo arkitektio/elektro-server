@@ -264,6 +264,30 @@ class Mutation:
     create_neuron_model = strawberry_django.mutation(resolver=mutations.create_neuron_model, description="Create a new neuron model")
     create_simulation = strawberry_django.mutation(resolver=mutations.create_simulation, description="Create a new simulsation")
 
+    # --- Guarded deletes ---------------------------------------------------
+    # One delete per model. Each enforces the deletion guard (core.guards):
+    # admins, the original task assigner, or the (non-bot) creator may delete;
+    # sub-objects defer the check to their governing anchor.
+    delete_instrument = strawberry_django.mutation(resolver=mutations.delete_instrument, description="Delete an existing instrument")
+    delete_model_collection = strawberry_django.mutation(resolver=mutations.delete_model_collection, description="Delete an existing model collection")
+    delete_mod_environment = strawberry_django.mutation(resolver=mutations.delete_mod_environment, description="Delete an existing mod environment")
+    delete_mechanism = strawberry_django.mutation(resolver=mutations.delete_mechanism, description="Delete an existing mechanism")
+    delete_neuron_model = strawberry_django.mutation(resolver=mutations.delete_neuron_model, description="Delete an existing neuron model")
+    delete_experiment = strawberry_django.mutation(resolver=mutations.delete_experiment, description="Delete an existing experiment")
+    delete_experiment_recording_view = strawberry_django.mutation(resolver=mutations.delete_experiment_recording_view, description="Delete an existing experiment recording view")
+    delete_experiment_stimulus_view = strawberry_django.mutation(resolver=mutations.delete_experiment_stimulus_view, description="Delete an existing experiment stimulus view")
+    delete_block_group = strawberry_django.mutation(resolver=mutations.delete_block_group, description="Delete an existing block group")
+    delete_block_segment = strawberry_django.mutation(resolver=mutations.delete_block_segment, description="Delete an existing block segment")
+    delete_analog_signal = strawberry_django.mutation(resolver=mutations.delete_analog_signal, description="Delete an existing analog signal")
+    delete_analog_signal_channel = strawberry_django.mutation(resolver=mutations.delete_analog_signal_channel, description="Delete an existing analog signal channel")
+    delete_irregularly_sampled_signal = strawberry_django.mutation(resolver=mutations.delete_irregularly_sampled_signal, description="Delete an existing irregularly sampled signal")
+    delete_spike_train = strawberry_django.mutation(resolver=mutations.delete_spike_train, description="Delete an existing spike train")
+    delete_simulation = strawberry_django.mutation(resolver=mutations.delete_simulation, description="Delete an existing simulation")
+    delete_stimulus = strawberry_django.mutation(resolver=mutations.delete_stimulus, description="Delete an existing stimulus")
+    delete_recording = strawberry_django.mutation(resolver=mutations.delete_recording, description="Delete an existing recording")
+    delete_view_collection = strawberry_django.mutation(resolver=mutations.delete_view_collection, description="Delete an existing view collection")
+    delete_timeline_view = strawberry_django.mutation(resolver=mutations.delete_timeline_view, description="Delete an existing timeline view")
+
     from_file_like = strawberry_django.mutation(
         resolver=mutations.from_file_like,
         description="Create a file from file-like data",

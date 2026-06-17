@@ -32,7 +32,27 @@ from .simulation import *
 from .experiment import *
 from .model_collection import *
 from .block import delete_block
-from .environment import create_mod_environment
+from .environment import create_mod_environment, delete_mechanism
+from .delete import (
+    delete_instrument,
+    delete_model_collection,
+    delete_mod_environment,
+    delete_neuron_model,
+    delete_experiment,
+    delete_experiment_recording_view,
+    delete_experiment_stimulus_view,
+    delete_block_group,
+    delete_block_segment,
+    delete_analog_signal,
+    delete_analog_signal_channel,
+    delete_irregularly_sampled_signal,
+    delete_spike_train,
+    delete_simulation,
+    delete_stimulus,
+    delete_recording,
+    delete_view_collection,
+    delete_timeline_view,
+)
 
 __all__ = [
     "from_trace_like",
@@ -53,4 +73,23 @@ __all__ = [
     "release_images_from_dataset",
     "put_files_in_dataset",
     "delete_block",
+    "delete_mechanism",
+    "delete_instrument",
+    "delete_model_collection",
+    "delete_mod_environment",
+    "delete_neuron_model",
+    "delete_experiment",
+    "delete_experiment_recording_view",
+    "delete_experiment_stimulus_view",
+    "delete_block_group",
+    "delete_block_segment",
+    "delete_analog_signal",
+    "delete_analog_signal_channel",
+    "delete_irregularly_sampled_signal",
+    "delete_spike_train",
+    "delete_simulation",
+    "delete_stimulus",
+    "delete_recording",
+    "delete_view_collection",
+    "delete_timeline_view",
 ]

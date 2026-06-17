@@ -8,7 +8,8 @@ a per-quantity canonical sub-unit** (``round(value_in_reference * scale)``),
 chosen small enough for electrophysiology — picoseconds, femtovolts,
 femtoamps, attofarads, .... This is exact (no float drift) and, as a Python
 ``int`` / BigInteger, lossless across any realistic range. On the way out it
-serializes back to the reference unit as a compact Pint string.
+serializes to a compact Pint string, rescaled to the SI prefix with the fewest
+leading/trailing zeros (``"5 ms"``, ``"-65 mV"``, ``"1 Hz"``).
 
 The subclasses double as field annotations; each registers its GraphQL scalar
 into :data:`SCALAR_MAP`, which is merged into the schema's
@@ -55,7 +56,10 @@ def _build_scalar(cls: type["PintQuantity"]) -> ScalarDefinition:
             quantity = value.to(reference_unit)
         else:  # an int expressed in the canonical sub-unit (reference / scale)
             quantity = (value / scale) * ureg(reference_unit)
-        return f"{quantity:~}"
+        # Rescale to the SI prefix with the fewest leading/trailing zeros, then
+        # format the magnitude with `g` to drop trailing zeros / the ".0".
+        quantity = quantity.to_compact()
+        return f"{quantity:~g}"
 
     return strawberry.scalar(
         name=name,

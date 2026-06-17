@@ -4,6 +4,7 @@ import kante
 from typing import Any
 from pydantic import BaseModel, Field
 from core import types, models, scalars, enums
+from core.guards import enforce_delete
 from strawberry import ID
 
 
@@ -55,6 +56,7 @@ def delete_roi(
 ) -> strawberry.ID:
     parsed = input.to_pydantic()
     item = models.ROI.objects.get(id=parsed.id)
+    enforce_delete(info, item)
     item.delete()
     return parsed.id
 

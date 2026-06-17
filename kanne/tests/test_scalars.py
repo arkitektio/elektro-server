@@ -61,10 +61,14 @@ def test_temperature_converts_offset_units():
     assert _parse(Temperature, "37 degC") == 310_150_000_000
 
 
-def test_serialize_returns_reference_unit_compact():
-    assert _serialize(Duration, 5_000_000_000) == "0.005 s"
-    assert _serialize(ElectricPotential, -65_000_000_000_000) == "-0.065 V"
-    assert _serialize(Frequency, 1_000_000_000) == "1.0 Hz"
+def test_serialize_returns_compact_quantity():
+    # Rescaled to the SI prefix with the fewest zero digits, no trailing ".0".
+    assert _serialize(Duration, 5_000_000_000) == "5 ms"
+    assert _serialize(ElectricPotential, -65_000_000_000_000) == "-65 mV"
+    assert _serialize(Frequency, 1_000_000_000) == "1 Hz"
+    # whole numbers drop the ".0", zero stays in the reference unit
+    assert _serialize(Duration, 1_000_000_000_000) == "1 s"
+    assert _serialize(Duration, 0) == "0 s"
 
 
 def test_dimensional_mismatch_raises():

@@ -3,6 +3,7 @@ import strawberry
 import kante
 from pydantic import BaseModel
 from core import types, models, inputs
+from core.guards import enforce_delete
 from typing import cast
 
 
@@ -81,6 +82,7 @@ def delete_dataset(
     view = models.Dataset.objects.get(
         id=parsed.id,
     )
+    enforce_delete(info, view)
     view.delete()
     return parsed.id
 

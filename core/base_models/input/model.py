@@ -50,7 +50,6 @@ class ModelConfigInputModel(BaseModel):
     v_init: int = -67_000_000_000_000   # femtovolts (-67 mV)
     celsius: float = 36.0
     label: Optional[str] = None
-    environments: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_cells(cls, self: "ModelConfigInputModel") -> "ModelConfigInputModel":

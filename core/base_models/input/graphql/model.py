@@ -53,4 +53,3 @@ class ModelConfigInput:
     v_init: quantities.ElectricPotential
     celsius: float
     label: str | None = None
-    environments: List[str]

@@ -5,6 +5,7 @@ import kante
 from typing import Any
 from pydantic import BaseModel, Field
 from core import types, models, scalars, enums
+from core.guards import enforce_delete
 from kanne import scalars as quantities
 from core.base_models.input.graphql.biophysics import BiophysicsInput
 import datetime
@@ -255,11 +256,9 @@ def delete_block(
     input: DeleteBlockInput,
 ) -> strawberry.ID:
     parsed = input.to_pydantic()
-    datalayer = get_current_datalayer()
     try:
         block = models.Block.objects.get(id=parsed.id)
-        if block.dataset.organization != info.context.request.organization:
-            raise Exception("Block does not belong to your organization")
+        enforce_delete(info, block)
         block.delete()
         return parsed.id
     except models.Block.DoesNotExist:

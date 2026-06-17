@@ -7,6 +7,7 @@ from datalayer.scalars import BigFileLike
 import json
 from django.conf import settings
 from core.parameters import ParameterInput, ParameterInputModel
+from core.guards import enforce_delete
 from datalayer import models as datalayer_models
 import kante
 from pydantic import BaseModel
@@ -134,5 +135,6 @@ def delete_mechanism(
 ) -> strawberry.ID:
     parsed = input.to_pydantic()
     item = models.Mechanism.objects.get(id=parsed.id)
+    enforce_delete(info, item)
     item.delete()
     return parsed.id

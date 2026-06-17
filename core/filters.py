@@ -2,10 +2,18 @@ import datetime
 import strawberry
 from core import models, enums, scalars
 from strawberry import auto
-from typing import Optional
+from typing import ClassVar, Optional
 from strawberry_django.filters import FilterLookup
 import strawberry_django
 import kante
+from django.db.models import Q, F, Value, FloatField
+from django.db.models.functions import Coalesce, Greatest
+from django.contrib.postgres.search import (
+    SearchQuery,
+    SearchRank,
+    SearchVector,
+    TrigramSimilarity,
+)
 
 
 @strawberry.input
@@ -34,14 +42,70 @@ class CreatedAtFilterMixin:
         return queryset.filter(created_at__gt=self.created_after)
 
 
+# Minimum trigram similarity for a fuzzy match to be considered a hit. Postgres'
+# default ``pg_trgm.similarity_threshold`` is 0.3; we loosen it so short / partial
+# terms still surface typo-tolerant matches.
+TRIGRAM_THRESHOLD = 0.15
+
+
 @strawberry.input
 class SearchFilterMixin:
+    """Fuzzy, case-insensitive, full-text search over one or more text fields.
+
+    Subclasses declare which fields to search via the ``SEARCH_FIELDS`` class
+    attribute (a plain ``ClassVar`` so it is *not* exposed as a GraphQL input).
+    A match is any of:
+
+    * ``icontains`` — case-insensitive substring (keeps exact/partial matches)
+    * trigram similarity above :data:`TRIGRAM_THRESHOLD` — typo tolerance
+    * full-text ``SearchQuery`` (websearch) — word stemming, multi-word, order-independent
+
+    Results are ranked by a combined relevance score (best matches first).
+    """
+
     search: str | None
 
+    # Overridden per filter. Empty list disables search gracefully.
+    SEARCH_FIELDS: ClassVar[list[str]] = ["name"]
+
     def filter_search(self, queryset, info):
-        if self.search is None:
+        if not self.search:
             return queryset
-        return queryset.filter(name__contains=self.search)
+        term = self.search.strip()
+        fields = type(self).SEARCH_FIELDS
+        if not term or not fields:
+            return queryset
+
+        # Full-text vector over all fields (NULL-safe via COALESCE).
+        vector = None
+        for f in fields:
+            v = SearchVector(Coalesce(F(f), Value("")))
+            vector = v if vector is None else vector + v
+        query = SearchQuery(term, search_type="websearch")
+
+        # Best trigram similarity across the searched fields, for ranking.
+        sim_exprs = [TrigramSimilarity(f, term) for f in fields]
+        similarity = sim_exprs[0] if len(sim_exprs) == 1 else Greatest(*sim_exprs)
+
+        # WHERE: full-text match OR trigram similarity above threshold OR
+        # case-insensitive substring on any field. ``_similarity`` is the best
+        # trigram score across all fields, so this honours TRIGRAM_THRESHOLD
+        # (looser than pg_trgm's default 0.3 GUC used by ``__trigram_similar``).
+        predicate = Q(_rank__gt=0.0) | Q(_similarity__gte=TRIGRAM_THRESHOLD)
+        for f in fields:
+            predicate |= Q(**{f"{f}__icontains": term})
+
+        return (
+            queryset.annotate(
+                _similarity=Coalesce(similarity, Value(0.0), output_field=FloatField()),
+                _rank=SearchRank(vector, query),
+            )
+            .filter(predicate)
+            .annotate(
+                _relevance=Greatest("_similarity", "_rank", output_field=FloatField())
+            )
+            .order_by("-_relevance")
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +127,7 @@ class FileFilter(IDFilterMixin, SearchFilterMixin):
 
 @strawberry_django.filter_type(models.Experiment)
 class ExperimentFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
     created_before: datetime.datetime | None
@@ -81,30 +146,21 @@ class ExperimentFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
 
 @strawberry_django.filter_type(models.ExperimentRecordingView)
 class ExperimentRecordingViewFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["label"]
     id: auto
     label: Optional[FilterLookup[str]]
-    search: str | None
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(label__contains=self.search)
 
 
 @strawberry_django.filter_type(models.ExperimentStimulusView)
 class ExperimentStimulusViewFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["label"]
     id: auto
     label: Optional[FilterLookup[str]]
-    search: str | None
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(label__contains=self.search)
 
 
 @strawberry_django.filter_type(models.ModelCollection)
 class ModelCollectionFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
 
@@ -130,18 +186,21 @@ class SimulationFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
 
 @strawberry_django.filter_type(models.Recording)
 class RecordingFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+    SEARCH_FIELDS = ["label"]
     id: auto
     name: Optional[FilterLookup[str]]
 
 
 @strawberry_django.filter_type(models.Recording)
 class StimulusFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+    SEARCH_FIELDS = ["label"]
     id: auto
     name: Optional[FilterLookup[str]]
 
 
 @strawberry_django.filter_type(models.NeuronModel)
 class NeuronModelFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
     created_before: datetime.datetime | None
@@ -166,14 +225,9 @@ class InstrumentFilter:
 
 @strawberry_django.filter_type(models.ViewCollection)
 class ViewCollectionFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["name"]
     id: auto
     name: Optional[FilterLookup[str]]
-    search: str | None
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
 
 
 @strawberry_django.filter_type(models.View)
@@ -188,17 +242,12 @@ class ContinousScanViewFilter(ViewFilter):
 
 
 @strawberry_django.filter_type(models.Trace)
-class TraceFilter:
+class TraceFilter(SearchFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     name: Optional[FilterLookup[str]]
     ids: list[strawberry.ID] | None
     dataset: DatasetFilter | None
     not_derived: bool | None = None
-    search: str | None
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
 
     def filter_ids(self, queryset, info):
         if self.ids is None:
@@ -213,24 +262,20 @@ class TraceFilter:
 
 @strawberry_django.filter_type(models.ROI)
 class ROIFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+    SEARCH_FIELDS = ["label"]
     id: auto
     kind: auto
     trace: strawberry.ID | None = None
-    search: str | None
 
     def filter_image(self, queryset, info):
         if self.trace is None:
             return queryset
         return queryset.filter(trace_id=self.trace)
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(image__name__contains=self.search)
-
 
 @strawberry_django.filter_type(models.Block)
 class BlockFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     id: auto
     label: Optional[FilterLookup[str]]
     trace: strawberry.ID | None = None
@@ -262,126 +307,87 @@ class BlockFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
 
 @strawberry_django.filter_type(models.BlockSegment)
 class BlockSegmentFilter(IDFilterMixin, SearchFilterMixin):
+    # BlockSegment has no free-text field; search is a graceful no-op.
+    SEARCH_FIELDS = []
     id: auto
     name: Optional[FilterLookup[str]]
     description: Optional[FilterLookup[str]]
-    search: str | None
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
 
 
 @strawberry_django.filter_type(models.BlockGroup)
 class BlockGroupFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["label"]
     id: auto
     name: Optional[FilterLookup[str]]
     description: Optional[FilterLookup[str]]
-    search: str | None
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
 
 
 @strawberry_django.filter_type(models.AnalogSignal)
 class AnalogSignalFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     id: auto
     label: Optional[FilterLookup[str]]
     session: strawberry.ID | None = None
-    search: str | None
 
     def filter_session(self, queryset, info):
         if self.session is None:
             return queryset
         return queryset.filter(session_id=self.session)
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(label__contains=self.search)
 
 
 @strawberry_django.filter_type(models.IrregularlySampledSignal)
 class IrregularlySampledSignalFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["name"]
     id: auto
     label: Optional[FilterLookup[str]]
     session: strawberry.ID | None = None
-    search: str | None
 
     def filter_session(self, queryset, info):
         if self.session is None:
             return queryset
         return queryset.filter(session_id=self.session)
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(label__contains=self.search)
 
 
 @strawberry_django.filter_type(models.SpikeTrain)
 class SpikeTrainFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["name"]
     id: auto
     label: Optional[FilterLookup[str]]
     session: strawberry.ID | None = None
-    search: str | None
 
     def filter_session(self, queryset, info):
         if self.session is None:
             return queryset
         return queryset.filter(session_id=self.session)
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(label__contains=self.search)
 
 
 @strawberry_django.filter_type(models.AnalogSignalChannel)
 class AnalogSignalChannelFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     id: auto
     label: Optional[FilterLookup[str]]
     session: strawberry.ID | None = None
-    search: str | None
 
     def filter_session(self, queryset, info):
         if self.session is None:
             return queryset
         return queryset.filter(session_id=self.session)
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(label__contains=self.search)
-
 
 @strawberry_django.filter_type(models.Mechanism)
 class MechanismFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
     description: Optional[FilterLookup[str]]
-    search: str | None
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
 
 
 @strawberry_django.filter_type(models.ModEnvironment)
 class ModEnvironmentFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
     description: Optional[FilterLookup[str]]
-    search: str | None
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
 
 
 # ---------------------------------------------------------------------------

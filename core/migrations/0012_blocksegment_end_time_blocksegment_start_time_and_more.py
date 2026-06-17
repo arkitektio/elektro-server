@@ -4,6 +4,10 @@ import kanne.fields
 from django.db import migrations
 
 
+# Largest value a Postgres ``bigint`` (the canonical QuantityField column) holds.
+BIGINT_MAX = 9_223_372_036_854_775_807
+
+
 # (model, field, factor) — factor converts the legacy float value (seconds / Hz)
 # into the new canonical sub-unit integer (picoseconds for durations, nanohertz
 # for the sampling rate).
@@ -32,7 +36,17 @@ def _rescale(apps, *, to_canonical):
         Model = apps.get_model("core", model_name)
         for obj in Model.objects.exclude(**{f"{field}__isnull": True}):
             value = getattr(obj, field)
-            new_value = round(value * factor) if to_canonical else value / factor
+            if to_canonical:
+                # Skip rows already stored in canonical sub-units: a genuine
+                # legacy float (seconds / Hz) scales well within bigint, so a
+                # product that overflows means the value was already converted
+                # (e.g. by newer app code). Re-scaling it would double-convert
+                # and overflow the bigint column.
+                if abs(value) * factor > BIGINT_MAX:
+                    continue
+                new_value = round(value * factor)
+            else:
+                new_value = value / factor
             setattr(obj, field, new_value)
             obj.save(update_fields=[field])
 
@@ -53,6 +67,16 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(forwards, backwards),
+        # The RunPython above saves rows whose FK constraints are DEFERRABLE
+        # INITIALLY DEFERRED, queuing deferred trigger events. The AlterField
+        # operations below rewrite tables (e.g. core_simulation), which Postgres
+        # forbids while trigger events are pending ("cannot ALTER TABLE ...
+        # because it has pending trigger events"). Force the deferred triggers to
+        # fire now so the table rewrites can proceed.
+        migrations.RunSQL(
+            "SET CONSTRAINTS ALL IMMEDIATE",
+            reverse_sql=migrations.RunSQL.noop,
+        ),
         migrations.AddField(
             model_name='blocksegment',
             name='end_time',

@@ -20,7 +20,7 @@ class Exp2SynModel(SynapseBaseModel):
     e: pq.ElectricPotential = Field(description="Reversal potential.")
     tau2: pq.Duration = Field(description="Decay time constant.")
     tau1: pq.Duration = Field(description="Rise time constant.")
-    delay: pq.Duration = Field(default=100_000_000_000, description="Delay before the synapse activates.")   # 100 ms
+    delay: pq.Duration | None = Field(default=None, description="Delay before the synapse activates.")   # 100 ms
 
 
 class NetConnectionModel(BaseModel):

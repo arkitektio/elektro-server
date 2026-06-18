@@ -22,7 +22,7 @@ class Exp2Synapse(NetSynapse):
     e: quantities.ElectricPotential = strawberry.field(description="Reversal potential")
     tau2: quantities.Duration = strawberry.field(description="Decay time constant")
     tau1: quantities.Duration = strawberry.field(description="Rise time constant")
-    delay: quantities.Duration = 100_000_000_000       # 100 ms
+    delay: quantities.Duration | None  = strawberry.field(default=None, description="Delay before the synapse starts to activate")
 
 @pydantic.interface(NetConnectionModel, description="Base class for net connection parameters.")
 class NetConnection:

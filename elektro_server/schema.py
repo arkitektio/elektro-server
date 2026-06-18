@@ -368,6 +368,7 @@ schema = kante.Schema(
     extensions=[
         OpenTelemetryExtension,
         AuthentikateExtension,
+        KoherentExtension,
         DjangoOptimizerExtension,
         DuckExtension,
     ],

@@ -7,7 +7,7 @@ from core.base_models.input.model import ModelConfigInputModel
 from pydantic import BaseModel
 import hashlib
 import json
-
+from koherent.utils import get_or_create_task
 
 import hashlib
 import json
@@ -93,6 +93,10 @@ def create_neuron_model(
     input: CreateNeuronModelInput,
 ) -> types.NeuronModel:
     parsed = input.to_pydantic()
+
+    print(info.context.request.provenance)
+    task = get_or_create_task()
+    print(f"Task: {task}")
 
     parent = models.NeuronModel.objects.get(id=parsed.parent) if parsed.parent is not None else None
 

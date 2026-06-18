@@ -19,7 +19,7 @@ into :data:`SCALAR_MAP`, which is merged into the schema's
 from __future__ import annotations
 
 import inspect
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pint
 import strawberry
@@ -51,15 +51,11 @@ def _build_scalar(cls: type["PintQuantity"]) -> ScalarDefinition:
         return int(round(magnitude * scale))
 
     def serialize(value: object) -> str:
-        ureg = get_registry()
         if hasattr(value, "to"):  # already a pint Quantity
-            quantity = value.to(reference_unit)
-        else:  # an int expressed in the canonical sub-unit (reference / scale)
-            quantity = (value / scale) * ureg(reference_unit)
-        # Rescale to the SI prefix with the fewest leading/trailing zeros, then
-        # format the magnitude with `g` to drop trailing zeros / the ".0".
-        quantity = quantity.to_compact()
-        return f"{quantity:~g}"
+            quantity = value.to(reference_unit).to_compact()
+            return f"{quantity:~g}"
+        # an int expressed in the canonical sub-unit (reference / scale)
+        return format_quantity(value, reference_unit, scale)
 
     return strawberry.scalar(
         name=name,
@@ -100,6 +96,41 @@ _NANO = 1_000_000_000
 _PICO = 1_000_000_000_000
 _FEMTO = 1_000_000_000_000_000
 _ATTO = 1_000_000_000_000_000_000
+
+#: SI prefix that a given scale produces (inverse of the sub-unit size).
+_SCALE_PREFIX: dict[int, str] = {
+    1: "",
+    _MICRO: "micro",
+    _NANO: "nano",
+    _PICO: "pico",
+    _FEMTO: "femto",
+    _ATTO: "atto",
+}
+
+
+def format_quantity(value: Any, reference_unit: str, scale: int) -> str:
+    """Render an integer canonical sub-unit count as a compact Pint string.
+
+    ``value`` is an integer count of ``reference_unit / scale`` (e.g. picoseconds
+    for seconds at pico scale). The result is rescaled to the SI prefix with the
+    fewest zero digits (``5_000_000_000`` seconds-at-pico → ``"5 ms"``).
+    """
+    ureg = get_registry()
+    quantity = ((value / scale) * ureg(reference_unit)).to_compact()
+    return f"{quantity:~g}"
+
+
+def canonical_base_unit(reference_unit: str, scale: int) -> str:
+    """Name of the canonical sub-unit an integer is counted in (e.g. ``"picosecond"``).
+
+    Falls back to a descriptive ``"<reference_unit> / <scale>"`` form for compound
+    reference units or scales without a named SI prefix, so the value stays
+    self-describing in every case.
+    """
+    prefix = _SCALE_PREFIX.get(scale)
+    if prefix is None or any(ch in reference_unit for ch in " */"):
+        return f"{reference_unit} / {scale}"
+    return f"{prefix}{reference_unit}"
 
 
 class Duration(PintQuantity):

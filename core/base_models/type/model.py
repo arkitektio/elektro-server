@@ -2,6 +2,7 @@ from typing import Dict, Union
 from .cell import CellModel
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Literal, Union, Optional
+from kanne import quantities as pq
 import uuid
 
 
@@ -14,20 +15,20 @@ class SynapseBaseModel(BaseModel):
 
 
 class Exp2SynModel(SynapseBaseModel):
-    """Exponential synapse, a synaptic stimulus with an exponential rise and decay. Quantity fields are stored as nano-base ints."""
+    """Exponential synapse, a synaptic stimulus with an exponential rise and decay. Quantities persist as {canonical, given, unit}."""
     kind: Literal["exp2syn"] = "exp2syn"
-    e: int = Field(description="Reversal potential.")          # femtovolts
-    tau2: int = Field(description="Decay time constant.")      # picoseconds
-    tau1: int = Field(description="Rise time constant.")       # picoseconds
-    delay: int = Field(default=100_000_000_000, description="Delay before the synapse activates.")   # picoseconds (100 ms)
+    e: pq.ElectricPotential = Field(description="Reversal potential.")
+    tau2: pq.Duration = Field(description="Decay time constant.")
+    tau1: pq.Duration = Field(description="Rise time constant.")
+    delay: pq.Duration = Field(default=100_000_000_000, description="Delay before the synapse activates.")   # 100 ms
 
 
 class NetConnectionModel(BaseModel):
-    """Base class for net connection parameters. Quantities stored as nano-base ints."""
+    """Base class for net connection parameters. Quantities persist as {canonical, given, unit}."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="The unique identifier of the connection within the model.")
-    weight: int | None = Field(default=None, description="The weight (conductance) of the connection.")      # femtosiemens
-    threshold: int | None = Field(default=None, description="The threshold for the connection.")   # femtovolts
-    delay: int | None = Field(default=None, description="The delay for the connection.")       # picoseconds
+    weight: pq.ElectricalConductance | None = Field(default=None, description="The weight (conductance) of the connection.")
+    threshold: pq.ElectricPotential | None = Field(default=None, description="The threshold for the connection.")
+    delay: pq.Duration | None = Field(default=None, description="The delay for the connection.")
 
 
 class SynapticConnectionModel(NetConnectionModel):
@@ -38,9 +39,9 @@ class SynapticConnectionModel(NetConnectionModel):
 class NetStimulatorModel(BaseModel):
     """Base class for net stimulation parameters. Quantities stored as nano-base ints."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="The unique identifier of the stimulator within the model.")
-    start: int = Field(default=100_000_000_000, description="Start time of the first spike.")   # picoseconds (100 ms)
+    start: pq.Duration = Field(default=100_000_000_000, description="Start time of the first spike.")   # 100 ms
     number: int = Field(default=1, description="Number of spikes to emit.")            # Number of spikes
-    interval: int | None = Field(default=None, description="Interval between spikes.")    # picoseconds
+    interval: pq.Duration | None = Field(default=None, description="Interval between spikes.")
 
 
 
@@ -50,8 +51,8 @@ class ModelConfigModel(BaseModel):
     net_stimulators: List[NetStimulatorModel] | None = Field(default_factory=list, description="The list of net stimulators in the model.")
     net_connections: List[Union[SynapticConnectionModel]] | None= Field(default_factory=list, description="The list of net connections in the model.")
     net_synapses: List[Union[Exp2SynModel]] | None = Field(default_factory=list, description="The list of net synapses in the model.")
-    v_init: int = Field(default=-67_000_000_000_000, description="Initial membrane potential.")   # femtovolts (-67 mV)
-    temperature: int = Field(default=309_150_000_000, description="Simulation bath temperature.")   # nanokelvin (36 °C)
+    v_init: pq.ElectricPotential = Field(default=-67_000_000_000_000, description="Initial membrane potential.")   # -67 mV
+    temperature: pq.Temperature = Field(default=309_150_000_000, description="Simulation bath temperature.")   # 36 °C
     label: Optional[str] = Field(default=None, description="An optional label for the model configuration.")
     
     

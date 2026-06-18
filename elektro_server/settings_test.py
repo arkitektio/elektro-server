@@ -14,8 +14,11 @@ AUTHENTIKATE = {
     **AUTHENTIKATE,
     "STATIC_TOKENS": {
         "test": {"sub": "1"},
-        # A user in a different organization, for cross-tenant scoping tests.
-        "othertest": {"sub": "9", "active_org": "other_org"},
+        # A non-privileged user in a different organization, for cross-tenant
+        # scoping/permission tests. roles must be set explicitly: StaticToken
+        # defaults roles to ["admin"], which would let this user delete anything
+        # (can_delete rule 1) and defeat the cross-org denial tests.
+        "othertest": {"sub": "9", "active_org": "other_org", "roles": []},
     },
 }
 

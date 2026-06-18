@@ -94,9 +94,7 @@ def create_neuron_model(
 ) -> types.NeuronModel:
     parsed = input.to_pydantic()
 
-    print(info.context.request.provenance)
-    task = get_or_create_task()
-    print(f"Task: {task}")
+    
 
     parent = models.NeuronModel.objects.get(id=parsed.parent) if parsed.parent is not None else None
 

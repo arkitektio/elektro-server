@@ -823,7 +823,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.2.2" },
     { name = "jsonpatch", specifier = "~=1.33" },
     { name = "kante", specifier = ">=1.1.0" },
-    { name = "koherent", specifier = ">=3.0.1" },
+    { name = "koherent", specifier = ">=3.0.2" },
     { name = "omegaconf", specifier = ">=2.3.0,<3" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.41.1" },
     { name = "opentelemetry-instrumentation-asgi", specifier = ">=0.62b1" },
@@ -1215,7 +1215,7 @@ wheels = [
 
 [[package]]
 name = "koherent"
-version = "3.0.1"
+version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authentikate" },
@@ -1223,9 +1223,9 @@ dependencies = [
     { name = "django-simple-history" },
     { name = "kante" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ec/1d/036859f942253548b286e4b1d0e29537db42a4cbb59713a6c07a9af93be1/koherent-3.0.1.tar.gz", hash = "sha256:35c312f677a9c5a04a2b4f6740121691ae0c43616a2790327bf2745adadd2710", size = 11565, upload-time = "2026-06-18T14:33:40.041Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/24/67ceb115ed76ee0ae20e41617b0cd831107cf17ed1283bd5a937a8f8a97c/koherent-3.0.2.tar.gz", hash = "sha256:3c628e218a0203e98296bb7b3766e4504dc94594dde200a1f574fe301e4cf8af", size = 15804, upload-time = "2026-06-19T11:53:04.989Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/54/3d012a8042abed33c89dc545d46ea6835c749b025d5d7a07475b22d4169c/koherent-3.0.1-py3-none-any.whl", hash = "sha256:2c5db08fdff53e0a2023c7909ee88a71fd5c0d57bb1939b243e05982d5c5dc04", size = 14851, upload-time = "2026-06-18T14:33:40.637Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/94/5f18fe5b4f6ffbf806869104423682bbe4bbabf20ba64d72c14b8eb83c57/koherent-3.0.2-py3-none-any.whl", hash = "sha256:1d7127b076250c10d532f008c8f97c350a122e058cd926d2ce5d37fd8881f5f0", size = 19823, upload-time = "2026-06-19T11:53:04.079Z" },
 ]
 
 [[package]]

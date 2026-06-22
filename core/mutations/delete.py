@@ -49,6 +49,8 @@ def _make_delete(model_cls: type):
 
 delete_instrument = _make_delete(models.Instrument)
 delete_model_collection = _make_delete(models.ModelCollection)
+delete_model_workspace = _make_delete(models.ModelWorkspace)
+delete_workspace_mapping = _make_delete(models.WorkspaceMapping)
 delete_mod_environment = _make_delete(models.ModEnvironment)
 delete_neuron_model = _make_delete(models.NeuronModel)
 delete_experiment = _make_delete(models.Experiment)

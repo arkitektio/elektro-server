@@ -217,11 +217,61 @@ class Mechanism(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+
+class ModelWorkspace(models.Model):
+    """A ModelWorkspace is a workspace for developing neuron models
+
+    Within a workspace, a user can create and edit neuron models, as well as run simulations and analyze the results.
+    Within a workspace models are expected to be comparable and to be iterated upon. A workspace can be shared with other users and AI agents who can then collaborate on the models within the workspace.
+    
+    
+    
+    """
+    name = models.CharField(max_length=1000, help_text="The name of the workspace")
+    description = models.CharField(max_length=1000, null=True, blank=True)
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        help_text="The user that created the workspace",
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    pinned_by = models.ManyToManyField(
+        get_user_model(),
+        related_name="pinned_workspaces",
+        help_text="The users that have pinned the workspace",
+    )
+
+
+
+
+class WorkspaceMapping(models.Model):
+    """A WorkspaceMapping is a mapping between a neuron model and a workspace.
+    """
+    workspace = models.ForeignKey(
+        ModelWorkspace,
+        on_delete=models.CASCADE,
+        related_name="mappings",
+        help_text="The workspace that the mapping belongs to",
+    )
+    model = models.ForeignKey(
+        "NeuronModel",
+        on_delete=models.CASCADE,
+        related_name="mappings",
+        help_text="The neuron model that the mapping belongs to",
+    )
+    workspace_group = models.CharField(
+        max_length=1000,
+        help_text="The group of the workspace that the mapping belongs to (if its subdivided into groups)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+
 class NeuronModel(models.Model):
     """A NEURON model
     that can be used t simulate a neuron
     """
-
     environment = models.ForeignKey(
         ModEnvironment,
         on_delete=models.CASCADE,
@@ -233,7 +283,7 @@ class NeuronModel(models.Model):
         null=True,
         blank=True,
         related_name="children",
-        help_text="The parent model of the neuron",
+        help_text="The parent model of the neuron (if it was derived from another model)",
     )
     hash = models.CharField(
         max_length=1000,

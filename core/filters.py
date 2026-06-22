@@ -165,6 +165,18 @@ class ModelCollectionFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMix
     name: Optional[FilterLookup[str]]
 
 
+@strawberry_django.filter_type(models.ModelWorkspace)
+class ModelWorkspaceFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+    SEARCH_FIELDS = ["name", "description"]
+    id: auto
+    name: Optional[FilterLookup[str]]
+
+
+@strawberry_django.filter_type(models.WorkspaceMapping)
+class WorkspaceMappingFilter(IDFilterMixin):
+    id: auto
+
+
 @strawberry_django.filter_type(models.Simulation)
 class SimulationFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
     id: auto
@@ -419,6 +431,18 @@ class FileOrder:
 
 @strawberry_django.order_type(models.ModelCollection)
 class ModelCollectionOrder:
+    id: auto
+    created_at: auto
+
+
+@strawberry_django.order_type(models.ModelWorkspace)
+class ModelWorkspaceOrder:
+    id: auto
+    created_at: auto
+
+
+@strawberry_django.order_type(models.WorkspaceMapping)
+class WorkspaceMappingOrder:
     id: auto
     created_at: auto
 

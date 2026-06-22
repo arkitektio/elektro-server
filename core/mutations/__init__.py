@@ -31,11 +31,23 @@ from .roi import *
 from .simulation import *
 from .experiment import *
 from .model_collection import *
+from .model_workspace import (
+    create_model_workspace,
+    update_model_workspace,
+    pin_model_workspace,
+)
+from .workspace_mapping import (
+    add_models_to_workspace,
+    remove_models_from_workspace,
+    update_workspace_mapping,
+)
 from .block import delete_block
 from .environment import create_mod_environment, delete_mechanism
 from .delete import (
     delete_instrument,
     delete_model_collection,
+    delete_model_workspace,
+    delete_workspace_mapping,
     delete_mod_environment,
     delete_neuron_model,
     delete_experiment,
@@ -74,8 +86,16 @@ __all__ = [
     "put_files_in_dataset",
     "delete_block",
     "delete_mechanism",
+    "create_model_workspace",
+    "update_model_workspace",
+    "pin_model_workspace",
+    "add_models_to_workspace",
+    "remove_models_from_workspace",
+    "update_workspace_mapping",
     "delete_instrument",
     "delete_model_collection",
+    "delete_model_workspace",
+    "delete_workspace_mapping",
     "delete_mod_environment",
     "delete_neuron_model",
     "delete_experiment",

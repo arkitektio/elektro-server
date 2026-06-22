@@ -36,6 +36,7 @@ ANCHOR_PATHS: dict[type, tuple[str, ...]] = {
     models.Instrument: (),
     models.File: (),
     models.ModelCollection: (),
+    models.ModelWorkspace: (),
     models.ModEnvironment: (),
     models.NeuronModel: (),
     models.Experiment: (),
@@ -45,6 +46,7 @@ ANCHOR_PATHS: dict[type, tuple[str, ...]] = {
     models.ViewCollection: (),
     models.ROI: (),
     # Governed by a parent anchor.
+    models.WorkspaceMapping: ("workspace",),
     models.Mechanism: ("environment",),
     models.ExperimentRecordingView: ("experiment",),
     models.ExperimentStimulusView: ("experiment",),

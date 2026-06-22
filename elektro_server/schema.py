@@ -39,6 +39,8 @@ class Query:
     experiments: list[types.Experiment] = strawberry_django.field()
     neuron_models: list[types.NeuronModel] = strawberry_django.field()
     model_collections: list[types.ModelCollection] = strawberry_django.field()
+    model_workspaces: list[types.ModelWorkspace] = strawberry_django.field()
+    workspace_mappings: list[types.WorkspaceMapping] = strawberry_django.field()
     recordings: list[types.Recording] = strawberry_django.field()
     stimuli: list[types.Stimulus] = strawberry_django.field()
 
@@ -130,6 +132,16 @@ class Query:
     def model_collection(self, info: Info, id: ID) -> types.ModelCollection:
         """Get all model collections"""
         return models.ModelCollection.objects.get(id=id)
+
+    @strawberry_django.field()
+    def model_workspace(self, info: Info, id: ID) -> types.ModelWorkspace:
+        """Get a single model workspace by id"""
+        return models.ModelWorkspace.objects.get(id=id)
+
+    @strawberry_django.field()
+    def workspace_mapping(self, info: Info, id: ID) -> types.WorkspaceMapping:
+        """Get a single workspace mapping by id"""
+        return models.WorkspaceMapping.objects.get(id=id)
 
     @strawberry_django.field()
     def simulation(self, info: Info, id: ID) -> types.Simulation:
@@ -270,6 +282,8 @@ class Mutation:
     # sub-objects defer the check to their governing anchor.
     delete_instrument = strawberry_django.mutation(resolver=mutations.delete_instrument, description="Delete an existing instrument")
     delete_model_collection = strawberry_django.mutation(resolver=mutations.delete_model_collection, description="Delete an existing model collection")
+    delete_model_workspace = strawberry_django.mutation(resolver=mutations.delete_model_workspace, description="Delete an existing model workspace")
+    delete_workspace_mapping = strawberry_django.mutation(resolver=mutations.delete_workspace_mapping, description="Delete an existing workspace mapping")
     delete_mod_environment = strawberry_django.mutation(resolver=mutations.delete_mod_environment, description="Delete an existing mod environment")
     delete_mechanism = strawberry_django.mutation(resolver=mutations.delete_mechanism, description="Delete an existing mechanism")
     delete_neuron_model = strawberry_django.mutation(resolver=mutations.delete_neuron_model, description="Delete an existing neuron model")
@@ -297,6 +311,32 @@ class Mutation:
     create_model_collection = strawberry_django.mutation(
         resolver=mutations.create_model_collection,
         description="Create a new model collection",
+    )
+
+    # ModelWorkspace — a shared space for collaboratively developing neuron models.
+    create_model_workspace = strawberry_django.mutation(
+        resolver=mutations.create_model_workspace,
+        description="Create a new model workspace",
+    )
+    update_model_workspace = strawberry_django.mutation(
+        resolver=mutations.update_model_workspace,
+        description="Update an existing model workspace",
+    )
+    pin_model_workspace = strawberry_django.mutation(
+        resolver=mutations.pin_model_workspace,
+        description="Pin or unpin a model workspace for the current user",
+    )
+    add_models_to_workspace = strawberry_django.mutation(
+        resolver=mutations.add_models_to_workspace,
+        description="Add neuron models to a workspace (optionally into a group)",
+    )
+    remove_models_from_workspace = strawberry_django.mutation(
+        resolver=mutations.remove_models_from_workspace,
+        description="Remove neuron models from a workspace",
+    )
+    update_workspace_mapping = strawberry_django.mutation(
+        resolver=mutations.update_workspace_mapping,
+        description="Update a workspace mapping (e.g. change its group)",
     )
 
     # Dataset

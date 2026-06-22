@@ -121,6 +121,45 @@ class ModelCollection:
     description: str | None
 
 
+@strawberry_django.type(models.ModelWorkspace, filters=filters.ModelWorkspaceFilter, ordering=filters.ModelWorkspaceOrder, pagination=True)
+class ModelWorkspace:
+    """A shared space for collaboratively developing neuron models.
+
+    A workspace is a collaboration/sharing boundary: users and AI agents share it
+    to create, edit, simulate and iterate on neuron models together. Models join
+    a workspace through a ``WorkspaceMapping`` (which may also assign them to a
+    named group within the workspace). This is orthogonal to ``ModelCollection`` —
+    a collection groups *comparable* models, a workspace groups *collaborators*
+    around a set of models. A model can belong to both independently.
+    """
+
+    id: auto
+    name: str
+    description: str | None
+    creator: User | None
+    created_at: datetime.datetime
+    mappings: List["WorkspaceMapping"] = strawberry_django.field()
+
+    @strawberry_django.field(description="Whether the current user has pinned this workspace")
+    def pinned(self, info: Info) -> bool:
+        return cast(models.ModelWorkspace, self).pinned_by.filter(id=info.context.request.user.id).exists()
+
+
+@strawberry_django.type(models.WorkspaceMapping, filters=filters.WorkspaceMappingFilter, ordering=filters.WorkspaceMappingOrder, pagination=True)
+class WorkspaceMapping:
+    """The link between a neuron model and a workspace.
+
+    Optionally assigns the model to a named ``workspace_group`` so a workspace can
+    subdivide its models into groups.
+    """
+
+    id: auto
+    workspace: ModelWorkspace
+    model: "NeuronModel"
+    workspace_group: str
+    created_at: datetime.datetime
+
+
 @strawberry.enum
 class ChangeType(str, Enum):
     REMOVED = "removed"
@@ -197,6 +236,7 @@ class NeuronModel:
     creator: User | None
     environment: ModEnvironment
     model_collections: list[ModelCollection] | None
+    mappings: List["WorkspaceMapping"] = strawberry_django.field()
     simulations: List["Simulation"] = strawberry_django.field()
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 

@@ -119,6 +119,14 @@ class File(models.Model):
     name = models.CharField(max_length=1000, help_text="The name of the file", default="")
     created_at = models.DateTimeField(auto_now_add=True)
     creator = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, null=True)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="files",
+        help_text="The organization that owns the file",
+    )
 
 
 class ModelCollection(models.Model):
@@ -145,6 +153,14 @@ class ModelCollection(models.Model):
         null=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="model_collections",
+        help_text="The organization that owns the model collection",
+    )
     pinned_by = models.ManyToManyField(
         get_user_model(),
         related_name="pinned_model_collections",
@@ -240,6 +256,14 @@ class ModelWorkspace(models.Model):
         get_user_model(),
         related_name="pinned_workspaces",
         help_text="The users that have pinned the workspace",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="model_workspaces",
+        help_text="The organization that owns the workspace",
     )
 
 
@@ -357,6 +381,14 @@ class ExperimentRecordingView(models.Model):
         null=True,
         blank=True,
     )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="experiment_recording_views",
+        help_text="The organization that owns the recording view",
+    )
     offset = QuantityField(base_unit="picosecond", help_text="The offset of the view, stored in picoseconds", null=True, blank=True)
     duration = QuantityField(base_unit="picosecond", help_text="The duration of the view, stored in picoseconds", null=True, blank=True)
     label = models.CharField(
@@ -388,6 +420,14 @@ class ExperimentStimulusView(models.Model):
         related_name="stimulus_views",
         null=True,
         blank=True,
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="experiment_stimulus_views",
+        help_text="The organization that owns the stimulus view",
     )
     offset = QuantityField(base_unit="picosecond", help_text="The offset of the view, stored in picoseconds", null=True, blank=True)
     duration = QuantityField(base_unit="picosecond", help_text="The duration of the view, stored in picoseconds", null=True, blank=True)
@@ -459,6 +499,14 @@ class BlockSegment(models.Model):
     )
     start_time = QuantityField(base_unit="picosecond", help_text="The start time of the segment, stored in picoseconds", null=True, blank=True)
     end_time = QuantityField(base_unit="picosecond", help_text="The end time of the segment, stored in picoseconds", null=True, blank=True)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="block_segments",
+        help_text="The organization that owns the segment",
+    )
     provenance = ProvenanceField()
 
 
@@ -757,6 +805,14 @@ class ViewCollection(models.Model):
     """
 
     name = models.CharField(max_length=1000, help_text="The name of the view")
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="view_collections",
+        help_text="The organization that owns the view collection",
+    )
     provenance = ProvenanceField()
 
 

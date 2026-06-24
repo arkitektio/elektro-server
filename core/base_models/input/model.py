@@ -54,7 +54,7 @@ class ModelConfigInputModel(BaseModel):
     label: Optional[str] = Field(default=None, description="An optional label for the model configuration.")
 
     @model_validator(mode="after")
-    def check_cells(cls, self: "ModelConfigInputModel") -> "ModelConfigInputModel":
+    def check_cells(self) -> "ModelConfigInputModel":
         if self.net_synapses:
             for synapse in self.net_synapses:
                 cell: CellInputModel | None = next((cell for cell in self.cells if cell.id == synapse.cell), None)

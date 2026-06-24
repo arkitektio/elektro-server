@@ -1,9 +1,8 @@
 """Block mutations executed against the schema: createBlock (with a Zarr-backed
 analog signal) and deleteBlock."""
 
-import datetime
-
 import pytest
+from django.utils import timezone
 
 from core.models import Block, Dataset
 
@@ -71,7 +70,7 @@ async def test_delete_block(aexecute, authenticated_context):
     block = await Block.objects.acreate(
         name="Doomed",
         dataset=ds,
-        recording_time=datetime.datetime.now(),
+        recording_time=timezone.now(),
         organization=authenticated_context.request.organization,
         creator=authenticated_context.request.user,
     )

@@ -16,9 +16,6 @@ from omegaconf import OmegaConf
 import os
 import asyncio
 
-asyncio.get_event_loop().set_debug(True)
-asyncio.get_event_loop().slow_callback_duration = 0.1  # Warn if anything takes > 100ms
-
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

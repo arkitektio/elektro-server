@@ -44,6 +44,7 @@ def create_model_collection(
     exp = models.ModelCollection.objects.create(
         name=parsed.name,
         creator=info.context.request.user,
+        organization=info.context.request.organization,
         description=parsed.description,
     )
 

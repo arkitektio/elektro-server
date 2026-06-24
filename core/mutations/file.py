@@ -90,6 +90,7 @@ def from_file_like(
     table = models.File.objects.create(
         dataset_id=parsed.dataset,
         creator=info.context.request.user,
+        organization=info.context.request.organization,
         name=parsed.name,
         store=store,
     )

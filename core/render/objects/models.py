@@ -43,7 +43,7 @@ class TreeModel(BaseModel):
     children: list[RenderNodeUnion]
 
 
-GridNodeModel.update_forward_refs()
-OverlayNodeModel.update_forward_refs()
-ContextNodeModel.update_forward_refs()
-TreeModel.update_forward_refs()
+GridNodeModel.model_rebuild()
+OverlayNodeModel.model_rebuild()
+ContextNodeModel.model_rebuild()
+TreeModel.model_rebuild()

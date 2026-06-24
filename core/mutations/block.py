@@ -8,6 +8,7 @@ from core import types, models, scalars, enums
 from core.guards import enforce_delete
 from kanne import scalars as quantities
 from core.base_models.input.graphql.biophysics import BiophysicsInput
+from django.utils import timezone
 import datetime
 
 
@@ -128,6 +129,10 @@ def create_block(
     parsed = input.to_pydantic()
     datalayer = get_current_datalayer()
 
+    recording_time = parsed.recording_time or timezone.now()
+    if timezone.is_naive(recording_time):
+        recording_time = timezone.make_aware(recording_time)
+
     block = models.Block.objects.create(
         dataset=models.Dataset.objects.get_or_create(
             organization=info.context.request.organization,
@@ -136,7 +141,7 @@ def create_block(
             name="Default Dataset",
         )[0],
         name=parsed.name,
-        recording_time=parsed.recording_time or datetime.datetime.now(),
+        recording_time=recording_time,
         origin=models.File.objects.get(id=parsed.file) if parsed.file else None,
         organization=info.context.request.organization,
         creator=info.context.request.user,
@@ -145,6 +150,7 @@ def create_block(
     for segment in parsed.segments:
         segment_model = models.BlockSegment.objects.create(
             session=block,
+            organization=info.context.request.organization,
         )
 
         for analog_signal in segment.analog_signals:

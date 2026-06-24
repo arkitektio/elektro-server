@@ -72,6 +72,7 @@ def create_experiment(
         models.ExperimentStimulusView.objects.create(
             experiment=exp,
             stimulus=stimulus,
+            organization=info.context.request.organization,
             offset=view.offset,
             label=view.label,
             duration=view.duration,
@@ -83,6 +84,7 @@ def create_experiment(
         models.ExperimentRecordingView.objects.create(
             experiment=exp,
             recording=recording,
+            organization=info.context.request.organization,
             offset=view.offset,
             label=view.label,
             duration=view.duration,

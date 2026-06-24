@@ -5,7 +5,7 @@ import strawberry_django
 from strawberry import auto
 from typing import List, Optional, Annotated, Union, cast
 import strawberry_django
-from core import models, scalars, filters, enums
+from core import models, scalars, filters, enums, scoping
 from kanne import scalars as quantities
 from django.contrib.auth import get_user_model
 from kante.types import Info
@@ -28,21 +28,46 @@ import kante
 from core.parameters import Parameter, ParameterModel
 
 
-def build_prescoped_queryset(info, queryset, field="organization"):
-    print(info)
-    if info.variable_values.get("filters", {}).get("scope") is None:
-        queryset = queryset.filter(**{field: info.context.request.organization})
-        return queryset
+def build_prescoped_queryset(info, queryset):
+    """Scope a list queryset to the request's organization.
 
-    else:
+    Honors an explicit ``filters.scope`` override (not yet implemented) and
+    otherwise filters by the model's discovered organization path (see
+    :mod:`core.scoping`). Mirrors the single-object scoping in ``core.scoping``
+    so list fields and by-id lookups stay tenant-consistent.
+    """
+    if (info.variable_values.get("filters") or {}).get("scope") is not None:
         raise Exception("Custom scopes not implemented yet")
 
+    path = scoping.organization_path(queryset.model)
+    if path is None:
+        if queryset.model.__name__ not in scoping.UNSCOPED_MODELS:
+            raise LookupError(
+                f"{queryset.model.__name__} has no path to an organization and is not "
+                "registered in core.scoping.UNSCOPED_MODELS"
+            )
+        return queryset
+    return queryset.filter(**{path: info.context.request.organization})
 
-def build_prescoper(field="organization"):
+
+def build_prescoper():
     def prescoper(queryset, info):
-        return build_prescoped_queryset(info, queryset, field=field)
+        return build_prescoped_queryset(info, queryset)
 
     return prescoper
+
+
+class OrgScoped:
+    """Mixin that scopes a type's list/relation queryset to the request org.
+
+    strawberry_django calls ``get_queryset`` for both top-level list fields and
+    nested relation resolution, so mixing this in tenant-scopes every read of the
+    type. Resolved via MRO, so it is enough to list it as a base class.
+    """
+
+    @classmethod
+    def get_queryset(cls, queryset, info, **kwargs):
+        return build_prescoped_queryset(info, queryset)
 
 
 @strawberry_django.type(
@@ -51,7 +76,7 @@ def build_prescoper(field="organization"):
     ordering=filters.ViewCollectionOrder,
     pagination=True,
 )
-class ViewCollection:
+class ViewCollection(OrgScoped):
     """A colletion of views.
 
     View collections are use to provide overarching views on your data,
@@ -86,7 +111,7 @@ class ViewKind(str, Enum):
 
 
 @strawberry_django.type(models.File, filters=filters.FileFilter, ordering=filters.FileOrder, pagination=True)
-class File:
+class File(OrgScoped):
     id: auto
     name: auto
     origins: List["Trace"] = strawberry_django.field()
@@ -94,7 +119,7 @@ class File:
 
 
 @kante.django_type(models.ModEnvironment, filters=filters.ModEnvironmentFilter, pagination=True, ordering=filters.ModEnvironmentOrder)
-class ModEnvironment:
+class ModEnvironment(OrgScoped):
     id: auto
     name: auto
     description: str | None
@@ -103,7 +128,7 @@ class ModEnvironment:
 
 
 @strawberry_django.type(models.Mechanism, filters=filters.MechanismFilter, pagination=True, ordering=filters.MechanismOrder)
-class Mechanism:
+class Mechanism(OrgScoped):
     id: auto
     name: auto
     description: str | None
@@ -114,7 +139,7 @@ class Mechanism:
 
 
 @strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, ordering=filters.ModelCollectionOrder, pagination=True)
-class ModelCollection:
+class ModelCollection(OrgScoped):
     id: auto
     name: str
     models: List["NeuronModel"] = strawberry_django.field()
@@ -122,7 +147,7 @@ class ModelCollection:
 
 
 @strawberry_django.type(models.ModelWorkspace, filters=filters.ModelWorkspaceFilter, ordering=filters.ModelWorkspaceOrder, pagination=True)
-class ModelWorkspace:
+class ModelWorkspace(OrgScoped):
     """A shared space for collaboratively developing neuron models.
 
     A workspace is a collaboration/sharing boundary: users and AI agents share it
@@ -146,7 +171,7 @@ class ModelWorkspace:
 
 
 @strawberry_django.type(models.WorkspaceMapping, filters=filters.WorkspaceMappingFilter, ordering=filters.WorkspaceMappingOrder, pagination=True)
-class WorkspaceMapping:
+class WorkspaceMapping(OrgScoped):
     """The link between a neuron model and a workspace.
 
     Optionally assigns the model to a named ``workspace_group`` so a workspace can
@@ -229,7 +254,7 @@ class Comparison:
 
 
 @strawberry_django.type(models.NeuronModel, filters=filters.NeuronModelFilter, pagination=True, ordering=filters.NeuronModelOrder)
-class NeuronModel:
+class NeuronModel(OrgScoped):
     id: auto
     name: auto
     description: str | None
@@ -266,7 +291,7 @@ class NeuronModel:
 
 
 @strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, ordering=filters.ExperimentOrder, pagination=True)
-class Experiment:
+class Experiment(OrgScoped):
     id: auto
     name: str
     description: str | None
@@ -278,7 +303,7 @@ class Experiment:
 
 
 @strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, ordering=filters.SimulationOrder, pagination=True)
-class Simulation:
+class Simulation(OrgScoped):
     id: auto
     name: str
     description: str | None
@@ -296,7 +321,7 @@ class Simulation:
 
 
 @strawberry_django.type(models.Recording, filters=filters.RecordingFilter, ordering=filters.RecordingOrder, pagination=True)
-class Recording:
+class Recording(OrgScoped):
     id: auto
     simulation: Simulation
     kind: enums.RecordingKind
@@ -311,7 +336,7 @@ class Recording:
 
 
 @strawberry_django.type(models.Stimulus, filters=filters.StimulusFilter, ordering=filters.StimulusOrder, pagination=True)
-class Stimulus:
+class Stimulus(OrgScoped):
     id: auto
     simulation: Simulation
     kind: enums.StimulusKind
@@ -326,7 +351,7 @@ class Stimulus:
 
 
 @strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentRecordingViewFilter, ordering=filters.ExperimentRecordingViewOrder, pagination=True)
-class ExperimentRecordingView:
+class ExperimentRecordingView(OrgScoped):
     id: auto
     recording: Recording
     label: str | None
@@ -336,7 +361,7 @@ class ExperimentRecordingView:
 
 
 @strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentStimulusViewFilter, ordering=filters.ExperimentStimulusViewOrder, pagination=True)
-class ExperimentStimulusView:
+class ExperimentStimulusView(OrgScoped):
     id: auto
     stimulus: Stimulus
     label: str | None
@@ -346,7 +371,7 @@ class ExperimentStimulusView:
 
 
 @strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True, ordering=filters.BlockOrder)
-class Block:
+class Block(OrgScoped):
     id: auto
     name: str
     description: str | None
@@ -365,12 +390,12 @@ BlockStats, BlockStatsResolver = create_stats_type(
         "created_at": "created_at",
     },
     allowed_datetime_fields={"created_at": "created_at"},
-    prescope=build_prescoper(field="organization"),
+    prescope=build_prescoper(),
 )
 
 
 @strawberry_django.type(models.BlockSegment, filters=filters.BlockSegmentFilter, ordering=filters.BlockSegmentOrder, pagination=True)
-class BlockSegment:
+class BlockSegment(OrgScoped):
     id: auto
     block: Block
     label: str
@@ -386,7 +411,7 @@ class BlockSegment:
 
 
 @strawberry_django.type(models.BlockGroup, filters=filters.BlockGroupFilter, ordering=filters.BlockGroupOrder, pagination=True)
-class BlockGroup:
+class BlockGroup(OrgScoped):
     id: auto
     name: str
     block: Block
@@ -403,7 +428,7 @@ class Signal:
 
 
 @strawberry_django.type(models.AnalogSignalChannel, filters=filters.AnalogSignalChannelFilter, ordering=filters.AnalogSignalChannelOrder, pagination=True)
-class AnalogSignalChannel:
+class AnalogSignalChannel(OrgScoped):
     id: auto
     name: str | None
     description: str | None
@@ -415,7 +440,7 @@ class AnalogSignalChannel:
 
 
 @strawberry_django.type(models.AnalogSignal, filters=filters.AnalogSignalFilter, ordering=filters.AnalogSignalOrder, pagination=True)
-class AnalogSignal(Signal):
+class AnalogSignal(Signal, OrgScoped):
     id: auto
     sampling_rate: quantities.Frequency
     unit: str | None
@@ -425,14 +450,14 @@ class AnalogSignal(Signal):
 
 
 @strawberry_django.type(models.SpikeTrain, filters=filters.SpikeTrainFilter, ordering=filters.SpikeTrainOrder, pagination=True)
-class SpikeTrain(Signal):
+class SpikeTrain(Signal, OrgScoped):
     id: auto
     trace: "Trace"
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @strawberry_django.type(models.IrregularlySampledSignal, filters=filters.IrregularlySampledSignalFilter, ordering=filters.IrregularlySampledSignalOrder, pagination=True)
-class IrregularlySampledSignal(Signal):
+class IrregularlySampledSignal(Signal, OrgScoped):
     id: auto
     trace: "Trace"
     unit: str | None
@@ -440,7 +465,7 @@ class IrregularlySampledSignal(Signal):
 
 
 @strawberry_django.type(models.Trace, filters=filters.TraceFilter, ordering=filters.TraceOrder, pagination=True)
-class Trace:
+class Trace(OrgScoped):
     """An image.
 
 
@@ -488,7 +513,7 @@ class Trace:
 
 
 @strawberry_django.type(models.Dataset, filters=filters.DatasetFilter, ordering=filters.DatasetOrder, pagination=True)
-class Dataset:
+class Dataset(OrgScoped):
     id: auto
     images: List["Trace"]
     files: List["File"]
@@ -551,7 +576,7 @@ class View:
 
 
 @strawberry_django.type(models.TimelineView)
-class TimelineView(View):
+class TimelineView(View, OrgScoped):
     """A label view.
 
     Label views are used to give a label to a specific image channel. For example, you can
@@ -571,7 +596,7 @@ class TimelineView(View):
 
 
 @strawberry_django.type(models.ROI, filters=filters.ROIFilter, ordering=filters.ROIOrder, pagination=True)
-class ROI:
+class ROI(OrgScoped):
     """A region of interest."""
 
     id: auto

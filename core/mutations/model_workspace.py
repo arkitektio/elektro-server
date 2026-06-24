@@ -49,6 +49,7 @@ def create_model_workspace(
         name=parsed.name,
         description=parsed.description,
         creator=info.context.request.user,
+        organization=info.context.request.organization,
     )
     return workspace
 

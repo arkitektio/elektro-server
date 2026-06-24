@@ -3,7 +3,8 @@ from typing import List
 import strawberry
 from strawberry import ID as StrawberryID
 from typing import Any, Type
-from core import types, models
+from core import types, models, scoping
+from core import scalars as core_scalars
 from core import mutations
 from core import queries
 from core import subscriptions
@@ -59,17 +60,17 @@ class Query:
     @strawberry_django.field(permission_classes=[], description="Returns a list of images")
     def stimulus(self, info: Info, id: ID) -> types.Stimulus:
         """Get all stimuli"""
-        return models.Stimulus.objects.get(id=id)
+        return scoping.get_for_org(models.Stimulus, info, id=id)
 
     @strawberry_django.field(permission_classes=[], description="Returns a list of images")
     def analog_signal(self, info: Info, id: ID) -> types.AnalogSignal:
         """Get all stimuli"""
-        return models.AnalogSignal.objects.get(id=id)
+        return scoping.get_for_org(models.AnalogSignal, info, id=id)
 
     @strawberry_django.field(permission_classes=[], description="Returns a list of images")
     def analog_signal_channel(self, info: Info, id: ID) -> types.AnalogSignalChannel:
         """Get all stimuli"""
-        return models.AnalogSignalChannel.objects.get(id=id)
+        return scoping.get_for_org(models.AnalogSignalChannel, info, id=id)
 
     @strawberry_django.field(permission_classes=[], description="Returns a list of cells in a model")
     def cells(
@@ -79,7 +80,7 @@ class Query:
         ids: List[ID] | None = None,
         search: str | None = None,
     ) -> list[types.Cell]:
-        model = models.NeuronModel.objects.get(id=modelId)
+        model = scoping.get_for_org(models.NeuronModel, info, id=modelId)
         l = ModelConfigModel(**model.json_model)
 
         if search:
@@ -99,7 +100,7 @@ class Query:
         search: str | None = None,
     ) -> List["Section"]:
         """Get all cells"""
-        model = models.NeuronModel.objects.get(id=modelId)
+        model = scoping.get_for_org(models.NeuronModel, info, id=modelId)
         l = ModelConfigModel(**model.json_model)
 
         for cell in l.cells:
@@ -116,66 +117,57 @@ class Query:
     @strawberry_django.field(permission_classes=[], description="Returns a list of images")
     def recording(self, info: Info, id: ID) -> types.Recording:
         """Get all stimuli"""
-        return models.Recording.objects.get(id=id)
+        return scoping.get_for_org(models.Recording, info, id=id)
 
     @strawberry_django.field()
     def block(self, info: Info, id: ID) -> types.Block:
         """Get all blocks"""
-        return models.Block.objects.get(id=id)
+        return scoping.get_for_org(models.Block, info, id=id)
 
     @strawberry_django.field()
     def experiment(self, info: Info, id: ID) -> types.Experiment:
         """Get all experiments"""
-        return models.Experiment.objects.get(id=id)
+        return scoping.get_for_org(models.Experiment, info, id=id)
 
     @strawberry_django.field()
     def model_collection(self, info: Info, id: ID) -> types.ModelCollection:
         """Get all model collections"""
-        return models.ModelCollection.objects.get(id=id)
+        return scoping.get_for_org(models.ModelCollection, info, id=id)
 
     @strawberry_django.field()
     def model_workspace(self, info: Info, id: ID) -> types.ModelWorkspace:
         """Get a single model workspace by id"""
-        return models.ModelWorkspace.objects.get(id=id)
+        return scoping.get_for_org(models.ModelWorkspace, info, id=id)
 
     @strawberry_django.field()
     def workspace_mapping(self, info: Info, id: ID) -> types.WorkspaceMapping:
         """Get a single workspace mapping by id"""
-        return models.WorkspaceMapping.objects.get(id=id)
+        return scoping.get_for_org(models.WorkspaceMapping, info, id=id)
 
     @strawberry_django.field()
     def simulation(self, info: Info, id: ID) -> types.Simulation:
         """Get all simulations"""
-        return models.Simulation.objects.get(id=id)
-
-    @strawberry_django.field()
-    def neuron_model(self, info: Info, id: ID) -> types.NeuronModel:
-        """Get all simulations"""
-        return models.NeuronModel.objects.get(id=id)
+        return scoping.get_for_org(models.Simulation, info, id=id)
 
     @strawberry_django.field(permission_classes=[], description="Returns a single image by ID")
     def trace(self, info: Info, id: ID) -> types.Trace:
-        print(id)
-        return models.Trace.objects.get(id=id)
+        return scoping.get_for_org(models.Trace, info, id=id)
 
-    @strawberry_django.field(permission_classes=[], description="Returns a single image by ID")
+    @strawberry_django.field(permission_classes=[], description="Returns a single neuron model by ID")
     def neuron_model(self, info: Info, id: ID) -> types.NeuronModel:
-        print(id)
-        return models.NeuronModel.objects.get(id=id)
+        return scoping.get_for_org(models.NeuronModel, info, id=id)
 
     @strawberry_django.field(permission_classes=[])
     def roi(self, info: Info, id: ID) -> types.ROI:
-        print(id)
-        return models.ROI.objects.get(id=id)
+        return scoping.get_for_org(models.ROI, info, id=id)
 
     @strawberry_django.field(permission_classes=[])
     def file(self, info: Info, id: ID) -> types.File:
-        print(id)
-        return models.File.objects.get(id=id)
+        return scoping.get_for_org(models.File, info, id=id)
 
     @strawberry_django.field(permission_classes=[])
     def dataset(self, info: Info, id: ID) -> types.Dataset:
-        return models.Dataset.objects.get(id=id)
+        return scoping.get_for_org(models.Dataset, info, id=id)
 
 
 @strawberry.type
@@ -413,5 +405,5 @@ schema = kante.Schema(
         DuckExtension,
     ],
     types=[SynapticConnection, Exp2Synapse],
-    config=StrawberryConfig(scalar_map={**datalayer_scalars.SCALAR_MAP, **kanne_scalars.SCALAR_MAP}),
+    config=StrawberryConfig(scalar_map={**core_scalars.SCALAR_MAP, **datalayer_scalars.SCALAR_MAP, **kanne_scalars.SCALAR_MAP}),
 )

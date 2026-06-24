@@ -120,7 +120,7 @@ def from_trace_like(
     store = models.ZarrStore.objects.get(id=parsed.array)
     store.fill_info(datalayer)
 
-    dataset = parsed.dataset or get_trace_dataset(info)
+    dataset = parsed.dataset or get_trace_dataset(info).id
 
     image = models.Trace.objects.create(
         dataset_id=dataset,

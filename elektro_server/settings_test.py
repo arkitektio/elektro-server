@@ -12,7 +12,7 @@ DATABASES["default"] = {
 }
 AUTHENTIKATE = {
     **AUTHENTIKATE,
-    "STATIC_TOKENS": {
+    "static_tokens": {
         "test": {"sub": "1"},
         # A non-privileged user in a different organization, for cross-tenant
         # scoping/permission tests. roles must be set explicitly: StaticToken

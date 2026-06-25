@@ -40,6 +40,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.8",
+    "pytest-cov>=7.1.0",
+    "python-semantic-release>=9.21.0",
     "django-stubs>=5.2.0",
     "dokker>=2.5",
     "moto>=5.1.11",
@@ -101,10 +104,42 @@ target-version = "py312"
 
 
 [tool.semantic_release]
+# This server is deployed as Docker images, not a PyPI package — so a release
+# just bumps the version, writes the changelog, tags, and cuts a GitHub Release.
+# No wheel is built and nothing is uploaded to PyPI.
 version_toml = ["pyproject.toml:project.version"]
-upload_to_pypi = true
-branch = "main"
-build_command = "uv build"
+upload_to_pypi = false
+build_command = ""
+commit_message = "chore(release): v{version} [skip ci]"
+
+# main -> stable X.Y.Z releases. next -> prereleases X.Y.Z-rc.N.
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.branches.next]
+match = "next"
+prerelease = true
+prerelease_token = "rc"
+
+# Maintenance branches (1.x, 2.x, ...) cut stable patch/minor releases for an
+# older major after a new major has shipped from main — e.g. 1.5.3 off `1.x`
+# while main is on 2.x. The regex is reused for every future major's line.
+[tool.semantic_release.branches.maintenance]
+match = '^\d+\.x$'
+prerelease = false
+
+# Keep the changelog / release notes focused on user-facing changes. These
+# patterns only filter what's rendered — they do not affect version bumps.
+[tool.semantic_release.changelog]
+exclude_commit_patterns = [
+    '^chore(?:\([^)]*\))?: ', # includes the chore(release): … bump commit
+    '^ci(?:\([^)]*\))?: ',
+    '^build(?:\([^)]*\))?: ',
+    '^style(?:\([^)]*\))?: ',
+    '^test(?:\([^)]*\))?: ',
+    '^Merge ',
+]
 
 
 

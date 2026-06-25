@@ -1,16 +1,23 @@
 name: CI
+
 on:
   push:
-    branches: [dev, main]
+    branches: [main, next]
   pull_request:
-    branches: [dev, main]
+    branches: [main, next]
+
 jobs:
   test_suit:
+    name: Tests (py${{ matrix.python-version }})
+    # Ubuntu only: the suite spins up a docker-compose stack (postgres + redis)
+    # itself via dokker (see tests/conftest.py::backend_stack). Docker is
+    # preinstalled on ubuntu runners but not on macOS/Windows, so those legs
+    # cannot run. Add more OS/versions here once they gain Docker support.
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.12"]
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        python-version: ["3.12", "3.13"]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +27,7 @@ jobs:
         with:
           version: "latest"
           python-version: ${{ matrix.python-version }}
-      
+
       - name: Install the project
         run: uv sync --all-extras --dev
 

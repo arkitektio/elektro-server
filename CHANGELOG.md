@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.2 (2026-06-26)
+
+### Bug Fixes
+
+- Add Config.MD
+  ([`9cf4b1f`](https://github.com/arkitektio/elektro-server/commit/9cf4b1f2e18e0ada9b9d50ff91b4caafc3610295))
+
+
 ## v1.0.0-rc.1 (2026-06-25)
 
 ### Bug Fixes

@@ -11,7 +11,6 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
-import os
 from .configuration import Settings
 
 
@@ -105,6 +104,7 @@ MY_SCRIPT_NAME = conf.django.force_script_name
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -158,8 +158,6 @@ DATABASES = {
 }
 
 
-STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
-
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 
@@ -198,6 +196,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = "static/"
+
+# WhiteNoise serves static directly from the staticfiles finders at request time
+# (works under both runserver and daphne), so no collectstatic / STATIC_ROOT is needed.
+WHITENOISE_USE_FINDERS = True
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

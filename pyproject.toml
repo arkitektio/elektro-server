@@ -36,6 +36,7 @@ dependencies = [
     "opentelemetry-instrumentation-dbapi>=0.62b1",
     "opentelemetry-instrumentation-psycopg>=0.62b1",
     "pint>=0.25.3",
+    "whitenoise>=6.6",
 ]
 
 [dependency-groups]

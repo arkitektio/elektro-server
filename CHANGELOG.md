@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.4 (2026-06-26)
+
+### Features
+
+- Removal of stale migrations
+  ([`b7ec800`](https://github.com/arkitektio/elektro-server/commit/b7ec8000aeb02643d26260cbfd2b31cb6e8e4740))
+
+
 ## v1.0.0-rc.3 (2026-06-26)
 
 ### Features

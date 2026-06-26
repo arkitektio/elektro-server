@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.3 (2026-06-26)
+
+### Features
+
+- With white noise and optimized Dockerfile
+  ([`2e09dcd`](https://github.com/arkitektio/elektro-server/commit/2e09dcdcd439dfb59cb18e10100e32c3416e2a7a))
+
+
 ## v1.0.0-rc.2 (2026-06-26)
 
 ### Bug Fixes

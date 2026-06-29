@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.5 (2026-06-29)
+
+### Bug Fixes
+
+- Update provenance
+  ([`8b73415`](https://github.com/arkitektio/elektro-server/commit/8b734156d4dadc555fad2193d91a50a8a4b85701))
+
+
 ## v1.0.0-rc.4 (2026-06-26)
 
 ### Features

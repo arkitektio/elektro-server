@@ -157,7 +157,7 @@ wheels = [
 
 [[package]]
 name = "authentikate"
-version = "2.2.0"
+version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
@@ -167,9 +167,9 @@ dependencies = [
     { name = "kante" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/99/ce/4da5c1b61d431f4d628b4a1ccc0afa1c6ccac8fda4521265f1552df49a03/authentikate-2.2.0.tar.gz", hash = "sha256:25c425edc9a7ad441a4ba5d4a8004e0a2cafdc7e9fbbabc57e910cb3bfc224ba", size = 25703, upload-time = "2026-06-24T12:53:18.773Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/31/65/4d6393b2e3b0fb71707befd14ffd1e54200e4afaf89e2c97d4539e0173f9/authentikate-2.2.1.tar.gz", hash = "sha256:ac9c6292bb22d80152e2b7c9af0cae2e5b5ef7fe2b737823621dcab689767798", size = 26261, upload-time = "2026-06-29T15:21:02.756Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6c/84/37b03ca391642900f9be951ea90f4b133849a7d98b78d2ef704b944b204c/authentikate-2.2.0-py3-none-any.whl", hash = "sha256:e965e678612fdd3f992b02928474e1abe48086b5a8a31d8592e278d4fad9592b", size = 34377, upload-time = "2026-06-24T12:53:17.844Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/41/2a0a4160eb2c7d37efeabcf45349350bda55744d8b7b654d3a6c724ad916/authentikate-2.2.1-py3-none-any.whl", hash = "sha256:94091607fbed5d8bb75a96d133ed0881d9855b3dd9d698d930d8914387c328bc", size = 35182, upload-time = "2026-06-29T15:21:01.668Z" },
 ]
 
 [[package]]
@@ -866,7 +866,7 @@ wheels = [
 
 [[package]]
 name = "elektro-server"
-version = "1.0.0rc4"
+version = "1.0.0rc5"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -921,7 +921,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
-    { name = "authentikate", specifier = ">=2.2" },
+    { name = "authentikate", specifier = ">=2.2.1" },
     { name = "boto3", specifier = ">=1.38.9" },
     { name = "channels-redis", specifier = ">=4.1.0,<5" },
     { name = "daphne", specifier = ">=4.0.0,<5" },
@@ -934,7 +934,7 @@ requires-dist = [
     { name = "django-taggit", specifier = ">=6.1.0" },
     { name = "duckdb", specifier = ">=1.2.2" },
     { name = "jsonpatch", specifier = "~=1.33" },
-    { name = "kante", specifier = ">=1.1.0" },
+    { name = "kante", specifier = ">=1.2" },
     { name = "koherent", specifier = ">=4" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.41.1" },
     { name = "opentelemetry-instrumentation-asgi", specifier = ">=0.62b1" },

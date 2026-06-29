@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.7 (2026-06-29)
+
+### Bug Fixes
+
+- Uv lock
+  ([`365af36`](https://github.com/arkitektio/elektro-server/commit/365af3699c5223f2273127e44eea864806bf29b6))
+
+
 ## v1.0.0-rc.6 (2026-06-29)
 
 ### Bug Fixes

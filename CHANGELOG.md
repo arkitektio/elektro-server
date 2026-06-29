@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.6 (2026-06-29)
+
+### Bug Fixes
+
+- Authentikate update
+  ([`87dd5d2`](https://github.com/arkitektio/elektro-server/commit/87dd5d2aa30d72174c247cbc152a375f58bcd7c4))
+
+
 ## v1.0.0-rc.5 (2026-06-29)
 
 ### Bug Fixes

@@ -116,6 +116,11 @@ class File(OrgScoped):
     name: auto
     origins: List["Trace"] = strawberry_django.field()
     store: dt.BigFileStore
+    views: List["FileView"] = strawberry_django.field(description="The file views of this file")
+    creator: User | None = strawberry_django.field(description="Who created this file")
+    size: float | None = strawberry_django.field(description="The size of the file in bytes")
+    content_type: str | None = strawberry_django.field(description="The content type of the file")
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @kante.django_type(models.ModEnvironment, filters=filters.ModEnvironmentFilter, pagination=True, ordering=filters.ModEnvironmentOrder)
@@ -517,6 +522,7 @@ class Dataset(OrgScoped):
     id: auto
     images: List["Trace"]
     files: List["File"]
+    parent: Optional["Dataset"] = strawberry_django.field(description="The parent dataset of this dataset")
     children: List["Dataset"]
     description: str | None
     name: str
@@ -593,6 +599,20 @@ class TimelineView(View, OrgScoped):
     @strawberry_django.field()
     def label(self, info: Info) -> str:
         return self.label or "No Label"
+
+
+@strawberry_django.type(models.FileView)
+class FileView(View, OrgScoped):
+    """A file view links a Trace to the source File it originated from.
+
+    It records that this view of the trace was originally part of the file
+    (optionally a specific series within it) and links back to the source file.
+    """
+
+    id: auto
+    trace: Trace
+    file: "File"
+    series_identifier: str | None = None
 
 
 @strawberry_django.type(models.ROI, filters=filters.ROIFilter, ordering=filters.ROIOrder, pagination=True)

@@ -40,7 +40,14 @@ def pin_dataset(
     info: Info,
     input: PinDatasetInput,
 ) -> types.Dataset:
-    raise NotImplementedError("TODO")
+    parsed = input.to_pydantic()
+    dataset = models.Dataset.objects.get(id=parsed.id)
+    user = info.context.request.user
+    if parsed.pin:
+        dataset.pinned_by.add(user)
+    else:
+        dataset.pinned_by.remove(user)
+    return cast(types.Dataset, dataset)
 
 
 class ChangeDatasetInputModel(BaseModel):
@@ -156,7 +163,7 @@ def put_images_in_dataset(
     )
 
     for i in parsed.selfs:
-        image = models.Images.objects.get(
+        image = models.Trace.objects.get(
             id=i,
         )
         image.dataset = parent
@@ -170,13 +177,16 @@ def release_images_from_dataset(
     input: inputs.DesociateInput,
 ) -> types.Dataset:
     parsed = input.to_pydantic()
+    parent = models.Dataset.objects.get(
+        id=parsed.other,
+    )
     for i in parsed.selfs:
-        dataset = models.Image.objects.get(
+        image = models.Trace.objects.get(
             id=i,
         )
-        dataset.parent = None
-        dataset.save()
-    return dataset
+        image.dataset = None
+        image.save()
+    return parent
 
 
 def put_files_in_dataset(
@@ -203,10 +213,13 @@ def release_files_from_dataset(
     input: inputs.DesociateInput,
 ) -> types.Dataset:
     parsed = input.to_pydantic()
+    parent = models.Dataset.objects.get(
+        id=parsed.other,
+    )
     for i in parsed.selfs:
-        dataset = models.File.objects.get(
+        file = models.File.objects.get(
             id=i,
         )
-        dataset.parent = None
-        dataset.save()
-    return dataset
+        file.dataset = None
+        file.save()
+    return parent

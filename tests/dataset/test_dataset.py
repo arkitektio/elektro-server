@@ -55,6 +55,18 @@ mutation ($input: AssociateInput!) {
 }
 """
 
+RELEASE_IMAGES_FROM_DATASET = """
+mutation ($input: DesociateInput!) {
+  releaseImagesFromDataset(input: $input) { id }
+}
+"""
+
+PIN_DATASET = """
+mutation ($input: PinDatasetInput!) {
+  pinDataset(input: $input) { id pinned }
+}
+"""
+
 
 async def _make_dataset(ctx, name="DS"):
     return await Dataset.objects.acreate(
@@ -116,6 +128,19 @@ async def test_put_files_in_dataset(aexecute, authenticated_context, bigfile_sto
     assert file.dataset_id == ds.id
 
 
+async def test_pin_dataset(aexecute, authenticated_context):
+    ds = await _make_dataset(authenticated_context, "Pinnable")
+    res = await aexecute(PIN_DATASET, {"input": {"id": str(ds.id), "pin": True}})
+    assert not res.errors, res.errors
+    assert res.data["pinDataset"]["pinned"] is True
+    assert await ds.pinned_by.filter(id=authenticated_context.request.user.id).aexists()
+
+    res = await aexecute(PIN_DATASET, {"input": {"id": str(ds.id), "pin": False}})
+    assert not res.errors, res.errors
+    assert res.data["pinDataset"]["pinned"] is False
+    assert not await ds.pinned_by.filter(id=authenticated_context.request.user.id).aexists()
+
+
 # --- negatives ---------------------------------------------------------------
 
 
@@ -130,14 +155,9 @@ async def test_create_dataset_missing_required_name(aexecute):
     assert res.errors
 
 
-# --- known pre-existing resolver bugs (tracked via xfail) --------------------
+# --- image/file association ---------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="release_files_from_dataset sets file.parent (File has no parent) and "
-    "returns a File typed as Dataset -> GraphQL coercion error.",
-    strict=True,
-)
 async def test_release_files_from_dataset(aexecute, authenticated_context, bigfile_store):
     ds = await _make_dataset(authenticated_context, "Container")
     store = await bigfile_store()
@@ -148,13 +168,11 @@ async def test_release_files_from_dataset(aexecute, authenticated_context, bigfi
         RELEASE_FILES_FROM_DATASET, {"input": {"selfs": [str(file.id)], "other": str(ds.id)}}
     )
     assert not res.errors, res.errors
+    assert res.data["releaseFilesFromDataset"]["id"] == str(ds.id)
+    await file.arefresh_from_db()
+    assert file.dataset_id is None
 
 
-@pytest.mark.xfail(
-    reason="put_images_in_dataset references models.Images, which does not exist "
-    "(the model is Trace) -> AttributeError.",
-    strict=True,
-)
 async def test_put_images_in_dataset(aexecute, authenticated_context, make_trace):
     ds = await _make_dataset(authenticated_context, "Container")
     trace = await make_trace()
@@ -162,3 +180,18 @@ async def test_put_images_in_dataset(aexecute, authenticated_context, make_trace
         PUT_IMAGES_IN_DATASET, {"input": {"selfs": [str(trace.id)], "other": str(ds.id)}}
     )
     assert not res.errors, res.errors
+    assert res.data["putImagesInDataset"]["id"] == str(ds.id)
+    await trace.arefresh_from_db()
+    assert trace.dataset_id == ds.id
+
+
+async def test_release_images_from_dataset(aexecute, authenticated_context, make_trace):
+    ds = await _make_dataset(authenticated_context, "Container")
+    trace = await make_trace(dataset=ds)
+    res = await aexecute(
+        RELEASE_IMAGES_FROM_DATASET, {"input": {"selfs": [str(trace.id)], "other": str(ds.id)}}
+    )
+    assert not res.errors, res.errors
+    assert res.data["releaseImagesFromDataset"]["id"] == str(ds.id)
+    await trace.arefresh_from_db()
+    assert trace.dataset_id is None

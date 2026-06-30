@@ -59,6 +59,7 @@ ANCHOR_PATHS: dict[type, tuple[str, ...]] = {
     models.Stimulus: ("simulation",),
     models.Recording: ("simulation",),
     models.TimelineView: ("trace",),
+    models.FileView: ("trace",),
 }
 
 

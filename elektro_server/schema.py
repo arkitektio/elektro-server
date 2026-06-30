@@ -299,6 +299,14 @@ class Mutation:
         description="Create a file from file-like data",
     )
     delete_file = strawberry_django.mutation(resolver=mutations.delete_file, description="Delete an existing file")
+    create_file_view = strawberry_django.mutation(
+        resolver=mutations.create_file_view,
+        description="Create a file view linking a file to a trace",
+    )
+    delete_file_view = strawberry_django.mutation(
+        resolver=mutations.delete_file_view,
+        description="Delete an existing file view",
+    )
 
     create_model_collection = strawberry_django.mutation(
         resolver=mutations.create_model_collection,
@@ -404,6 +412,6 @@ schema = kante.Schema(
         DjangoOptimizerExtension,
         DuckExtension,
     ],
-    types=[SynapticConnection, Exp2Synapse],
+    types=[SynapticConnection, Exp2Synapse, types.TimelineView, types.FileView],
     config=StrawberryConfig(scalar_map={**core_scalars.SCALAR_MAP, **datalayer_scalars.SCALAR_MAP, **kanne_scalars.SCALAR_MAP}),
 )

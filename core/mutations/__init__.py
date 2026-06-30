@@ -25,6 +25,7 @@ from .file import (
     from_file_like,
     delete_file,
     pin_file,
+    create_file_view,
 )
 from .block import create_block
 from .roi import *
@@ -64,6 +65,7 @@ from .delete import (
     delete_recording,
     delete_view_collection,
     delete_timeline_view,
+    delete_file_view,
 )
 
 __all__ = [
@@ -112,4 +114,6 @@ __all__ = [
     "delete_recording",
     "delete_view_collection",
     "delete_timeline_view",
+    "create_file_view",
+    "delete_file_view",
 ]

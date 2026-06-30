@@ -117,12 +117,28 @@ class SearchFilterMixin:
 class DatasetFilter:
     id: auto
     name: Optional[FilterLookup[str]]
+    parent: strawberry.ID | None = None
+    parentless: bool | None = None
+
+    def filter_parent(self, queryset, info):
+        if self.parent is None:
+            return queryset
+        return queryset.filter(parent_id=self.parent)
+
+    def filter_parentless(self, queryset, info):
+        if self.parentless is None:
+            return queryset
+        return queryset.filter(parent__isnull=self.parentless)
 
 
 @strawberry_django.filter_type(models.File)
 class FileFilter(IDFilterMixin, SearchFilterMixin):
+    SEARCH_FIELDS = ["name"]
     id: auto
     name: Optional[FilterLookup[str]]
+    size: Optional[FilterLookup[int]]
+    content_type: Optional[FilterLookup[str]]
+    dataset: Optional["DatasetFilter"] = None
 
 
 @strawberry_django.filter_type(models.Experiment)
@@ -427,6 +443,7 @@ class DatasetOrder:
 class FileOrder:
     id: auto
     created_at: auto
+    size: auto
 
 
 @strawberry_django.order_type(models.ModelCollection)

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from core import types, models, scalars
 from core.guards import enforce_delete
+from core.mutations.trace import get_trace_dataset
 from datalayer.datalayer import get_current_datalayer
 import json
 from django.conf import settings
@@ -84,18 +85,34 @@ def from_file_like(
     input: FromFileLike,
 ) -> types.File:
     parsed = input.to_pydantic()
+    datalayer = get_current_datalayer()
     store = models.BigFileStore.objects.get(id=parsed.file)
-    store.fill_info()
+    store.fill_info(datalayer)
 
-    table = models.File.objects.create(
-        dataset_id=parsed.dataset,
+    dataset_id = parsed.dataset or get_trace_dataset(info).id
+
+    # Size is best-effort metadata: it requires an S3 head_object call, which may be
+    # unavailable (e.g. object not yet readable). content_type comes straight off the store.
+    try:
+        size = store.calculate_size(datalayer)
+    except Exception:
+        size = None
+
+    file = models.File.objects.create(
+        dataset_id=dataset_id,
         creator=info.context.request.user,
         organization=info.context.request.organization,
-        name=parsed.name,
+        membership=info.context.request.membership,
+        name=store.original_file_name or parsed.name,
+        size=size,
+        content_type=store.content_type,
         store=store,
     )
 
-    return table
+    if parsed.origins:
+        file.origins.set(parsed.origins)
+
+    return file
 
 
 class DeleteEraInputModel(BaseModel):
@@ -115,3 +132,49 @@ def delete_era(
     item = models.File.objects.get(id=parsed.id)
     item.delete()
     return parsed.id
+
+
+class CreateFileViewInputModel(BaseModel):
+    file: str
+    trace: str
+    series_identifier: str | None = None
+    a_min: int | None = None
+    a_max: int | None = None
+    t_min: int | None = None
+    t_max: int | None = None
+    c_min: int | None = None
+    c_max: int | None = None
+    is_global: bool = False
+
+
+@kante.pydantic_input(CreateFileViewInputModel)
+class CreateFileViewInput:
+    file: strawberry.ID
+    trace: strawberry.ID
+    series_identifier: str | None = None
+    a_min: int | None = None
+    a_max: int | None = None
+    t_min: int | None = None
+    t_max: int | None = None
+    c_min: int | None = None
+    c_max: int | None = None
+    is_global: bool = False
+
+
+def create_file_view(
+    info: Info,
+    input: CreateFileViewInput,
+) -> types.FileView:
+    parsed = input.to_pydantic()
+    return models.FileView.objects.create(
+        file=models.File.objects.get(id=parsed.file),
+        trace_id=parsed.trace,
+        series_identifier=parsed.series_identifier,
+        a_min=parsed.a_min,
+        a_max=parsed.a_max,
+        t_min=parsed.t_min,
+        t_max=parsed.t_max,
+        c_min=parsed.c_min,
+        c_max=parsed.c_max,
+        is_global=parsed.is_global,
+    )

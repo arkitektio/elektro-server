@@ -77,6 +77,22 @@ class Dataset(models.Model):
         related_name="datasets",
         help_text="The organization that owns the dataset",
     )
+    created_through = models.ForeignKey(
+        "koherent.Task",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_%(class)ss",
+        help_text="The task this object was created through, if any",
+    )
+    created_through_by = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_%(class)ss",
+        help_text="The assigner of the creating task, denormalized for fast filtering",
+    )
 
     objects = DatasetManager()
 
@@ -86,9 +102,13 @@ class Dataset(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["creator", "is_default"],
+                fields=["creator", "is_default", "organization"],
                 name="unique_default_per_creator",
                 condition=models.Q(is_default=True),
+            ),
+            models.UniqueConstraint(
+                fields=["parent", "name"],
+                name="only_one_dataset_per_parent_and_name",
             ),
         ]
 
@@ -127,6 +147,38 @@ class File(models.Model):
         related_name="files",
         help_text="The organization that owns the file",
     )
+    membership = models.ForeignKey(
+        Membership,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="files",
+        help_text="The membership of the user that created the file",
+    )
+    size = models.BigIntegerField(help_text="The size of the file in bytes", null=True, blank=True)
+    content_type = models.CharField(
+        max_length=1000,
+        help_text="The content type of the file",
+        null=True,
+        blank=True,
+    )
+    created_through = models.ForeignKey(
+        "koherent.Task",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_%(class)ss",
+        help_text="The task this object was created through, if any",
+    )
+    created_through_by = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_%(class)ss",
+        help_text="The assigner of the creating task, denormalized for fast filtering",
+    )
+    provenance = ProvenanceField()
 
 
 class ModelCollection(models.Model):
@@ -834,6 +886,27 @@ class View(models.Model):
 class TimelineView(View):
     start_time = models.DateTimeField(help_text="The start time of the view", null=True, blank=True)
     end_time = models.DateTimeField(help_text="The end time of the view", null=True, blank=True)
+
+
+class FileView(View):
+    """A FileView links a Trace to the source File it originated from.
+
+    It records that this view of the trace was originally part of the file
+    (optionally a specific series within it) and links back to the source file.
+    """
+
+    file = models.ForeignKey(File, on_delete=models.CASCADE, related_name="views")
+    series_identifier = models.CharField(
+        max_length=1000,
+        help_text="The series identifier of the file",
+        null=True,
+        blank=True,
+    )
+
+    provenance = ProvenanceField()
+
+    class Meta:
+        default_related_name = "file_views"
 
 
 class ROI(models.Model):

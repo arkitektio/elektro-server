@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.8 (2026-06-30)
+
+### Features
+
+- With from file like
+  ([`2273869`](https://github.com/arkitektio/elektro-server/commit/22738699341a380ef65926108d03fcacc285b007))
+
+
 ## v1.0.0-rc.7 (2026-06-29)
 
 ### Bug Fixes

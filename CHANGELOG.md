@@ -1,7 +1,15 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.12 (2026-07-01)
+
+
 ## v1.0.0-rc.11 (2026-07-01)
+
+### Bug Fixes
+
+- Add color
+  ([`afd8a66`](https://github.com/arkitektio/elektro-server/commit/afd8a667bc31269e7a19207a58db5a5225d5009c))
 
 ### Features
 

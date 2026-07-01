@@ -3,14 +3,24 @@ from typing import Optional, List, Dict, Set
 from strawberry.experimental import pydantic
 import strawberry
 import re
-from ..biophysics import SectionParamMapInputModel, GlobalParamMapInputModel, CompartmentInputModel, BiophysicsInputModel
+from core.enums import DistributionKind
+from ..biophysics import DistributionInputModel, SectionParamMapInputModel, GlobalParamMapInputModel, CompartmentInputModel, BiophysicsInputModel
+
+
+@pydantic.input(DistributionInputModel, description="Input for how a section parameter is distributed along a section (NEURON range variable). Supply the fields matching the chosen kind: 'uniform' -> value; 'linear' -> proximal_value & distal_value; 'expression' -> expression.")
+class DistributionInput:
+    kind: DistributionKind = strawberry.field(default=DistributionKind.UNIFORM, description="The kind of spatial distribution.")
+    value: Optional[float] = strawberry.field(default=None, description="The uniform value applied to every segment (required for 'uniform').")
+    proximal_value: Optional[float] = strawberry.field(default=None, description="The value at path distance 0 (required for 'linear').")
+    distal_value: Optional[float] = strawberry.field(default=None, description="The value at the most distal segment (required for 'linear').")
+    expression: Optional[str] = strawberry.field(default=None, description="An expression in `x` (normalized position) and `d` (path distance) (required for 'expression').")
 
 
 @pydantic.input(SectionParamMapInputModel, description="Input for a section parameter mapping of a biophysics model. (this will be set on the mechanisms of the compartments of the model)")
 class SectionParamMapInput:
     param: str = strawberry.field(description="The name of the parameter to set.")
     mechanism: str = strawberry.field(description="The governing mechanism")
-    value: float = strawberry.field(description="The value of the parameter")
+    distribution: DistributionInput = strawberry.field(description="How the parameter is distributed along the section (uniform by default).")
     description: Optional[str] = strawberry.field(default=None, description="Description of the parameter")
 
 

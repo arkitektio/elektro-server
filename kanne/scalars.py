@@ -112,11 +112,17 @@ def format_quantity(value: Any, reference_unit: str, scale: int) -> str:
     """Render an integer canonical sub-unit count as a compact Pint string.
 
     ``value`` is an integer count of ``reference_unit / scale`` (e.g. picoseconds
-    for seconds at pico scale). The result is rescaled to the SI prefix with the
-    fewest zero digits (``5_000_000_000`` seconds-at-pico → ``"5 ms"``).
+    for seconds at pico scale). For simple units the result is rescaled to the SI
+    prefix with the fewest zero digits (``5_000_000_000`` seconds-at-pico →
+    ``"5 ms"``). Compound reference units (``ohm * centimeter``,
+    ``microfarad / centimeter ** 2``) are left in their reference unit rather than
+    ``to_compact``-ed, which would otherwise mangle them into rescaled SI base
+    forms like ``"354 m * mΩ"``.
     """
     ureg = get_registry()
-    quantity = ((value / scale) * ureg(reference_unit)).to_compact()
+    quantity = (value / scale) * ureg(reference_unit)
+    if not any(ch in reference_unit for ch in " */"):
+        quantity = quantity.to_compact()
     return f"{quantity:~g}"
 
 
@@ -236,6 +242,18 @@ class ElectricalResistance(PintQuantity):
 
     reference_unit = "ohm"
     scale = _MICRO
+
+
+class Resistivity(PintQuantity):
+    """An axial resistivity (NEURON ``Ra``; ``"35.4 ohm*cm"``, ``"100 ohm*cm"``)."""
+
+    reference_unit = "ohm * centimeter"
+
+
+class SpecificCapacitance(PintQuantity):
+    """A specific membrane capacitance (NEURON ``cm``; ``"1 uF/cm^2"``)."""
+
+    reference_unit = "microfarad / centimeter ** 2"
 
 
 class Power(PintQuantity):

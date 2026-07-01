@@ -87,3 +87,9 @@ ElectricalConductance = Annotated[int, _conductance[0], _conductance[1]]
 
 _temperature = _markers(_scalars.Temperature)
 Temperature = Annotated[int, _temperature[0], _temperature[1]]
+
+_resistivity = _markers(_scalars.Resistivity)
+Resistivity = Annotated[int, _resistivity[0], _resistivity[1]]
+
+_specific_capacitance = _markers(_scalars.SpecificCapacitance)
+SpecificCapacitance = Annotated[int, _specific_capacitance[0], _specific_capacitance[1]]

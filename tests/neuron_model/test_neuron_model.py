@@ -30,8 +30,10 @@ def _config(cells=None):
 def _cell(mechanisms):
     return {
         "id": "cell0",
+        # Compartments are matched to sections by the section's category, so the
+        # soma section must carry category "soma" for the "soma" compartment.
         "biophysics": {"compartments": [{"id": "soma", "mechanisms": mechanisms}]},
-        "topology": {"sections": [{"id": "soma"}]},
+        "topology": {"sections": [{"id": "soma", "category": "soma"}]},
     }
 
 

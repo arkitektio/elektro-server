@@ -160,6 +160,14 @@ class SynapseKind(str, Enum):
 class ConnectionKind(str, Enum):
     """Variety expresses the Type of Representation we are dealing with"""
     SYNAPSE = "synapse"
+
+
+@strawberry.enum
+class DistributionKind(str, Enum):
+    """How a section parameter is distributed along a section (NEURON range variable)."""
+    UNIFORM = "uniform"
+    LINEAR = "linear"
+    EXPRESSION = "expression"
       
 
 

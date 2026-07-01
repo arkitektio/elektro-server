@@ -1,9 +1,20 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.10 (2026-07-01)
+
+### Bug Fixes
+
+- Search filter
+  ([`c50a235`](https://github.com/arkitektio/elektro-server/commit/c50a2352c6427c5f39541ac21d14a728411827f4))
+
+
 ## v1.0.0-rc.9 (2026-07-01)
 
 ### Bug Fixes
+
+- Filters
+  ([`e83d38b`](https://github.com/arkitektio/elektro-server/commit/e83d38b67123f9c87bfbabab6b9c3a8b0d812ba4))
 
 - Upload
   ([`cf259b3`](https://github.com/arkitektio/elektro-server/commit/cf259b379cbca6c6520f37d132dd6c3bd2b8f5fc))

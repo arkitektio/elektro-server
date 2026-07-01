@@ -112,12 +112,11 @@ class SearchFilterMixin:
 
 
 @strawberry_django.filter_type(models.Dataset)
-class DatasetFilter:
+class DatasetFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
     parent: strawberry.ID | None = None
     parentless: bool | None = None
-    ids: list[strawberry.ID]
 
     def filter_ids(self, queryset, info):
         if self.ids is None:

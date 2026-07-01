@@ -101,9 +101,7 @@ class SearchFilterMixin:
                 _rank=SearchRank(vector, query),
             )
             .filter(predicate)
-            .annotate(
-                _relevance=Greatest("_similarity", "_rank", output_field=FloatField())
-            )
+            .annotate(_relevance=Greatest("_similarity", "_rank", output_field=FloatField()))
             .order_by("-_relevance")
         )
 
@@ -119,6 +117,12 @@ class DatasetFilter:
     name: Optional[FilterLookup[str]]
     parent: strawberry.ID | None = None
     parentless: bool | None = None
+    ids: list[strawberry.ID]
+
+    def filter_ids(self, queryset, info):
+        if self.ids is None:
+            return queryset
+        return queryset.filter(ids__in=self.ids)
 
     def filter_parent(self, queryset, info):
         if self.parent is None:

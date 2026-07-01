@@ -1,6 +1,6 @@
 [project]
 name = "elektro-server"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 description = ""
 authors = [{ name = "jhnnsrs", email = "jhnnsrs@gmail.com" }]
 requires-python = ">=3.12,<4"

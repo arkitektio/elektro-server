@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.11 (2026-07-01)
+
+### Features
+
+- More neuron features modeled
+  ([`51308a9`](https://github.com/arkitektio/elektro-server/commit/51308a96c05ce85d666c69e9a709c77baf165e86))
+
+
 ## v1.0.0-rc.10 (2026-07-01)
 
 ### Bug Fixes

@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.9 (2026-07-01)
+
+### Bug Fixes
+
+- Upload
+  ([`cf259b3`](https://github.com/arkitektio/elektro-server/commit/cf259b379cbca6c6520f37d132dd6c3bd2b8f5fc))
+
+
 ## v1.0.0-rc.8 (2026-06-30)
 
 ### Features

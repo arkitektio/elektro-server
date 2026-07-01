@@ -3,6 +3,7 @@ from typing import Optional, List, Dict, Set
 from strawberry.experimental import pydantic
 import strawberry
 import re
+from core import scalars
 from core.enums import DistributionKind
 from ..biophysics import DistributionInputModel, SectionParamMapInputModel, GlobalParamMapInputModel, CompartmentInputModel, BiophysicsInputModel
 
@@ -37,6 +38,7 @@ class CompartmentInput:
     mechanisms: list[str] = strawberry.field(default_factory=set, description="The set of mechanisms active in this compartment.")
     section_params: List[SectionParamMapInput] | None = strawberry.field(default_factory=list, description="The mechanism-specific parameters applied to the sections of this compartment.")
     global_params: List[GlobalParamMapInput] | None = strawberry.field(default_factory=list, description="The non-mechanistic (global) parameters applied to this compartment.")
+    color: Optional[scalars.RGBAColor] = strawberry.field(default=None, description="An optional RGBA color (list of 4 values) used to render this compartment in the UI.")
 
 
 @pydantic.input(BiophysicsInputModel, description="Input for a biophysics model, which consists of compartments, each with their own mechanisms and parameters.")

@@ -43,6 +43,7 @@ class CompartmentModel(BaseModel):
     mechanisms: Set[str] = Field(default_factory=set, description="The set of mechanisms active in this compartment.")
     section_params: List[SectionParamMapModel] = Field(default_factory=list, description="The mechanism-specific parameters applied to the sections of this compartment.")
     global_params: List[GlobalParamMapModel] = Field(default_factory=list, description="The non-mechanistic (global) parameters applied to this compartment.")
+    color: Optional[List[int]] = Field(default=None, description="An optional RGBA color (list of 4 values) used to render this compartment in the UI.")
 
 
     def section_param_for_key(self, name):

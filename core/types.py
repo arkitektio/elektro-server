@@ -42,10 +42,7 @@ def build_prescoped_queryset(info, queryset):
     path = scoping.organization_path(queryset.model)
     if path is None:
         if queryset.model.__name__ not in scoping.UNSCOPED_MODELS:
-            raise LookupError(
-                f"{queryset.model.__name__} has no path to an organization and is not "
-                "registered in core.scoping.UNSCOPED_MODELS"
-            )
+            raise LookupError(f"{queryset.model.__name__} has no path to an organization and is not registered in core.scoping.UNSCOPED_MODELS")
         return queryset
     return queryset.filter(**{path: info.context.request.organization})
 
@@ -520,7 +517,7 @@ class Trace(OrgScoped):
 @strawberry_django.type(models.Dataset, filters=filters.DatasetFilter, ordering=filters.DatasetOrder, pagination=True)
 class Dataset(OrgScoped):
     id: auto
-    images: List["Trace"]
+    traces: List["Trace"]
     files: List["File"]
     parent: Optional["Dataset"] = strawberry_django.field(description="The parent dataset of this dataset")
     children: List["Dataset"]

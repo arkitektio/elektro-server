@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.13 (2026-07-02)
+
+### Features
+
+- Updated schema
+  ([`b224db9`](https://github.com/arkitektio/elektro-server/commit/b224db96ffc4ae5fc3570dcfb6cdf92badac095f))
+
+
 ## v1.0.0-rc.12 (2026-07-01)
 
 

@@ -1,5 +1,7 @@
+import warnings
 from typing import Dict, Union
 from .cell import CellInputModel
+from .biophysics import IonInputModel, MechanismGlobalParamInputModel
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Literal, Union, Optional
 from kanne import quantities as pq
@@ -15,7 +17,7 @@ class SynapseInputModel(BaseModel):
     e: pq.ElectricPotential = Field(description="Reversal potential.")
     tau2: pq.Duration = Field(description="Decay time constant.")
     tau1: pq.Duration = Field(description="Rise time constant.")
-    delay: pq.Duration = Field(default=100_000_000_000, description="Delay before the synapse activates.")   # 100 ms
+    delay: pq.Duration = Field(default=100_000_000_000, description="Delay before the synapse activates.")  # 100 ms
     cell: str = Field(description="The ID of the cell this synapse is located on.")
     location: str = Field(description="The location on the cell where the synapse is located. This can be a section name, a segment number, or a more complex specification depending on the model.")
     position: float = Field(default=0.5, description="The position along the section where the synapse is located, specified as a value between 0 and 1. This is only relevant if the location is specified as a section name.")
@@ -44,16 +46,27 @@ class NetStimulatorInputModel(BaseModel):
 
 class ModelConfigInputModel(BaseModel):
     """Configuration for a model."""
+
     cells: List[CellInputModel] = Field(default_factory=list, description="The list of cells in the model.")
     net_stimulators: List[NetStimulatorInputModel] = Field(default_factory=list, description="The list of net stimulators in the model.")
     net_connections: List[NetConnectionInputModel] = Field(default_factory=list, description="The list of net connections in the model.")
     net_synapses: List[SynapseInputModel] = Field(default_factory=list, description="The list of net synapses in the model.")
-    v_init: pq.ElectricPotential = Field(default=-67_000_000_000_000, description="Initial membrane potential.")   # -67 mV
-    temperature: pq.Temperature = Field(default=309_150_000_000, description="Simulation bath temperature.")   # 36 °C
+    ions: List[IonInputModel] = Field(default_factory=list, description="Model-wide default ion settings (reversal potentials / concentrations). A compartment's own ions override these by ion name.")
+    mechanism_globals: List[MechanismGlobalParamInputModel] = Field(default_factory=list, description="GLOBAL mechanism parameters (NEURON GLOBAL variables, e.g. q10_hh), shared across every instance of the mechanism.")
+    ra: Optional[pq.Resistivity] = Field(default=None, description="Model-wide default axial resistivity (NEURON Ra). A section's own ra overrides this; unset falls back to NEURON's built-in 35.4 Ω·cm.")
+    cm: Optional[pq.SpecificCapacitance] = Field(default=None, description="Model-wide default specific membrane capacitance (NEURON cm). A section's own cm overrides this; unset falls back to NEURON's built-in 1 µF/cm².")
+    v_init: pq.ElectricPotential = Field(default=-67_000_000_000_000, description="Initial membrane potential.")  # -67 mV
+    temperature: pq.Temperature = Field(default=309_150_000_000, description="Simulation bath temperature.")  # 36 °C
     label: Optional[str] = Field(default=None, description="An optional label for the model configuration.")
 
     @model_validator(mode="after")
     def check_cells(self) -> "ModelConfigInputModel":
+        self._check_unique_ions(self.ions, "the model-wide ion defaults")
+        if self.ra is not None and self.ra <= 0:
+            raise ValueError("The model-wide default ra must be > 0.")
+        if self.cm is not None and self.cm <= 0:
+            raise ValueError("The model-wide default cm must be > 0.")
+
         for cell in self.cells:
             self._check_topology(cell)
             self._check_biophysics(cell)
@@ -90,27 +103,47 @@ class ModelConfigInputModel(BaseModel):
 
         roots = [s for s in sections if s.parent is None]
         if sections and len(roots) != 1:
-            raise ValueError(
-                f"Cell {cell.id} must have exactly one root section (found {len(roots)})."
-            )
+            raise ValueError(f"Cell {cell.id} must have exactly one root section (found {len(roots)}).")
 
         for section in sections:
             if section.nseg < 1:
                 raise ValueError(f"Section {section.id} in cell {cell.id} must have nseg >= 1.")
+            if section.nseg % 2 == 0:
+                warnings.warn(
+                    f"Section {section.id} in cell {cell.id} has an even nseg ({section.nseg}); "
+                    "NEURON convention prefers an odd nseg so the section has a true midpoint node.",
+                    stacklevel=2,
+                )
+            if section.d_lambda is not None and section.d_lambda <= 0:
+                raise ValueError(f"Section {section.id} in cell {cell.id} must have d_lambda > 0.")
+
+            # Geometry: a section needs either stylized length or pt3d coords.
+            coords = section.coords or []
+            if section.length is None and not coords:
+                raise ValueError(
+                    f"Section {section.id} in cell {cell.id} needs geometry: set length or provide coords."
+                )
+            if section.length is not None and section.length <= 0:
+                raise ValueError(f"Section {section.id} in cell {cell.id} must have length > 0.")
+            if coords and len(coords) < 2:
+                raise ValueError(
+                    f"Section {section.id} in cell {cell.id} needs at least two coords to define a cable."
+                )
+            if section.diam <= 0:
+                raise ValueError(f"Section {section.id} in cell {cell.id} must have diam > 0.")
+            if section.ra is not None and section.ra <= 0:
+                raise ValueError(f"Section {section.id} in cell {cell.id} must have ra > 0.")
+            if section.cm is not None and section.cm <= 0:
+                raise ValueError(f"Section {section.id} in cell {cell.id} must have cm > 0.")
+
             if section.parent is None:
                 continue
             if section.parent.parent not in section_ids:
-                raise ValueError(
-                    f"Section {section.id} in cell {cell.id} references unknown parent section {section.parent.parent}."
-                )
+                raise ValueError(f"Section {section.id} in cell {cell.id} references unknown parent section {section.parent.parent}.")
             if not 0.0 <= section.parent.parent_location <= 1.0:
-                raise ValueError(
-                    f"Section {section.id} in cell {cell.id} has parent_location outside [0, 1]."
-                )
+                raise ValueError(f"Section {section.id} in cell {cell.id} has parent_location outside [0, 1].")
             if section.parent.child_end not in (0.0, 1.0):
-                raise ValueError(
-                    f"Section {section.id} in cell {cell.id} has child_end that is not 0 or 1."
-                )
+                raise ValueError(f"Section {section.id} in cell {cell.id} has child_end that is not 0 or 1.")
 
         # Cycle detection: walking parents from any section must reach a root.
         parent_of = {s.id: (s.parent.parent if s.parent else None) for s in sections}
@@ -128,16 +161,17 @@ class ModelConfigInputModel(BaseModel):
         """Validate compartment-to-section (by category) and mechanism references."""
         if cell.biophysics is None:
             return
-        categories = {s.category for s in cell.topology.sections if s.category is not None}
         for comp in cell.biophysics.compartments:
-            if comp.id not in categories:
-                raise ValueError(
-                    f"Compartment {comp.id} in cell {cell.id} does not match any section category "
-                    f"(available: {sorted(categories)})."
-                )
             for param in comp.section_params:
                 if param.mechanism not in comp.mechanisms:
-                    raise ValueError(
-                        f"Section parameter {param.param} in compartment {comp.id} references mechanism "
-                        f"{param.mechanism}, which is not among the compartment's mechanisms."
-                    )
+                    raise ValueError(f"Section parameter {param.param} in compartment {comp.id} references mechanism {param.mechanism}, which is not among the compartment's mechanisms.")
+            ModelConfigInputModel._check_unique_ions(comp.ions, f"compartment {comp.id}")
+
+    @staticmethod
+    def _check_unique_ions(ions: List[IonInputModel], where: str) -> None:
+        """Ensure ion settings are unambiguous — no ion species appears twice."""
+        seen: set[str] = set()
+        for ion in ions:
+            if ion.ion in seen:
+                raise ValueError(f"Ion {ion.ion!r} is set more than once in {where}.")
+            seen.add(ion.ion)

@@ -82,6 +82,9 @@ Length = Annotated[int, _length[0], _length[1]]
 _potential = _markers(_scalars.ElectricPotential)
 ElectricPotential = Annotated[int, _potential[0], _potential[1]]
 
+_concentration = _markers(_scalars.Concentration)
+Concentration = Annotated[int, _concentration[0], _concentration[1]]
+
 _conductance = _markers(_scalars.ElectricalConductance)
 ElectricalConductance = Annotated[int, _conductance[0], _conductance[1]]
 

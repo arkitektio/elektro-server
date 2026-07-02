@@ -7,7 +7,7 @@ regression (environment/parent) and the in-environment mechanism validation.
 
 import pytest
 
-from core.models import ModEnvironment, NeuronModel
+from core.models import ModEnvironment, Mechanism, NeuronModel
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -33,7 +33,7 @@ def _cell(mechanisms):
         # Compartments are matched to sections by the section's category, so the
         # soma section must carry category "soma" for the "soma" compartment.
         "biophysics": {"compartments": [{"id": "soma", "mechanisms": mechanisms}]},
-        "topology": {"sections": [{"id": "soma", "category": "soma"}]},
+        "topology": {"sections": [{"id": "soma", "category": "soma", "length": "20 um"}]},
     }
 
 
@@ -161,3 +161,64 @@ async def test_create_neuron_model_missing_config(aexecute):
     # config is required on CreateNeuronModelInput.
     res = await aexecute(CREATE_NEURON_MODEL, {"input": {"name": "NoConfig"}})
     assert res.errors
+
+
+def _cell_with_param(mechanism, param):
+    # A cell whose compartment sets one section param on a catalog mechanism.
+    return {
+        "id": "cell0",
+        "biophysics": {
+            "compartments": [
+                {
+                    "id": "soma",
+                    "mechanisms": [mechanism],
+                    "sectionParams": [
+                        {
+                            "param": param,
+                            "mechanism": mechanism,
+                            "distribution": {"kind": "UNIFORM", "value": 0.1},
+                        }
+                    ],
+                }
+            ]
+        },
+        "topology": {"sections": [{"id": "soma", "category": "soma", "length": "20 um"}]},
+    }
+
+
+async def test_create_neuron_model_section_param_valid_against_catalog(
+    aexecute, authenticated_context, bigfile_store
+):
+    store = await bigfile_store()
+    env = await ModEnvironment.objects.acreate(
+        name="env-cat-ok", store=store, organization=authenticated_context.request.organization
+    )
+    # The mechanism's catalog declares param key "gkbar".
+    await Mechanism.objects.acreate(
+        name="kdr", environment=env, parameters=[{"key": "gkbar", "kind": "FLOAT"}]
+    )
+    res = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "GoodParam", "environment": str(env.id), "config": _config([_cell_with_param("kdr", "gkbar")])}},
+    )
+    assert not res.errors, res.errors
+    assert await NeuronModel.objects.filter(name="GoodParam").aexists()
+
+
+async def test_create_neuron_model_section_param_not_in_catalog(
+    aexecute, authenticated_context, bigfile_store
+):
+    store = await bigfile_store()
+    env = await ModEnvironment.objects.acreate(
+        name="env-cat-bad", store=store, organization=authenticated_context.request.organization
+    )
+    await Mechanism.objects.acreate(
+        name="kdr", environment=env, parameters=[{"key": "gkbar", "kind": "FLOAT"}]
+    )
+    # "gbogus" is not a declared param of kdr -> resolver raises.
+    res = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "BadParam", "environment": str(env.id), "config": _config([_cell_with_param("kdr", "gbogus")])}},
+    )
+    assert res.errors
+    assert not await NeuronModel.objects.filter(name="BadParam").aexists()

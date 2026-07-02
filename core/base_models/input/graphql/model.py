@@ -2,6 +2,7 @@ from typing import List, Literal
 from strawberry.experimental import pydantic
 import strawberry
 from .cell import CellInput
+from .biophysics import IonInput, MechanismGlobalParamInput
 from kanne import scalars as quantities
 from ..model import ModelConfigInputModel, NetConnectionInputModel, NetStimulatorInputModel, SynapseInputModel
 from core.enums import SynapseKind, ConnectionKind
@@ -50,6 +51,10 @@ class ModelConfigInput:
     net_stimulators: List[NetStimulatorInput] | None = strawberry.field(default_factory=list, description="The list of net stimulators in the model.")
     net_connections: List[NetConnectionInput] | None = strawberry.field(default_factory=list, description="The list of net connections in the model.")
     net_synapses: List[NetSynapseInput] | None = strawberry.field(default_factory=list, description="The list of net synapses in the model.")
+    ions: List[IonInput] | None = strawberry.field(default_factory=list, description="Model-wide default ion settings (reversal potentials / concentrations). A compartment's own ions override these by ion name.")
+    mechanism_globals: List[MechanismGlobalParamInput] | None = strawberry.field(default_factory=list, description="GLOBAL mechanism parameters (NEURON GLOBAL variables, e.g. q10_hh), shared across every instance of the mechanism.")
+    ra: quantities.Resistivity | None = strawberry.field(default=None, description="Model-wide default axial resistivity (NEURON Ra). A section's own ra overrides this; unset falls back to NEURON's built-in 35.4 Ω·cm.")
+    cm: quantities.SpecificCapacitance | None = strawberry.field(default=None, description="Model-wide default specific membrane capacitance (NEURON cm). A section's own cm overrides this; unset falls back to NEURON's built-in 1 µF/cm².")
     v_init: quantities.ElectricPotential = strawberry.field(description="Initial membrane potential.")
     temperature: quantities.Temperature = strawberry.field(description="Simulation bath temperature.")
     label: str | None = strawberry.field(default=None, description="An optional label for the model configuration.")

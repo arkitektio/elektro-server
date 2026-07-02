@@ -23,12 +23,13 @@ class SectionInputModel(BaseModel):
     """A section of a cell's morphology, the basic structural unit of the topology."""
     id: str = Field(description="The unique identifier of the section within the cell.")
     category: Optional[str] = Field(default=None, description="An optional category for the section (e.g. 'soma', 'axon', 'dend'). Biophysics compartments are matched to sections by this category.")
-    nseg: int = Field(default=1, description="The number of segments the section is discretized into.")
-    diam: pq.Length = Field(default=1_000_000, description="The diameter of the section.")  # 1 µm
-    length: Optional[pq.Length] = Field(default=None, description="Length of the section. Required if coords is not provided.")
-    ra: pq.Resistivity = Field(default=35_400_000_000, description="Axial resistivity (NEURON Ra).")  # 35.4 Ω·cm
-    cm: pq.SpecificCapacitance = Field(default=1_000_000_000, description="Specific membrane capacitance (NEURON cm).")  # 1 µF/cm²
-    coords: List[CoordInputModel] | None = Field(default=None, description="The 3D coordinates describing the section's geometry. Required if length is not provided.")
+    nseg: int = Field(default=1, description="The number of segments the section is discretized into (used when d_lambda is not set). NEURON convention prefers an odd count so the section has a true midpoint node.")
+    d_lambda: Optional[float] = Field(default=None, description="If set, nseg is computed from NEURON's d_lambda rule (target fraction of the AC length constant at 100 Hz per segment; 0.1 is typical) and overrides the fixed nseg.")
+    diam: pq.Length = Field(default=1_000_000, description="The diameter of the section (stylized geometry). Overridden by per-point coord diameters when coords are supplied.")  # 1 µm
+    length: Optional[pq.Length] = Field(default=None, description="Length of the section (stylized geometry). Required if coords is not provided; ignored when coords are supplied.")
+    ra: Optional[pq.Resistivity] = Field(default=None, description="Axial resistivity (NEURON Ra). Unset inherits the model-wide default, then NEURON's built-in 35.4 Ω·cm.")
+    cm: Optional[pq.SpecificCapacitance] = Field(default=None, description="Specific membrane capacitance (NEURON cm). Unset inherits the model-wide default, then NEURON's built-in 1 µF/cm².")
+    coords: List[CoordInputModel] | None = Field(default=None, description="The 3D coordinates (NEURON pt3d) describing the section's geometry. Required if length is not provided; when supplied they take precedence over length/diam. At least two points are needed to define a cable.")
     parent: Optional[ConnectionInputModel] = Field(default=None, description="The connection to this section's parent section. None for the root section of the cell.")
 
 

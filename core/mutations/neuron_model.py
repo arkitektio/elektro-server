@@ -111,13 +111,34 @@ def create_neuron_model(
         # rather than letting the insert raise an opaque IntegrityError.
         raise ValueError("An environment is required, either directly or inherited from a parent.")
 
+    # Catalog of the environment's mechanisms -> declared parameter keys. Built-in
+    # mechanisms (hh, pas, ...) have no catalog here, so their params are accepted
+    # unchecked.
+    env_mechs = {
+        m.name: {p.get("key") for p in (m.parameters or []) if isinstance(p, dict)}
+        for m in models.Mechanism.objects.filter(environment=environment)
+    }
+
+    def check_mechanism(mech: str) -> None:
+        if mech not in env_mechs and mech not in BUILT_IN_MECHANISMS:
+            raise ValueError(f"Mechanism with name {mech} not found in environment {environment.name}. And not a built-in mechanism.")
+
+    def check_param(mech: str, param: str, where: str) -> None:
+        # Only catalog mechanisms can be validated; built-ins are accepted as-is.
+        if mech in env_mechs and param not in env_mechs[mech]:
+            raise ValueError(f"Parameter {param!r} for mechanism {mech!r} in {where} is not among the mechanism's declared parameters ({sorted(env_mechs[mech])}).")
+
     for cell in parsed.config.cells:
         if cell.biophysics is not None:
             for comp in cell.biophysics.compartments:
                 for mech in comp.mechanisms:
-                    if not models.Mechanism.objects.filter(name=mech, environment=environment).exists():
-                        if mech not in BUILT_IN_MECHANISMS:
-                            raise ValueError(f"Mechanism with name {mech} not found in environment {environment.name}. And not a built-in mechanism.")
+                    check_mechanism(mech)
+                for sp in comp.section_params:
+                    check_param(sp.mechanism, sp.param, f"compartment {comp.id}")
+
+    for mg in parsed.config.mechanism_globals:
+        check_mechanism(mg.mechanism)
+        check_param(mg.mechanism, mg.param, "mechanism_globals")
 
     config_dict = parsed.config.model_dump(mode="json")
 

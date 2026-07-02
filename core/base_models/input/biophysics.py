@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, model_validator
 import re
 from .base import BaseConfig
 from core import enums
+from kanne import quantities as pq
 
 
 class DistributionInputModel(BaseConfig):
@@ -41,11 +42,32 @@ class SectionParamMapInputModel(BaseConfig):
     description: Optional[str] = Field(default=None, description="Description of the parameter")
 
 
-class GlobalParamMapInputModel(BaseModel):
-    """A global parameter mapping for a biophysics model. (this will be set on non-mechanistic parameters (i.e PAS) of the model)"""
-    param: str = Field(description="The name of the parameter to set.")
+class MechanismGlobalParamInputModel(BaseModel):
+    """A GLOBAL mechanism parameter (NEURON GLOBAL variable, e.g. ``q10_hh``).
+
+    Unlike a section parameter (a per-segment RANGE variable), a GLOBAL is shared
+    across every instance of the mechanism in the simulation, so it is set once at
+    the model level rather than per compartment.
+    """
+    mechanism: str = Field(description="The mechanism that owns this GLOBAL parameter (e.g. 'hh').")
+    param: str = Field(description="The name of the GLOBAL parameter to set (e.g. 'q10').")
     value: float = Field(description="The value of the parameter")
     description: Optional[str] = Field(default=None, description="Description of the parameter")
+
+
+class IonInputModel(BaseConfig):
+    """An ion species' intrinsic properties on a compartment (NEURON per-section ion settings).
+
+    Maps to NEURON's per-ion range variables: for ion ``na`` these are the
+    reversal potential ``ena`` and the internal/external concentrations
+    ``nai``/``nao``. Leave a field unset to keep NEURON's default (or let an
+    accumulation mechanism compute it, e.g. Nernst).
+    """
+    ion: str = Field(description="The ion species name as NEURON knows it (e.g. 'na', 'k', 'ca'). Custom ions declared by mechanisms are allowed.")
+    style: enums.IonStyle = Field(default=enums.IonStyle.FIXED_REVERSAL, description="How the reversal potential and concentrations are treated (NEURON ion_style): a fixed reversal parameter, computed from fixed concentrations via Nernst, or with concentrations as states advanced by an accumulation mechanism.")
+    reversal_potential: Optional[pq.ElectricPotential] = Field(default=None, description="The reversal potential for this ion (NEURON e<ion>, e.g. ena). Unset leaves NEURON's default.")
+    internal_concentration: Optional[pq.Concentration] = Field(default=None, description="The intracellular concentration for this ion (NEURON <ion>i, e.g. nai).")
+    external_concentration: Optional[pq.Concentration] = Field(default=None, description="The extracellular concentration for this ion (NEURON <ion>o, e.g. nao).")
 
 
 class CompartmentInputModel(BaseConfig):
@@ -53,16 +75,12 @@ class CompartmentInputModel(BaseConfig):
     id: str = Field(description="The unique identifier of the compartment within the model.")
     mechanisms: Set[str] = Field(default_factory=set, description="The set of mechanisms active in this compartment.")
     section_params: List[SectionParamMapInputModel] = Field(default_factory=list, description="The mechanism-specific parameters applied to the sections of this compartment.")
-    global_params: List[GlobalParamMapInputModel] = Field(default_factory=list, description="The non-mechanistic (global) parameters applied to this compartment.")
+    ions: List[IonInputModel] = Field(default_factory=list, description="Ion species settings (reversal potentials and concentrations) applied to this compartment.")
     color: Optional[List[int]] = Field(default=None, description="An optional RGBA color (list of 4 values) used to render this compartment in the UI.")
 
     def section_param_for_key(self, name):
         """Get the section parameter for a given param name."""
         return next((param for param in self.section_params if param.param == name), None)
-
-    def global_param_for_key(self, name):
-        """Get the global parameter for a given param name."""
-        return next((param for param in self.global_params if param.param == name), None)
 
 
 class BiophysicsInputModel(BaseConfig):

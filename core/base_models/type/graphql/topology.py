@@ -23,12 +23,13 @@ class Connection:
 class Section:
     id: str = strawberry.field(description="The unique identifier of the section within the cell.")
     category: Optional[str] = strawberry.field(default=None, description="The category of the section (e.g. 'soma', 'axon', 'dend'). Biophysics compartments are matched to sections by this category.")
-    nseg: int = strawberry.field(default=1, description="The number of segments the section is discretized into.")
-    diam: quantities.Length = strawberry.field(default=1_000_000, description="The diameter of the section.")
-    length: Optional[quantities.Length] = strawberry.field(default=None, description="Length of the section. Required if coords is not provided.")
-    ra: quantities.Resistivity = strawberry.field(default=35_400_000_000, description="Axial resistivity (NEURON Ra).")
-    cm: quantities.SpecificCapacitance = strawberry.field(default=1_000_000_000, description="Specific membrane capacitance (NEURON cm).")
-    coords: List[Coord] | None = strawberry.field(default=None, description="The 3D coordinates describing the section's geometry. Required if length is not provided.")
+    nseg: int = strawberry.field(default=1, description="The number of segments the section is discretized into (used when d_lambda is not set). NEURON convention prefers an odd count so the section has a true midpoint node.")
+    d_lambda: Optional[float] = strawberry.field(default=None, description="If set, nseg is computed from NEURON's d_lambda rule (target fraction of the AC length constant at 100 Hz per segment; 0.1 is typical) and overrides the fixed nseg.")
+    diam: quantities.Length = strawberry.field(default=1_000_000, description="The diameter of the section (stylized geometry). Overridden by per-point coord diameters when coords are supplied.")
+    length: Optional[quantities.Length] = strawberry.field(default=None, description="Length of the section (stylized geometry). Required if coords is not provided; ignored when coords are supplied.")
+    ra: Optional[quantities.Resistivity] = strawberry.field(default=None, description="Axial resistivity (NEURON Ra). Unset inherits the model-wide default, then NEURON's built-in 35.4 Ω·cm.")
+    cm: Optional[quantities.SpecificCapacitance] = strawberry.field(default=None, description="Specific membrane capacitance (NEURON cm). Unset inherits the model-wide default, then NEURON's built-in 1 µF/cm².")
+    coords: List[Coord] | None = strawberry.field(default=None, description="The 3D coordinates (NEURON pt3d) describing the section's geometry. Required if length is not provided; when supplied they take precedence over length/diam. At least two points are needed to define a cable.")
     parent: Optional[Connection] = strawberry.field(default=None, description="The connection to this section's parent section. None for the root section of the cell.")
 
 

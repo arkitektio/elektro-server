@@ -4,8 +4,9 @@ from strawberry.experimental import pydantic
 import strawberry
 import re
 from core import scalars
-from core.enums import DistributionKind
-from ..biophysics import DistributionModel, SectionParamMapModel, GlobalParamMapModel, CompartmentModel, BiophysicsModel
+from core.enums import DistributionKind, IonStyle
+from kanne import scalars as quantities
+from ..biophysics import DistributionModel, SectionParamMapModel, MechanismGlobalParamModel, IonModel, CompartmentModel, BiophysicsModel
 
 @pydantic.type(DistributionModel, description="Represents how a section parameter is distributed along a section (NEURON range variable).")
 class Distribution:
@@ -23,18 +24,27 @@ class SectionParamMap:
     description: Optional[str] = strawberry.field(default=None, description="Description of the parameter")
     
     
-@pydantic.type(GlobalParamMapModel, description="Represents a global parameter mapping for a biophysics model. (this will be set on non-mechanistic parameters  (i.e PAS ) of the model)")
-class GlobalParamMap:
+@pydantic.type(MechanismGlobalParamModel, description="Represents a GLOBAL mechanism parameter (NEURON GLOBAL variable, e.g. q10_hh) — shared across every instance of the mechanism, set once at the model level.")
+class MechanismGlobalParam:
+    mechanism: str = strawberry.field(description="The mechanism that owns this GLOBAL parameter (e.g. 'hh').")
     param: str
     value: float
     description: Optional[str] = strawberry.field(default=None, description="Description of the parameter")
+
+@pydantic.type(IonModel, description="Represents an ion species' intrinsic properties on a compartment (NEURON per-section ion settings, e.g. ena/nai/nao).")
+class Ion:
+    ion: str = strawberry.field(description="The ion species name as NEURON knows it (e.g. 'na', 'k', 'ca'). Custom ions declared by mechanisms are allowed.")
+    style: IonStyle = strawberry.field(default=IonStyle.FIXED_REVERSAL, description="How the reversal potential and concentrations are treated (NEURON ion_style): a fixed reversal parameter, computed from fixed concentrations via Nernst, or with concentrations as states advanced by an accumulation mechanism.")
+    reversal_potential: Optional[quantities.ElectricPotential] = strawberry.field(default=None, description="The reversal potential for this ion (NEURON e<ion>, e.g. ena). Unset leaves NEURON's default.")
+    internal_concentration: Optional[quantities.Concentration] = strawberry.field(default=None, description="The intracellular concentration for this ion (NEURON <ion>i, e.g. nai).")
+    external_concentration: Optional[quantities.Concentration] = strawberry.field(default=None, description="The extracellular concentration for this ion (NEURON <ion>o, e.g. nao).")
 
 @pydantic.type(CompartmentModel, description="Represents a compartment in a biophysics model.")
 class Compartment:
     id: str = strawberry.field(default_factory=lambda: str(uuid.uuid4()))
     mechanisms: list[str]  = strawberry.field(default_factory=set)
     section_params: List[SectionParamMap]
-    global_params: List[GlobalParamMap]
+    ions: List[Ion] = strawberry.field(default_factory=list, description="Ion species settings (reversal potentials and concentrations) applied to this compartment.")
     color: Optional[scalars.RGBAColor] = strawberry.field(default=None, description="An optional RGBA color (list of 4 values) used to render this compartment in the UI.")
     
         

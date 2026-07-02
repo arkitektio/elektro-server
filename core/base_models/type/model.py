@@ -1,5 +1,6 @@
 from typing import Dict, Union
 from .cell import CellModel
+from .biophysics import IonModel, MechanismGlobalParamModel
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Literal, Union, Optional
 from kanne import quantities as pq
@@ -51,6 +52,10 @@ class ModelConfigModel(BaseModel):
     net_stimulators: List[NetStimulatorModel] | None = Field(default_factory=list, description="The list of net stimulators in the model.")
     net_connections: List[Union[SynapticConnectionModel]] | None= Field(default_factory=list, description="The list of net connections in the model.")
     net_synapses: List[Union[Exp2SynModel]] | None = Field(default_factory=list, description="The list of net synapses in the model.")
+    ions: List[IonModel] = Field(default_factory=list, description="Model-wide default ion settings (reversal potentials / concentrations). A compartment's own ions override these by ion name.")
+    mechanism_globals: List[MechanismGlobalParamModel] = Field(default_factory=list, description="GLOBAL mechanism parameters (NEURON GLOBAL variables, e.g. q10_hh), shared across every instance of the mechanism.")
+    ra: Optional[pq.Resistivity] = Field(default=None, description="Model-wide default axial resistivity (NEURON Ra). A section's own ra overrides this; unset falls back to NEURON's built-in 35.4 Ω·cm.")
+    cm: Optional[pq.SpecificCapacitance] = Field(default=None, description="Model-wide default specific membrane capacitance (NEURON cm). A section's own cm overrides this; unset falls back to NEURON's built-in 1 µF/cm².")
     v_init: pq.ElectricPotential = Field(default=-67_000_000_000_000, description="Initial membrane potential.")   # -67 mV
     temperature: pq.Temperature = Field(default=309_150_000_000, description="Simulation bath temperature.")   # 36 °C
     label: Optional[str] = Field(default=None, description="An optional label for the model configuration.")

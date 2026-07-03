@@ -176,7 +176,7 @@ def _cell_with_param(mechanism, param):
                         {
                             "param": param,
                             "mechanism": mechanism,
-                            "distribution": {"kind": "UNIFORM", "value": 0.1},
+                            "distribution": {"kind": "UNIFORM", "value": "0.1 S/cm2"},
                         }
                     ],
                 }
@@ -222,3 +222,68 @@ async def test_create_neuron_model_section_param_not_in_catalog(
     )
     assert res.errors
     assert not await NeuronModel.objects.filter(name="BadParam").aexists()
+
+
+def _cell_with_value(mechanism, param, value):
+    # A cell whose compartment sets `param` to a specific quantity `value`.
+    return {
+        "id": "cell0",
+        "biophysics": {
+            "compartments": [
+                {
+                    "id": "soma",
+                    "mechanisms": [mechanism],
+                    "sectionParams": [
+                        {
+                            "param": param,
+                            "mechanism": mechanism,
+                            "distribution": {"kind": "UNIFORM", "value": value},
+                        }
+                    ],
+                }
+            ]
+        },
+        "topology": {"sections": [{"id": "soma", "category": "soma", "length": "20 um"}]},
+    }
+
+
+async def test_section_param_value_matching_declared_dimension(
+    aexecute, authenticated_context, bigfile_store
+):
+    store = await bigfile_store()
+    env = await ModEnvironment.objects.acreate(
+        name="env-dim-ok", store=store, organization=authenticated_context.request.organization
+    )
+    # gkbar declares a conductance-density unit; a value in mS/cm2 shares its dimension.
+    await Mechanism.objects.acreate(
+        name="kdr", environment=env,
+        parameters=[{"key": "gkbar", "kind": "FLOAT", "reference_unit": "S/cm2"}],
+    )
+    res = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "DimOk", "environment": str(env.id),
+                   "config": _config([_cell_with_value("kdr", "gkbar", "10 mS/cm2")])}},
+    )
+    assert not res.errors, res.errors
+    assert await NeuronModel.objects.filter(name="DimOk").aexists()
+
+
+async def test_section_param_value_wrong_dimension_rejected(
+    aexecute, authenticated_context, bigfile_store
+):
+    store = await bigfile_store()
+    env = await ModEnvironment.objects.acreate(
+        name="env-dim-bad", store=store, organization=authenticated_context.request.organization
+    )
+    await Mechanism.objects.acreate(
+        name="kdr", environment=env,
+        parameters=[{"key": "gkbar", "kind": "FLOAT", "reference_unit": "S/cm2"}],
+    )
+    # A voltage value for a conductance-density param -> dimension mismatch -> rejected.
+    res = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "DimBad", "environment": str(env.id),
+                   "config": _config([_cell_with_value("kdr", "gkbar", "10 mV")])}},
+    )
+    assert res.errors
+    assert not await NeuronModel.objects.filter(name="DimBad").aexists()

@@ -3,7 +3,7 @@ from strawberry.experimental import pydantic
 import strawberry
 from .cell import CellInput
 from .biophysics import IonInput, MechanismGlobalParamInput
-from kanne import scalars as quantities
+from kanne_server import scalars as quantities
 from ..model import ModelConfigInputModel, NetConnectionInputModel, NetStimulatorInputModel, SynapseInputModel
 from core.enums import SynapseKind, ConnectionKind
 

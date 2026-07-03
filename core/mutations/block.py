@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from core import types, models, scalars, enums
 from core.guards import enforce_delete
-from kanne import scalars as quantities
+from kanne_server import scalars as quantities
 from core.base_models.input.graphql.biophysics import BiophysicsInput
 from django.utils import timezone
 import datetime

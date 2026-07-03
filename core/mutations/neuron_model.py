@@ -1,7 +1,7 @@
 from kante.types import Info
 import strawberry
 import kante
-from core import types, models, scalars, enums
+from core import types, models, scalars, enums, units
 from core.base_models.input.graphql.model import ModelConfigInput
 from core.base_models.input.model import ModelConfigInputModel
 from pydantic import BaseModel
@@ -111,11 +111,25 @@ def create_neuron_model(
         # rather than letting the insert raise an opaque IntegrityError.
         raise ValueError("An environment is required, either directly or inherited from a parent.")
 
-    # Catalog of the environment's mechanisms -> declared parameter keys. Built-in
-    # mechanisms (hh, pas, ...) have no catalog here, so their params are accepted
-    # unchecked.
+    def _declared_dimension(param: dict) -> str | None:
+        # Prefer the canonical dimension derived at declaration time; fall back to
+        # deriving it from the reference_unit so mechanisms created outside the
+        # ParameterInput validator (e.g. directly via the ORM) still get checked.
+        if param.get("dimension"):
+            return param["dimension"]
+        if param.get("reference_unit"):
+            return units.dimensionality_of(param["reference_unit"])
+        return None
+
+    # Catalog of the environment's mechanisms -> {declared parameter key -> its
+    # declared canonical dimension (or None)}. Built-in mechanisms (hh, pas, ...)
+    # have no catalog here, so their params are accepted unchecked.
     env_mechs = {
-        m.name: {p.get("key") for p in (m.parameters or []) if isinstance(p, dict)}
+        m.name: {
+            p["key"]: _declared_dimension(p)
+            for p in (m.parameters or [])
+            if isinstance(p, dict) and p.get("key")
+        }
         for m in models.Mechanism.objects.filter(environment=environment)
     }
 
@@ -128,17 +142,39 @@ def create_neuron_model(
         if mech in env_mechs and param not in env_mechs[mech]:
             raise ValueError(f"Parameter {param!r} for mechanism {mech!r} in {where} is not among the mechanism's declared parameters ({sorted(env_mechs[mech])}).")
 
+    def check_value_dimension(mech: str, param: str, value, where: str) -> None:
+        # The value is a GenericQuantity in-memory string (or None). Enforce that
+        # its physical dimension matches the parameter's declared dimension — only
+        # possible for catalog mechanisms whose param declares a unit.
+        if value is None or mech not in env_mechs:
+            return
+        declared = env_mechs[mech].get(param)
+        if declared is None:
+            return  # the parameter declares no unit -> nothing to enforce
+        actual = units.quantity_dimension(value)
+        if actual != declared:
+            raise ValueError(
+                f"Parameter {param!r} of mechanism {mech!r} in {where} was set to a "
+                f"value with dimension {actual!r}, but the mechanism declares "
+                f"dimension {declared!r}."
+            )
+
     for cell in parsed.config.cells:
         if cell.biophysics is not None:
             for comp in cell.biophysics.compartments:
                 for mech in comp.mechanisms:
                     check_mechanism(mech)
                 for sp in comp.section_params:
-                    check_param(sp.mechanism, sp.param, f"compartment {comp.id}")
+                    where = f"compartment {comp.id}"
+                    check_param(sp.mechanism, sp.param, where)
+                    dist = sp.distribution
+                    for value in (dist.value, dist.proximal_value, dist.distal_value):
+                        check_value_dimension(sp.mechanism, sp.param, value, where)
 
     for mg in parsed.config.mechanism_globals:
         check_mechanism(mg.mechanism)
         check_param(mg.mechanism, mg.param, "mechanism_globals")
+        check_value_dimension(mg.mechanism, mg.param, mg.value, "mechanism_globals")
 
     config_dict = parsed.config.model_dump(mode="json")
 

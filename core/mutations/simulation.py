@@ -5,7 +5,7 @@ import kante
 from typing import Any
 from pydantic import BaseModel
 from core import types, models, scalars, enums
-from kanne import scalars as quantities
+from kanne_server import scalars as quantities
 from core.base_models.input.graphql.biophysics import BiophysicsInput
 from datalayer.scalars import ArrayLike
 

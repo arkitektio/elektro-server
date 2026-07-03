@@ -1,6 +1,6 @@
 from django.apps import AppConfig
 
 
-class KanneConfig(AppConfig):
+class KanneServerConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
-    name = "kanne"
+    name = "kanne_server"

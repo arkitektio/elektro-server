@@ -5,16 +5,16 @@ import strawberry
 import re
 from core import scalars
 from core.enums import DistributionKind, IonStyle
-from kanne import scalars as quantities
+from kanne_server import scalars as quantities
 from ..biophysics import DistributionInputModel, SectionParamMapInputModel, MechanismGlobalParamInputModel, IonInputModel, CompartmentInputModel, BiophysicsInputModel
 
 
 @pydantic.input(DistributionInputModel, description="Input for how a section parameter is distributed along a section (NEURON range variable). Supply the fields matching the chosen kind: 'uniform' -> value; 'linear' -> proximal_value & distal_value; 'expression' -> expression.")
 class DistributionInput:
     kind: DistributionKind = strawberry.field(default=DistributionKind.UNIFORM, description="The kind of spatial distribution.")
-    value: Optional[float] = strawberry.field(default=None, description="The uniform value applied to every segment (required for 'uniform').")
-    proximal_value: Optional[float] = strawberry.field(default=None, description="The value at path distance 0 (required for 'linear').")
-    distal_value: Optional[float] = strawberry.field(default=None, description="The value at the most distal segment (required for 'linear').")
+    value: Optional[quantities.GenericQuantity] = strawberry.field(default=None, description="The uniform value applied to every segment (required for 'uniform'). A unit-bearing quantity, e.g. '0.12 S/cm2'.")
+    proximal_value: Optional[quantities.GenericQuantity] = strawberry.field(default=None, description="The value at path distance 0 (required for 'linear'). A unit-bearing quantity.")
+    distal_value: Optional[quantities.GenericQuantity] = strawberry.field(default=None, description="The value at the most distal segment (required for 'linear'). A unit-bearing quantity.")
     expression: Optional[str] = strawberry.field(default=None, description="An expression in `x` (normalized position) and `d` (path distance) (required for 'expression').")
 
 
@@ -30,7 +30,7 @@ class SectionParamMapInput:
 class MechanismGlobalParamInput:
     mechanism: str = strawberry.field(description="The mechanism that owns this GLOBAL parameter (e.g. 'hh').")
     param: str = strawberry.field(description="The name of the GLOBAL parameter to set (e.g. 'q10').")
-    value: float = strawberry.field(description="The value of the parameter")
+    value: quantities.GenericQuantity = strawberry.field(description="The value of the parameter, as a unit-bearing quantity (e.g. '2 dimensionless', '10 mV').")
     description: Optional[str] = strawberry.field(default=None, description="Description of the parameter")
 
 

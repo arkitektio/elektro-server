@@ -2,7 +2,7 @@ import uuid
 from typing import Optional, List, Set
 from pydantic import BaseModel, Field
 from core import enums
-from kanne import quantities as pq
+from kanne_server import quantities as pq
 
 
 class DistributionModel(BaseModel):
@@ -16,9 +16,9 @@ class DistributionModel(BaseModel):
       ``d`` from the soma.
     """
     kind: enums.DistributionKind = Field(default=enums.DistributionKind.UNIFORM, description="The kind of spatial distribution.")
-    value: Optional[float] = Field(default=None, description="The uniform value applied to every segment (required for 'uniform').")
-    proximal_value: Optional[float] = Field(default=None, description="The value at path distance 0 (required for 'linear').")
-    distal_value: Optional[float] = Field(default=None, description="The value at the most distal segment (required for 'linear').")
+    value: Optional[pq.GenericQuantity] = Field(default=None, description="The uniform value applied to every segment (required for 'uniform'). A unit-bearing quantity, e.g. '0.12 S/cm2'.")
+    proximal_value: Optional[pq.GenericQuantity] = Field(default=None, description="The value at path distance 0 (required for 'linear'). A unit-bearing quantity.")
+    distal_value: Optional[pq.GenericQuantity] = Field(default=None, description="The value at the most distal segment (required for 'linear'). A unit-bearing quantity.")
     expression: Optional[str] = Field(default=None, description="An expression in `x` (normalized position) and `d` (path distance) (required for 'expression').")
 
 
@@ -41,7 +41,7 @@ class MechanismGlobalParamModel(BaseModel):
     """
     mechanism: str = Field(description="The mechanism that owns this GLOBAL parameter (e.g. 'hh').")
     param: str = Field(description="The name of the GLOBAL parameter to set (e.g. 'q10').")
-    value: float = Field(description="The value of the parameter")
+    value: pq.GenericQuantity = Field(description="The value of the parameter, as a unit-bearing quantity (e.g. '2 dimensionless', '10 mV').")
     description: Optional[str] = Field(default=None, description="Description of the parameter")
 
 

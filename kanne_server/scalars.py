@@ -19,6 +19,7 @@ into :data:`SCALAR_MAP`, which is merged into the schema's
 from __future__ import annotations
 
 import inspect
+import re
 from typing import Any, ClassVar
 
 import pint
@@ -272,3 +273,107 @@ class Pressure(PintQuantity):
     """A pressure (``"5 kPa"``, ``"2 bar"``)."""
 
     reference_unit = "pascal"
+
+
+# --- Dimension-agnostic quantity ---------------------------------------------
+#
+# The scalars above are dimension-*locked*: each has a fixed reference_unit and
+# stores an integer canonical. A GenericQuantity has no fixed dimension — it
+# accepts any unit-bearing quantity of any dimension and keeps whatever unit the
+# value carries. It is used where the expected dimension is only known at
+# runtime (e.g. a mechanism parameter value whose unit the mechanism declares).
+
+#: A letter immediately followed by digits denotes an exponent ("cm2" -> "cm**2"),
+#: which pint writes as "**". The lookbehind avoids mangling scientific notation.
+_COMPACT_EXPONENT_RE = re.compile(r"(?<![0-9.])([a-zA-Z])(\d+)")
+
+
+def normalize_compact_units(expression: str) -> str:
+    """Rewrite compact exponent spelling (``"S/cm2"`` -> ``"S/cm**2"``) for pint."""
+    return _COMPACT_EXPONENT_RE.sub(r"\1**\2", expression)
+
+
+def _render_dimensionality(dims: Any) -> str:
+    """Deterministic string form of a pint dimensionality (matches core.units)."""
+    positive = sorted((d, e) for d, e in dims.items() if e > 0)
+    negative = sorted((d, e) for d, e in dims.items() if e < 0)
+    if not positive and not negative:
+        return "dimensionless"
+
+    def term(d: str, e: Any) -> str:
+        e = abs(e)
+        return d if e == 1 else f"{d} ** {e:g}"
+
+    rendered = " * ".join(term(d, e) for d, e in positive) if positive else "1"
+    for d, e in negative:
+        rendered += f" / {term(d, e)}"
+    return rendered
+
+
+def parse_generic_quantity(raw: object) -> "pint.Quantity":
+    """Parse a unit-bearing quantity string into a pint Quantity.
+
+    Rejects bare numbers (a quantity must be given in string form, e.g.
+    ``"0.12 S/cm2"``) and anything pint cannot parse.
+    """
+    if isinstance(raw, bool):
+        raise ValueError("GenericQuantity: a boolean is not a quantity")
+    if isinstance(raw, (int, float)):
+        raise ValueError(
+            f"GenericQuantity: a bare number ({raw!r}) is not a quantity; provide "
+            "it as a unit-bearing string, e.g. '0.12 S/cm2' (or '0.5 dimensionless')"
+        )
+    if hasattr(raw, "to"):  # already a pint Quantity
+        return raw
+    ureg = get_registry()
+    try:
+        return ureg.Quantity(normalize_compact_units(raw))
+    except Exception as exc:  # pragma: no cover - pint raises various types
+        raise ValueError(f"GenericQuantity: cannot parse quantity {raw!r}: {exc}") from exc
+
+
+def generic_quantity_string(raw: object) -> str:
+    """Normalized, re-parseable in-memory form (``"0.12 siemens / centimeter ** 2"``)."""
+    q = parse_generic_quantity(raw)
+    return f"{q.magnitude} {q.units}"
+
+
+def generic_quantity_struct(raw: object) -> dict:
+    """The stored dual struct ``{magnitude, unit, dimension}`` for a quantity."""
+    q = parse_generic_quantity(raw)
+    return {
+        "magnitude": float(q.magnitude),
+        "unit": str(q.units),
+        "dimension": _render_dimensionality(q.dimensionality),
+    }
+
+
+class GenericQuantity:
+    """A physical quantity of any dimension (``"0.12 S/cm2"``, ``"-54.3 mV"``, ``"2 mM"``).
+
+    Unlike the dimension-locked scalars, this keeps whatever unit the value
+    carries and does not normalize to a canonical integer — its dimension is
+    whatever the value has. A bare number without a unit is rejected. On the wire
+    it is a string; validating it against an expected dimension (e.g. a declared
+    mechanism parameter) is the caller's job.
+    """
+
+
+def _build_generic_scalar() -> ScalarDefinition:
+    def parse_value(raw: object) -> str:
+        return generic_quantity_string(raw)
+
+    def serialize(value: object) -> str:
+        if hasattr(value, "to"):  # a pint Quantity
+            return f"{value.magnitude} {value.units}"
+        return str(value)  # an already-normalized in-memory string
+
+    return strawberry.scalar(
+        name="GenericQuantity",
+        description=inspect.getdoc(GenericQuantity) or "",
+        serialize=serialize,
+        parse_value=parse_value,
+    )
+
+
+SCALAR_MAP[GenericQuantity] = _build_generic_scalar()

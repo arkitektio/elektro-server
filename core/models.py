@@ -8,7 +8,7 @@ from core import enums
 from koherent.fields import ProvenanceField, HistoricForeignKey
 from django_choices_field import TextChoicesField
 from core.fields import S3Field
-from kanne.fields import QuantityField
+from kanne_server.fields import QuantityField
 from datalayer.datalayer import Datalayer
 
 # Create your models here.

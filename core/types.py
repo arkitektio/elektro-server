@@ -6,7 +6,7 @@ from strawberry import auto
 from typing import List, Optional, Annotated, Union, cast
 import strawberry_django
 from core import models, scalars, filters, enums, scoping
-from kanne import scalars as quantities
+from kanne_server import scalars as quantities
 from django.contrib.auth import get_user_model
 from kante.types import Info
 import datetime

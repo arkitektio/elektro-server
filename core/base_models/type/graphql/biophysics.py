@@ -5,15 +5,15 @@ import strawberry
 import re
 from core import scalars
 from core.enums import DistributionKind, IonStyle
-from kanne import scalars as quantities
+from kanne_server import scalars as quantities
 from ..biophysics import DistributionModel, SectionParamMapModel, MechanismGlobalParamModel, IonModel, CompartmentModel, BiophysicsModel
 
 @pydantic.type(DistributionModel, description="Represents how a section parameter is distributed along a section (NEURON range variable).")
 class Distribution:
     kind: DistributionKind = strawberry.field(default=DistributionKind.UNIFORM, description="The kind of spatial distribution.")
-    value: Optional[float] = strawberry.field(default=None, description="The uniform value applied to every segment (required for 'uniform').")
-    proximal_value: Optional[float] = strawberry.field(default=None, description="The value at path distance 0 (required for 'linear').")
-    distal_value: Optional[float] = strawberry.field(default=None, description="The value at the most distal segment (required for 'linear').")
+    value: Optional[quantities.GenericQuantity] = strawberry.field(default=None, description="The uniform value applied to every segment (required for 'uniform'). A unit-bearing quantity, e.g. '0.12 S/cm2'.")
+    proximal_value: Optional[quantities.GenericQuantity] = strawberry.field(default=None, description="The value at path distance 0 (required for 'linear'). A unit-bearing quantity.")
+    distal_value: Optional[quantities.GenericQuantity] = strawberry.field(default=None, description="The value at the most distal segment (required for 'linear'). A unit-bearing quantity.")
     expression: Optional[str] = strawberry.field(default=None, description="An expression in `x` (normalized position) and `d` (path distance) (required for 'expression').")
 
 @pydantic.type(SectionParamMapModel, description="Represents a section parameter mapping for a biophysics model. (this will be set on the mechanisms of the compartments of the model)")
@@ -28,7 +28,7 @@ class SectionParamMap:
 class MechanismGlobalParam:
     mechanism: str = strawberry.field(description="The mechanism that owns this GLOBAL parameter (e.g. 'hh').")
     param: str
-    value: float
+    value: quantities.GenericQuantity
     description: Optional[str] = strawberry.field(default=None, description="Description of the parameter")
 
 @pydantic.type(IonModel, description="Represents an ion species' intrinsic properties on a compartment (NEURON per-section ion settings, e.g. ena/nai/nao).")

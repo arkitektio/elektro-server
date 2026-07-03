@@ -4,7 +4,7 @@ from .topology import Topology
 from strawberry.experimental import pydantic
 import strawberry
 from .cell import Cell
-from kanne import scalars as quantities
+from kanne_server import scalars as quantities
 from ..model import Exp2SynModel, SynapticConnectionModel, SynapseBaseModel, NetConnectionModel, NetStimulatorModel, ModelConfigModel
 
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from kanne.scalars import (
+from kanne_server.scalars import (
     SCALAR_MAP,
     Duration,
     ElectricalConductance,

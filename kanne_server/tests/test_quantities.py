@@ -1,4 +1,4 @@
-"""Tests for the dual-struct pydantic storage types (kanne.quantities).
+"""Tests for the dual-struct pydantic storage types (kanne_server.quantities).
 
 These persist a quantity as ``{canonical, given, unit}`` in JSON while keeping a
 plain canonical ``int`` in memory. See ``kanne/DESIGN.md``.
@@ -9,7 +9,7 @@ from typing import Optional
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from kanne import quantities as pq
+from kanne_server import quantities as pq
 
 
 class Sample(BaseModel):

@@ -1,6 +1,6 @@
 """Pydantic field types that persist a quantity as a searchable dual struct.
 
-Where :mod:`kanne.scalars` defines the GraphQL *wire* scalars (string in, string
+Where :mod:`kanne_server.scalars` defines the GraphQL *wire* scalars (string in, string
 out), these are the *storage* types used on the pydantic models that get dumped
 into JSON blobs (e.g. ``NeuronModel.json_model``). Each is an ``Annotated[int, …]``
 so that **in memory the value is a plain canonical integer** — defaults, hashing,
@@ -96,3 +96,32 @@ Resistivity = Annotated[int, _resistivity[0], _resistivity[1]]
 
 _specific_capacitance = _markers(_scalars.SpecificCapacitance)
 SpecificCapacitance = Annotated[int, _specific_capacitance[0], _specific_capacitance[1]]
+
+
+def _generic_markers() -> tuple[BeforeValidator, PlainSerializer]:
+    """Storage (validator, serializer) for a dimension-agnostic quantity.
+
+    In memory the value is a normalized, re-parseable string
+    (``"0.12 siemens / centimeter ** 2"``); JSON serialization expands it to
+    ``{magnitude, unit, dimension}`` for durability and search. Inbound it
+    accepts that string, a pint string/Quantity, or the ``{magnitude, unit}``
+    dict on read-back. A bare number is rejected (a value must carry a unit).
+    """
+
+    def validate(value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, dict):  # JSON read-back
+            return f'{value["magnitude"]} {value["unit"]}'
+        return _scalars.generic_quantity_string(value)
+
+    def serialize(value: Any) -> Any:
+        if value is None:
+            return None
+        return _scalars.generic_quantity_struct(value)
+
+    return BeforeValidator(validate), PlainSerializer(serialize, return_type=dict, when_used="json")
+
+
+_generic = _generic_markers()
+GenericQuantity = Annotated[str, _generic[0], _generic[1]]

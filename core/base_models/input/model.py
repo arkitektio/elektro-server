@@ -4,7 +4,7 @@ from .cell import CellInputModel
 from .biophysics import IonInputModel, MechanismGlobalParamInputModel
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Literal, Union, Optional
-from kanne import quantities as pq
+from kanne_server import quantities as pq
 import uuid
 from core import enums
 

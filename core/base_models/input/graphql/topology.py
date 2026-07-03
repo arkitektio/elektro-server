@@ -3,7 +3,7 @@ from typing import Optional, List, Dict, Set
 from strawberry.experimental import pydantic
 import strawberry
 import re
-from kanne import scalars as quantities
+from kanne_server import scalars as quantities
 from ..topology import TopologyInputModel, CoordInputModel, ConnectionInputModel, SectionInputModel
 
 @pydantic.input(CoordInputModel, description="Input for a 3D coordinate (in space) of a point along a section.")

@@ -3,7 +3,7 @@ from .cell import CellModel
 from .biophysics import IonModel, MechanismGlobalParamModel
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Literal, Union, Optional
-from kanne import quantities as pq
+from kanne_server import quantities as pq
 import uuid
 
 

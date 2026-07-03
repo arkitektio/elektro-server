@@ -2,7 +2,7 @@
 
 import django.db.models.deletion
 import django_choices_field.fields
-import kanne.fields
+import kanne_server.fields
 import simple_history.models
 import taggit.managers
 from django.conf import settings
@@ -25,9 +25,9 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigIntegerField(auto_created=True, blank=True, db_index=True, verbose_name='ID')),
                 ('name', models.CharField(default='', help_text='The name of the signal', max_length=1000)),
-                ('t_start', kanne.fields.QuantityField(base_unit='picosecond', default=0, help_text='The start time of the signal, stored in picoseconds')),
+                ('t_start', kanne_server.fields.QuantityField(base_unit='picosecond', default=0, help_text='The start time of the signal, stored in picoseconds')),
                 ('description', models.CharField(blank=True, max_length=1000, null=True)),
-                ('sampling_rate', kanne.fields.QuantityField(base_unit='nanohertz', default=1000000000000, help_text='The sampling frequency of the signal, stored in nanohertz')),
+                ('sampling_rate', kanne_server.fields.QuantityField(base_unit='nanohertz', default=1000000000000, help_text='The sampling frequency of the signal, stored in nanohertz')),
                 ('unit', models.CharField(blank=True, default='mV', help_text='The unit of the signal', max_length=100, null=True)),
                 ('color', models.CharField(default='#000000', help_text='The color of the signal in HEX', max_length=7)),
                 ('history_id', models.AutoField(primary_key=True, serialize=False)),
@@ -68,8 +68,8 @@ class Migration(migrations.Migration):
             name='HistoricalBlockSegment',
             fields=[
                 ('id', models.BigIntegerField(auto_created=True, blank=True, db_index=True, verbose_name='ID')),
-                ('start_time', kanne.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The start time of the segment, stored in picoseconds', null=True)),
-                ('end_time', kanne.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The end time of the segment, stored in picoseconds', null=True)),
+                ('start_time', kanne_server.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The start time of the segment, stored in picoseconds', null=True)),
+                ('end_time', kanne_server.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The end time of the segment, stored in picoseconds', null=True)),
                 ('history_id', models.AutoField(primary_key=True, serialize=False)),
                 ('history_date', models.DateTimeField(db_index=True)),
                 ('history_change_reason', models.CharField(max_length=100, null=True)),
@@ -360,8 +360,8 @@ class Migration(migrations.Migration):
             name='Simulation',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('duration', kanne.fields.QuantityField(base_unit='picosecond', help_text='The duration of the run, stored in picoseconds')),
-                ('dt', kanne.fields.QuantityField(base_unit='picosecond', default=1000000000000, help_text='The time step of the run, stored in picoseconds')),
+                ('duration', kanne_server.fields.QuantityField(base_unit='picosecond', help_text='The duration of the run, stored in picoseconds')),
+                ('dt', kanne_server.fields.QuantityField(base_unit='picosecond', default=1000000000000, help_text='The time step of the run, stored in picoseconds')),
                 ('name', models.CharField(help_text='The name of the run', max_length=1000)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
             ],
@@ -436,9 +436,9 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(default='', help_text='The name of the signal', max_length=1000)),
-                ('t_start', kanne.fields.QuantityField(base_unit='picosecond', default=0, help_text='The start time of the signal, stored in picoseconds')),
+                ('t_start', kanne_server.fields.QuantityField(base_unit='picosecond', default=0, help_text='The start time of the signal, stored in picoseconds')),
                 ('description', models.CharField(blank=True, max_length=1000, null=True)),
-                ('sampling_rate', kanne.fields.QuantityField(base_unit='nanohertz', default=1000000000000, help_text='The sampling frequency of the signal, stored in nanohertz')),
+                ('sampling_rate', kanne_server.fields.QuantityField(base_unit='nanohertz', default=1000000000000, help_text='The sampling frequency of the signal, stored in nanohertz')),
                 ('unit', models.CharField(blank=True, default='mV', help_text='The unit of the signal', max_length=100, null=True)),
                 ('color', models.CharField(default='#000000', help_text='The color of the signal in HEX', max_length=7)),
                 ('pinned_by', models.ManyToManyField(blank=True, help_text='The users that pinned this segment', related_name='pinned_analog_signals', to=settings.AUTH_USER_MODEL)),
@@ -481,8 +481,8 @@ class Migration(migrations.Migration):
             name='BlockSegment',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('start_time', kanne.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The start time of the segment, stored in picoseconds', null=True)),
-                ('end_time', kanne.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The end time of the segment, stored in picoseconds', null=True)),
+                ('start_time', kanne_server.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The start time of the segment, stored in picoseconds', null=True)),
+                ('end_time', kanne_server.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The end time of the segment, stored in picoseconds', null=True)),
                 ('organization', models.ForeignKey(blank=True, help_text='The organization that owns the segment', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='block_segments', to='authentikate.organization')),
                 ('session', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='segments', to='core.block')),
             ],
@@ -528,8 +528,8 @@ class Migration(migrations.Migration):
             name='ExperimentRecordingView',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('offset', kanne.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The offset of the view, stored in picoseconds', null=True)),
-                ('duration', kanne.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The duration of the view, stored in picoseconds', null=True)),
+                ('offset', kanne_server.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The offset of the view, stored in picoseconds', null=True)),
+                ('duration', kanne_server.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The duration of the view, stored in picoseconds', null=True)),
                 ('label', models.CharField(blank=True, help_text='The label of the view', max_length=1000, null=True)),
                 ('experiment', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='recording_views', to='core.experiment')),
                 ('organization', models.ForeignKey(blank=True, help_text='The organization that owns the recording view', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='experiment_recording_views', to='authentikate.organization')),
@@ -539,8 +539,8 @@ class Migration(migrations.Migration):
             name='ExperimentStimulusView',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('offset', kanne.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The offset of the view, stored in picoseconds', null=True)),
-                ('duration', kanne.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The duration of the view, stored in picoseconds', null=True)),
+                ('offset', kanne_server.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The offset of the view, stored in picoseconds', null=True)),
+                ('duration', kanne_server.fields.QuantityField(base_unit='picosecond', blank=True, help_text='The duration of the view, stored in picoseconds', null=True)),
                 ('label', models.CharField(blank=True, help_text='The label of the view', max_length=1000, null=True)),
                 ('experiment', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='stimulus_views', to='core.experiment')),
                 ('organization', models.ForeignKey(blank=True, help_text='The organization that owns the stimulus view', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='experiment_stimulus_views', to='authentikate.organization')),

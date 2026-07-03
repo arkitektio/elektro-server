@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
-from kanne import quantities as pq
+from kanne_server import quantities as pq
 
 
 class CoordInputModel(BaseModel):

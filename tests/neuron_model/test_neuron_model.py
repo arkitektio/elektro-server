@@ -286,4 +286,25 @@ async def test_section_param_value_wrong_dimension_rejected(
                    "config": _config([_cell_with_value("kdr", "gkbar", "10 mV")])}},
     )
     assert res.errors
+
+
+async def test_arbitrary_unit_param_opts_out_of_dimension_check(
+    aexecute, authenticated_context, bigfile_store
+):
+    store = await bigfile_store()
+    env = await ModEnvironment.objects.acreate(
+        name="env-au", store=store, organization=authenticated_context.request.organization
+    )
+    # gkbar declares arbitrary units -> its values are not dimension-checked.
+    await Mechanism.objects.acreate(
+        name="kdr", environment=env,
+        parameters=[{"key": "gkbar", "kind": "FLOAT", "reference_unit": "a.u."}],
+    )
+    res = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "AuOk", "environment": str(env.id),
+                   "config": _config([_cell_with_value("kdr", "gkbar", "0.7 a.u.")])}},
+    )
+    assert not res.errors, res.errors
+    assert await NeuronModel.objects.filter(name="AuOk").aexists()
     assert not await NeuronModel.objects.filter(name="DimBad").aexists()

@@ -125,3 +125,26 @@ def _generic_markers() -> tuple[BeforeValidator, PlainSerializer]:
 
 _generic = _generic_markers()
 GenericQuantity = Annotated[str, _generic[0], _generic[1]]
+
+
+def _validated_string(parse: Any) -> BeforeValidator:
+    """A tolerant BeforeValidator that runs ``parse`` (or passes None through).
+
+    Used for the metadata string types (``Unit``, ``Dimension``) — the value stays
+    a plain string in memory and in JSON; ``parse`` validates/canonicalizes it.
+    """
+
+    def validate(value: Any) -> Any:
+        if value is None:
+            return None
+        return parse(value)
+
+    return BeforeValidator(validate)
+
+
+#: A validated pint unit string (e.g. ``"mV"``, ``"S/cm2"``). See kanne_server.scalars.Unit.
+Unit = Annotated[str, _validated_string(_scalars.parse_unit)]
+
+#: A validated, canonicalized pint dimensionality (e.g. ``"[length]"``).
+#: See kanne_server.scalars.Dimension.
+Dimension = Annotated[str, _validated_string(_scalars.parse_dimension)]

@@ -149,8 +149,9 @@ def create_neuron_model(
         if value is None or mech not in env_mechs:
             return
         declared = env_mechs[mech].get(param)
-        if declared is None:
-            return  # the parameter declares no unit -> nothing to enforce
+        if declared is None or declared == units.ARBITRARY_DIMENSION:
+            # No declared unit, or the parameter opts out via arbitrary units (a.u.).
+            return
         actual = units.quantity_dimension(value)
         if actual != declared:
             raise ValueError(

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import inspect
 import re
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
 import pint
 import strawberry
@@ -310,6 +310,36 @@ def _render_dimensionality(dims: Any) -> str:
     return rendered
 
 
+#: Deliberate opt-out: a quantity in *arbitrary units* (``"a.u."``) — a normalized
+#: signal with no defined physical dimension (fluorescence, absorbance, ...). Explicit,
+#: so a typo'd real unit still fails; only these exact spellings decline dimensional
+#: validation on purpose. ``"au"`` is intentionally excluded (it is pint's astronomical
+#: unit).
+ARBITRARY_UNIT = "a.u."
+ARBITRARY_DIMENSION = "[arbitrary]"
+_ARBITRARY_SPELLINGS = frozenset(
+    {"a.u.", "a.u", "arb", "arbitrary unit", "arbitrary units", "arbitrary_unit"}
+)
+_ARBITRARY_VALUE_RE = re.compile(
+    r"^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*(\S.*?)\s*$"
+)
+
+
+def is_arbitrary_unit(text: object) -> bool:
+    """True if ``text`` is a recognized spelling of arbitrary units (``"a.u."``)."""
+    return isinstance(text, str) and text.strip().lower() in _ARBITRARY_SPELLINGS
+
+
+def arbitrary_magnitude(raw: object) -> "float | None":
+    """The magnitude if ``raw`` is a value in arbitrary units (``"5 a.u."``), else None."""
+    if not isinstance(raw, str):
+        return None
+    match = _ARBITRARY_VALUE_RE.match(raw)
+    if match and is_arbitrary_unit(match.group(2)):
+        return float(match.group(1))
+    return None
+
+
 def parse_generic_quantity(raw: object) -> "pint.Quantity":
     """Parse a unit-bearing quantity string into a pint Quantity.
 
@@ -334,12 +364,18 @@ def parse_generic_quantity(raw: object) -> "pint.Quantity":
 
 def generic_quantity_string(raw: object) -> str:
     """Normalized, re-parseable in-memory form (``"0.12 siemens / centimeter ** 2"``)."""
+    magnitude = arbitrary_magnitude(raw)
+    if magnitude is not None:
+        return f"{magnitude} {ARBITRARY_UNIT}"
     q = parse_generic_quantity(raw)
     return f"{q.magnitude} {q.units}"
 
 
 def generic_quantity_struct(raw: object) -> dict:
     """The stored dual struct ``{magnitude, unit, dimension}`` for a quantity."""
+    magnitude = arbitrary_magnitude(raw)
+    if magnitude is not None:
+        return {"magnitude": magnitude, "unit": ARBITRARY_UNIT, "dimension": ARBITRARY_DIMENSION}
     q = parse_generic_quantity(raw)
     return {
         "magnitude": float(q.magnitude),
@@ -377,3 +413,92 @@ def _build_generic_scalar() -> ScalarDefinition:
 
 
 SCALAR_MAP[GenericQuantity] = _build_generic_scalar()
+
+
+# --- Unit and Dimension scalars ----------------------------------------------
+#
+# These validate the *metadata* of a quantity rather than a value: a Unit is a
+# parseable pint unit ("mV", "S/cm2"); a Dimension is a parseable pint
+# dimensionality ("[length]", "[current] / [length] ** 2", "dimensionless").
+
+
+def parse_unit(raw: object) -> str:
+    """Validate that ``raw`` is a parseable pint unit and return it.
+
+    Compact-exponent spelling ("cm2") is accepted and the given spelling is
+    otherwise preserved. A quantity ("5 mV"), a bare number, an empty string, an
+    unknown unit, or a dimension ("[length]") are all rejected.
+    """
+    if not isinstance(raw, str):
+        raise ValueError(f"Unit: expected a unit string, got {raw!r}")
+    text = raw.strip()
+    if not text:
+        raise ValueError("Unit: an empty string is not a unit")
+    if is_arbitrary_unit(text):
+        return ARBITRARY_UNIT
+    try:
+        # Validate against the pint-normalized form, but keep the given spelling
+        # ("S/cm2" stays "S/cm2" for the UI; consumers normalize when parsing).
+        get_registry().Unit(normalize_compact_units(text))
+    except Exception as exc:  # pragma: no cover - pint raises various types
+        raise ValueError(f"Unit: {raw!r} is not a valid unit: {exc}") from exc
+    return text
+
+
+def parse_dimension(raw: object) -> str:
+    """Validate that ``raw`` is a parseable pint dimensionality and return its
+    canonical, order-stable form.
+
+    A unit expression is accepted and reduced to its dimensionality; the
+    ``"dimensionless"`` sentinel (which pint's parser cannot resolve) and the
+    empty string both canonicalize to ``"dimensionless"``.
+    """
+    if not isinstance(raw, str):
+        raise ValueError(f"Dimension: expected a dimension string, got {raw!r}")
+    text = raw.strip()
+    if is_arbitrary_unit(text) or text == ARBITRARY_DIMENSION:
+        return ARBITRARY_DIMENSION
+    if not text or text == "dimensionless":
+        return "dimensionless"
+    try:
+        dims = get_registry().get_dimensionality(normalize_compact_units(text))
+    except Exception as exc:  # pragma: no cover - pint raises various types
+        raise ValueError(f"Dimension: {raw!r} is not a valid pint dimension: {exc}") from exc
+    return _render_dimensionality(dims)
+
+
+class Unit:
+    """A physical unit of measurement (``"mV"``, ``"S/cm2"``, ``"second"``).
+
+    A string scalar validating that the value parses as a pint unit — a bad unit,
+    a bare quantity (``"5 mV"``), or a dimension is rejected. Compact exponent
+    spelling (``"cm2"``) is accepted and the given spelling is preserved.
+    """
+
+
+class Dimension:
+    """A physical dimension (``"[length]"``, ``"[current] / [length] ** 2"``, ``"dimensionless"``).
+
+    A string scalar validating that the value is a parseable pint dimensionality and
+    serializing it to a canonical, order-stable string (the quantity-compatibility
+    key). A unit expression is accepted and reduced to its dimensionality.
+    """
+
+
+def _build_string_scalar(cls: type, parse: "Callable[[object], str]") -> ScalarDefinition:
+    def parse_value(raw: object) -> str:
+        return parse(raw)
+
+    def serialize(value: object) -> str:
+        return str(value)
+
+    return strawberry.scalar(
+        name=cls.__name__,
+        description=inspect.getdoc(cls) or "",
+        serialize=serialize,
+        parse_value=parse_value,
+    )
+
+
+SCALAR_MAP[Unit] = _build_string_scalar(Unit, parse_unit)
+SCALAR_MAP[Dimension] = _build_string_scalar(Dimension, parse_dimension)

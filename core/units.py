@@ -15,6 +15,11 @@ and any custom ``KANNE["definitions"]``. This mirrors
 import re
 
 from kanne_server.registry import get_registry
+from kanne_server.scalars import (
+    ARBITRARY_DIMENSION,
+    arbitrary_magnitude,
+    is_arbitrary_unit,
+)
 
 DIMENSIONLESS = "dimensionless"
 
@@ -76,6 +81,9 @@ def dimensionality_of(expression: str) -> str:
     """
     import pint
 
+    if is_arbitrary_unit(expression) or expression.strip() == ARBITRARY_DIMENSION:
+        # Arbitrary units (a.u.) opt out of dimensional meaning.
+        return ARBITRARY_DIMENSION
     if expression.strip() == DIMENSIONLESS:
         # pint's parser cannot resolve the sentinel of an empty dimensionality.
         return DIMENSIONLESS
@@ -95,6 +103,8 @@ def quantity_dimension(raw: str) -> str:
     """
     import pint
 
+    if arbitrary_magnitude(raw) is not None or is_arbitrary_unit(raw):
+        return ARBITRARY_DIMENSION
     normalized = _normalize_neuron_unit(raw)
     try:
         quantity = get_registry().Quantity(normalized)

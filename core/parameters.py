@@ -15,6 +15,8 @@ from typing_extensions import Self
 
 from core import scalars
 from core.units import dimensionality_of
+from kanne_server import quantities as pq
+from kanne_server import scalars as sq
 
 
 @strawberry.enum(description="The kind of a mechanism parameter.")
@@ -36,11 +38,11 @@ class ParameterModel(BaseModel):
     description: Optional[str] = None
     default: Optional[Any] = None
     nullable: bool = False
-    # Permissive read model: no validation, so params persisted before units
-    # existed still hydrate.
-    reference_unit: Optional[str] = None
-    proposed_units: Optional[list[str]] = None
-    dimension: Optional[str] = None
+    # Unit/Dimension validate a non-null value; None (the pre-units default) passes
+    # straight through, so params persisted before units existed still hydrate.
+    reference_unit: Optional[pq.Unit] = None
+    proposed_units: Optional[list[pq.Unit]] = None
+    dimension: Optional[pq.Dimension] = None
 
 
 class ParameterInputModel(BaseModel):
@@ -50,9 +52,9 @@ class ParameterInputModel(BaseModel):
     description: Optional[str] = None
     default: Optional[Any] = None
     nullable: bool = False
-    reference_unit: Optional[str] = None
-    proposed_units: Optional[list[str]] = None
-    dimension: Optional[str] = None
+    reference_unit: Optional[pq.Unit] = None
+    proposed_units: Optional[list[pq.Unit]] = None
+    dimension: Optional[pq.Dimension] = None
 
     @model_validator(mode="after")
     def check_units(self) -> Self:
@@ -101,7 +103,7 @@ class Parameter:
     description: Optional[str] = None
     default: Optional[scalars.Any] = None
     nullable: bool = False
-    reference_unit: Optional[str] = strawberry.field(
+    reference_unit: Optional[sq.Unit] = strawberry.field(
         default=None,
         description=(
             "The canonical/reference unit of the parameter, e.g. 'mV' or 'S/cm2'. "
@@ -109,14 +111,14 @@ class Parameter:
             "still allowed."
         ),
     )
-    proposed_units: Optional[list[str]] = strawberry.field(
+    proposed_units: Optional[list[sq.Unit]] = strawberry.field(
         default=None,
         description=(
             "Units offered as a dropdown in the UI, e.g. ['S/cm2', 'mS/cm2']. "
             "Proposals only — any unit of the same dimension remains valid."
         ),
     )
-    dimension: Optional[str] = strawberry.field(
+    dimension: Optional[sq.Dimension] = strawberry.field(
         default=None,
         description=(
             "The canonical pint dimensionality of the parameter's unit, e.g. "
@@ -133,7 +135,7 @@ class ParameterInput:
     description: Optional[str] = None
     default: Optional[scalars.Any] = None
     nullable: bool = False
-    reference_unit: Optional[str] = strawberry.field(
+    reference_unit: Optional[sq.Unit] = strawberry.field(
         default=None,
         description=(
             "The canonical/reference unit of the parameter, e.g. 'mV' or 'S/cm2'. "
@@ -141,14 +143,14 @@ class ParameterInput:
             "still allowed. Only valid for FLOAT and INT parameters."
         ),
     )
-    proposed_units: Optional[list[str]] = strawberry.field(
+    proposed_units: Optional[list[sq.Unit]] = strawberry.field(
         default=None,
         description=(
             "Units offered as a dropdown in the UI. Proposals only — each must "
             "share the reference_unit's dimension."
         ),
     )
-    dimension: Optional[str] = strawberry.field(
+    dimension: Optional[sq.Dimension] = strawberry.field(
         default=None,
         description=(
             "The canonical pint dimensionality. Derived from reference_unit if "

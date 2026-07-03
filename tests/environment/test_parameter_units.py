@@ -71,7 +71,8 @@ def test_proposed_units_without_reference_unit_rejected():
 
 
 def test_unparseable_unit_rejected():
-    with pytest.raises(ValueError, match="Unknown or unparseable"):
+    # The Unit scalar rejects an unknown unit at field-validation time.
+    with pytest.raises(ValueError, match="not a valid unit"):
         _param(reference_unit="notaunit")
 
 

@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.14 (2026-07-03)
+
+### Bug Fixes
+
+- Kanne_server
+  ([`90782b6`](https://github.com/arkitektio/elektro-server/commit/90782b6a6a26f6d9c258c4dedb3a29f31c796c4b))
+
+- Rename kanne_server
+  ([`c7625bd`](https://github.com/arkitektio/elektro-server/commit/c7625bd2c6f68029d51b43bd3618c894555d5fa5))
+
+
 ## v1.0.0-rc.13 (2026-07-02)
 
 ### Features

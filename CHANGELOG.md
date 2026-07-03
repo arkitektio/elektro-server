@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.15 (2026-07-03)
+
+### Bug Fixes
+
+- With more kanne_scalars everywhere
+  ([`33206fc`](https://github.com/arkitektio/elektro-server/commit/33206fcedd0aa44c0e4a5a42a06bab2b61e36635))
+
+
 ## v1.0.0-rc.14 (2026-07-03)
 
 ### Bug Fixes

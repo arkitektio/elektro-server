@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import strawberry
 import strawberry_django
 from strawberry import auto
-from typing import List, Optional, Annotated, Union, cast
+from typing import Any, List, Optional, Annotated, Union, cast
 import strawberry_django
 from core import models, scalars, filters, enums, scoping
 from kanne_server import scalars as quantities
@@ -202,6 +202,69 @@ class Change:
     value_b: Optional[scalars.Any]
 
 
+def quantity_display(value: Any) -> Optional[str]:
+    """If ``value`` is a serialized quantity struct, render it as a single compact,
+    human-readable string; otherwise return None.
+
+    Quantities are stored in ``json_model`` as dicts, so a naive recursive diff would
+    descend into them and report several rows of internal fields (the raw ``canonical``
+    integer plus the ``given`` string). Collapsing them here yields one readable value:
+
+    - kanne dimension-locked quantity ``{canonical, given, unit}`` -> its ``given`` string
+      (e.g. ``"-67 mV"``);
+    - GenericQuantity ``{magnitude, unit, dimension}`` -> ``"<magnitude> <unit>"``
+      (e.g. ``"0.12 siemens / centimeter ** 2"``, ``"0.7 a.u."``).
+    """
+    if not isinstance(value, dict):
+        return None
+    if "canonical" in value and "given" in value:
+        return value.get("given")
+    if "magnitude" in value and "unit" in value:
+        return f"{value['magnitude']} {value['unit']}"
+    return None
+
+
+def _leaf(value: Any) -> Any:
+    """Condense a quantity struct to its human string for a change value; else pass through."""
+    display = quantity_display(value)
+    return display if display is not None else value
+
+
+def _compare_values(val_a: Any, val_b: Any, path: List[str]) -> List[Change]:
+    """Diff two values at ``path``, treating quantity structs as single human-readable leaves."""
+    changes: List[Change] = []
+
+    disp_a = quantity_display(val_a)
+    disp_b = quantity_display(val_b)
+    if disp_a is not None or disp_b is not None:
+        # At least one side is a quantity — compare as one leaf so a quantity change is a
+        # single readable row (e.g. "-67 mV" -> "-70 mV"), not separate canonical/given rows.
+        left = disp_a if disp_a is not None else val_a
+        right = disp_b if disp_b is not None else val_b
+        if left != right:
+            changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=left, value_b=right))
+        return changes
+
+    if isinstance(val_a, dict) and isinstance(val_b, dict):
+        deeper_changes = compare_models(val_a, val_b, path)
+        if deeper_changes:
+            changes.extend(deeper_changes)
+        elif val_a != val_b:
+            changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b))
+    elif isinstance(val_a, list) and isinstance(val_b, list):
+        min_len = min(len(val_a), len(val_b))
+        for i in range(min_len):
+            changes.extend(_compare_values(val_a[i], val_b[i], path + [str(i)]))
+        for i in range(min_len, len(val_a)):
+            changes.append(Change(type=ChangeType.REMOVED, path=path + [str(i)], value_a=_leaf(val_a[i]), value_b=None))
+        for i in range(min_len, len(val_b)):
+            changes.append(Change(type=ChangeType.ADDED, path=path + [str(i)], value_a=None, value_b=_leaf(val_b[i])))
+    elif val_a != val_b:
+        changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b))
+
+    return changes
+
+
 def compare_models(dict_a: dict, dict_b: dict, path: Optional[List[str]] = None) -> List[Change]:
     if path is None:
         path = []
@@ -212,39 +275,13 @@ def compare_models(dict_a: dict, dict_b: dict, path: Optional[List[str]] = None)
     keys_b = set(dict_b.keys())
 
     for key in keys_a - keys_b:
-        changes.append(Change(type=ChangeType.REMOVED, path=path + [key], value_a=dict_a[key], value_b=None))
+        changes.append(Change(type=ChangeType.REMOVED, path=path + [key], value_a=_leaf(dict_a[key]), value_b=None))
 
     for key in keys_b - keys_a:
-        changes.append(Change(type=ChangeType.ADDED, path=path + [key], value_a=None, value_b=dict_b[key]))
+        changes.append(Change(type=ChangeType.ADDED, path=path + [key], value_a=None, value_b=_leaf(dict_b[key])))
 
     for key in keys_a & keys_b:
-        val_a = dict_a[key]
-        val_b = dict_b[key]
-
-        if isinstance(val_a, dict) and isinstance(val_b, dict):
-            deeper_changes = compare_models(val_a, val_b, path + [key])
-            if deeper_changes:
-                changes.extend(deeper_changes)
-            elif val_a != val_b:
-                changes.append(Change(type=ChangeType.CHANGED, path=path + [key], value_a=val_a, value_b=val_b))
-        elif isinstance(val_a, list) and isinstance(val_b, list):
-            # Compare lists element by element
-            min_len = min(len(val_a), len(val_b))
-            for i in range(min_len):
-                item_a = val_a[i]
-                item_b = val_b[i]
-                if isinstance(item_a, dict) and isinstance(item_b, dict):
-                    deeper_changes = compare_models(item_a, item_b, path + [key, str(i)])
-                    changes.extend(deeper_changes)
-                elif item_a != item_b:
-                    changes.append(Change(type=ChangeType.CHANGED, path=path + [key, str(i)], value_a=item_a, value_b=item_b))
-            # Handle extra items
-            for i in range(min_len, len(val_a)):
-                changes.append(Change(type=ChangeType.REMOVED, path=path + [key, str(i)], value_a=val_a[i], value_b=None))
-            for i in range(min_len, len(val_b)):
-                changes.append(Change(type=ChangeType.ADDED, path=path + [key, str(i)], value_a=None, value_b=val_b[i]))
-        elif val_a != val_b:
-            changes.append(Change(type=ChangeType.CHANGED, path=path + [key], value_a=val_a, value_b=val_b))
+        changes.extend(_compare_values(dict_a[key], dict_b[key], path + [key]))
 
     return changes
 

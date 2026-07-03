@@ -1,11 +1,10 @@
 from kante.types import Info
-from typing import AsyncGenerator, List
+from typing import List
 import strawberry
-
-from core.datalayer import DatalayerExtension
 from strawberry import ID as StrawberryID
 from typing import Any, Type
-from core import types, models
+from core import types, models, scoping
+from core import scalars as core_scalars
 from core import mutations
 from core import queries
 from core import subscriptions
@@ -19,12 +18,21 @@ from core.base_models.type.graphql.model import ModelConfigModel
 from core.base_models.type.graphql.topology import Section
 from authentikate.strawberry.extension import AuthentikateExtension
 from strawberry_django.optimizer import DjangoOptimizerExtension
-
+from datalayer import mutations as datalayer_mutations
+from datalayer import scalars as datalayer_scalars
+from kanne_server import scalars as kanne_scalars
+import kante
+from strawberry.extensions.tracing import OpenTelemetryExtension
+from strawberry.schema.config import StrawberryConfig
 
 ID = Annotated[StrawberryID, strawberry.argument(description="The unique identifier of an object")]
 
+
 @strawberry.type
 class Query:
+    analog_signals: list[types.AnalogSignal] = strawberry_django.field()
+    analog_signal_channels: list[types.AnalogSignalChannel] = strawberry_django.field()
+    blocks: list[types.Block] = strawberry_django.field()
     traces: list[types.Trace] = strawberry_django.field(extensions=[])
     rois: list[types.ROI] = strawberry_django.field()
     datasets: list[types.Dataset] = strawberry_django.field()
@@ -32,6 +40,8 @@ class Query:
     experiments: list[types.Experiment] = strawberry_django.field()
     neuron_models: list[types.NeuronModel] = strawberry_django.field()
     model_collections: list[types.ModelCollection] = strawberry_django.field()
+    model_workspaces: list[types.ModelWorkspace] = strawberry_django.field()
+    workspace_mappings: list[types.WorkspaceMapping] = strawberry_django.field()
     recordings: list[types.Recording] = strawberry_django.field()
     stimuli: list[types.Stimulus] = strawberry_django.field()
 
@@ -39,306 +49,369 @@ class Query:
     simulations: list[types.Simulation] = strawberry_django.field()
     myfiles: list[types.File] = strawberry_django.field()
     random_trace: types.Trace = strawberry_django.field(resolver=queries.random_trace)
-    
-    @strawberry_django.field(
-        permission_classes=[],
-        description="Returns a list of images"
-    )
+
+    block_stats: types.BlockStats = strawberry_django.field(resolver=types.BlockStatsResolver)
+
+    mod_environments: list[types.ModEnvironment] = strawberry_django.field()
+    mechanisms: list[types.Mechanism] = strawberry_django.field()
+    mechanism: types.Mechanism = strawberry_django.field()
+    mod_environment: types.ModEnvironment = strawberry_django.field()
+
+    @strawberry_django.field(permission_classes=[], description="Returns a list of images")
     def stimulus(self, info: Info, id: ID) -> types.Stimulus:
         """Get all stimuli"""
-        return models.Stimulus.objects.get(id=id)
-    
-    
-    @strawberry_django.field(
-        permission_classes=[],
-        description="Returns a list of cells in a model"
-    )
-    def cells(self, info: Info, modelId: ID, ids: List[ID] | None = None, search: str | None = None) -> list[types.Cell]:
-        
-        model = models.NeuronModel.objects.get(id=modelId)
+        return scoping.get_for_org(models.Stimulus, info, id=id)
+
+    @strawberry_django.field(permission_classes=[], description="Returns a list of images")
+    def analog_signal(self, info: Info, id: ID) -> types.AnalogSignal:
+        """Get all stimuli"""
+        return scoping.get_for_org(models.AnalogSignal, info, id=id)
+
+    @strawberry_django.field(permission_classes=[], description="Returns a list of images")
+    def analog_signal_channel(self, info: Info, id: ID) -> types.AnalogSignalChannel:
+        """Get all stimuli"""
+        return scoping.get_for_org(models.AnalogSignalChannel, info, id=id)
+
+    @strawberry_django.field(permission_classes=[], description="Returns a list of cells in a model")
+    def cells(
+        self,
+        info: Info,
+        modelId: ID,
+        ids: List[ID] | None = None,
+        search: str | None = None,
+    ) -> list[types.Cell]:
+        model = scoping.get_for_org(models.NeuronModel, info, id=modelId)
         l = ModelConfigModel(**model.json_model)
-        
+
         if search:
             return [cell for cell in l.cells if search in cell.id]
         if ids:
-            return [cell for cell in l.cells  if cell.id in ids]
-                
-            
+            return [cell for cell in l.cells if cell.id in ids]
+
         return l.cells
-    
-    
-    @strawberry_django.field(
-        permission_classes=[],
-        description="Returns a list of images"
-    )
-    def sections(self, info: Info, modelId: ID, cellId: ID, ids: List[ID] | None = None, search: str | None = None) -> List["Section"]:
+
+    @strawberry_django.field(permission_classes=[], description="Returns a list of images")
+    def sections(
+        self,
+        info: Info,
+        modelId: ID,
+        cellId: ID,
+        ids: List[ID] | None = None,
+        search: str | None = None,
+    ) -> List["Section"]:
         """Get all cells"""
-        model = models.NeuronModel.objects.get(id=modelId)
+        model = scoping.get_for_org(models.NeuronModel, info, id=modelId)
         l = ModelConfigModel(**model.json_model)
-        
+
         for cell in l.cells:
             if cell.id == cellId:
                 if search:
                     return [section for section in cell.topology.sections if search in section.id]
                 if ids:
                     return [section for section in cell.topology.sections if section.id in ids]
-                
-                
+
                 return cell.topology.sections
-                
+
         raise ValueError(f"Cell with ID {cellID} not found in model {modelId}")
-        
-    
-    @strawberry_django.field(
-        permission_classes=[],
-        description="Returns a list of images"
-    )
+
+    @strawberry_django.field(permission_classes=[], description="Returns a list of images")
     def recording(self, info: Info, id: ID) -> types.Recording:
         """Get all stimuli"""
-        return models.Recording.objects.get(id=id)
-    
+        return scoping.get_for_org(models.Recording, info, id=id)
+
+    @strawberry_django.field()
+    def block(self, info: Info, id: ID) -> types.Block:
+        """Get all blocks"""
+        return scoping.get_for_org(models.Block, info, id=id)
+
     @strawberry_django.field()
     def experiment(self, info: Info, id: ID) -> types.Experiment:
         """Get all experiments"""
-        return models.Experiment.objects.get(id=id)
-    
+        return scoping.get_for_org(models.Experiment, info, id=id)
+
     @strawberry_django.field()
     def model_collection(self, info: Info, id: ID) -> types.ModelCollection:
         """Get all model collections"""
-        return models.ModelCollection.objects.get(id=id)
+        return scoping.get_for_org(models.ModelCollection, info, id=id)
+
+    @strawberry_django.field()
+    def model_workspace(self, info: Info, id: ID) -> types.ModelWorkspace:
+        """Get a single model workspace by id"""
+        return scoping.get_for_org(models.ModelWorkspace, info, id=id)
+
+    @strawberry_django.field()
+    def workspace_mapping(self, info: Info, id: ID) -> types.WorkspaceMapping:
+        """Get a single workspace mapping by id"""
+        return scoping.get_for_org(models.WorkspaceMapping, info, id=id)
 
     @strawberry_django.field()
     def simulation(self, info: Info, id: ID) -> types.Simulation:
         """Get all simulations"""
-        return models.Simulation.objects.get(id=id)
+        return scoping.get_for_org(models.Simulation, info, id=id)
 
-    @strawberry_django.field()
-    def neuron_model(self, info: Info, id: ID) -> types.NeuronModel:
-        """Get all simulations"""
-        return models.NeuronModel.objects.get(id=id)
-
-
-    @strawberry_django.field(
-        permission_classes=[],
-        description="Returns a single image by ID"
-    )
+    @strawberry_django.field(permission_classes=[], description="Returns a single image by ID")
     def trace(self, info: Info, id: ID) -> types.Trace:
-        print(id)
-        return models.Trace.objects.get(id=id)
-    
-    @strawberry_django.field(
-        permission_classes=[],
-        description="Returns a single image by ID"
-    )
+        return scoping.get_for_org(models.Trace, info, id=id)
+
+    @strawberry_django.field(permission_classes=[], description="Returns a single neuron model by ID")
     def neuron_model(self, info: Info, id: ID) -> types.NeuronModel:
-        print(id)
-        return models.NeuronModel.objects.get(id=id)
-    
-    @strawberry_django.field(
-        permission_classes=[]
-    )
+        return scoping.get_for_org(models.NeuronModel, info, id=id)
+
+    @strawberry_django.field(permission_classes=[])
     def roi(self, info: Info, id: ID) -> types.ROI:
-        print(id)
-        return models.ROI.objects.get(id=id)
-    
-   
+        return scoping.get_for_org(models.ROI, info, id=id)
 
-    @strawberry_django.field(
-        permission_classes=[]
-    )
+    @strawberry_django.field(permission_classes=[])
     def file(self, info: Info, id: ID) -> types.File:
-        print(id)
-        return models.File.objects.get(id=id)
+        return scoping.get_for_org(models.File, info, id=id)
 
-    
-    @strawberry_django.field(
-        permission_classes=[]
-    )
+    @strawberry_django.field(permission_classes=[])
     def dataset(self, info: Info, id: ID) -> types.Dataset:
-        return models.Dataset.objects.get(id=id)
+        return scoping.get_for_org(models.Dataset, info, id=id)
 
-    
 
 @strawberry.type
 class Mutation:
+    create_block = strawberry_django.mutation(resolver=mutations.create_block, description="Create a new block")
+    delete_block = strawberry_django.mutation(resolver=mutations.delete_block, description="Delete an existing block")
 
-    # Image
-    request_upload: types.Credentials = strawberry_django.mutation(
-        resolver=mutations.request_upload,
-        description="Request credentials to upload a new image"
+    # --- Datalayer actions -------------------------------------------------
+    # One block per store type. Each exposes: upload (request + finish),
+    # single-object read access, and (where available) an organization-wide
+    # "general" read access grant.
+
+    # Media
+    request_media_upload = kante.django_mutation(
+        description="Upload media and return a URL for access",
+        resolver=datalayer_mutations.request_media_upload,
     )
-    request_access: types.AccessCredentials = strawberry_django.mutation(
-        resolver=mutations.request_access,
-        description="Request credentials to access an image",
+    finish_media_upload = kante.django_mutation(
+        description="Finalize a media upload after the client has written the object",
+        resolver=datalayer_mutations.finish_media_upload,
     )
+    request_media_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for a media file",
+        resolver=datalayer_mutations.request_media_access,
+    )
+    request_general_media_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for media files in the organization",
+        resolver=datalayer_mutations.request_general_media_access,
+    )
+
+    # Big files
+    request_bigfile_upload = kante.django_mutation(
+        description="Request an upload grant for a big file store",
+        resolver=datalayer_mutations.request_bigfile_upload,
+    )
+    finish_bigfile_upload = kante.django_mutation(
+        description="Finalize a big file upload after the client has written the object",
+        resolver=datalayer_mutations.finish_bigfile_upload,
+    )
+    request_bigfile_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for a big file",
+        resolver=datalayer_mutations.request_bigfile_access,
+    )
+
+    # Zarr
+    request_zarr_upload = kante.django_mutation(
+        description="Request an upload grant for a Zarr store",
+        resolver=datalayer_mutations.request_zarr_upload,
+    )
+    finish_zarr_upload = kante.django_mutation(
+        description="Finalize a Zarr upload after the client has written the object",
+        resolver=datalayer_mutations.finish_zarr_upload,
+    )
+    request_zarr_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for a Zarr store",
+        resolver=datalayer_mutations.request_zarr_access,
+    )
+    request_general_zarr_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for Zarr stores in the organization",
+        resolver=datalayer_mutations.request_general_zarr_access,
+    )
+
+    # Parquet
+    request_parquet_upload = kante.django_mutation(
+        description="Request an upload grant for a Parquet store",
+        resolver=datalayer_mutations.request_parquet_upload,
+    )
+    finish_parquet_upload = kante.django_mutation(
+        description="Finalize a Parquet upload after the client has written the object",
+        resolver=datalayer_mutations.finish_parquet_upload,
+    )
+    request_parquet_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for a Parquet file",
+        resolver=datalayer_mutations.request_parquet_access,
+    )
+    request_general_parquet_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for Parquet files in the organization",
+        resolver=datalayer_mutations.request_general_parquet_access,
+    )
+
     from_trace_like = strawberry_django.mutation(
         resolver=mutations.from_trace_like,
-        description="Create an image from array-like data"
+        description="Create an image from array-like data",
     )
-    pin_image = strawberry_django.mutation(
-        resolver=mutations.pin_trace,
-        description="Pin an image for quick access"
+
+    create_mod_environment = strawberry_django.mutation(
+        resolver=mutations.create_mod_environment,
+        description="Create a mechanism from a mod file",
     )
+
+    pin_image = strawberry_django.mutation(resolver=mutations.pin_trace, description="Pin an image for quick access")
     update_image = strawberry_django.mutation(
         resolver=mutations.update_trace,
-        description="Update an existing image's metadata"
+        description="Update an existing image's metadata",
     )
-    delete_image = strawberry_django.mutation(
-        resolver=mutations.delete_trace,
-        description="Delete an existing image"
-    )
-    
-    create_neuron_model = strawberry_django.mutation(
-        resolver=mutations.create_neuron_model,
-        description="Create a new neuron model"
-    )
-    create_simulation = strawberry_django.mutation(
-        resolver=mutations.create_simulation,
-        description="Create a new simulsation"
-    )
+    delete_image = strawberry_django.mutation(resolver=mutations.delete_trace, description="Delete an existing image")
 
+    create_neuron_model = strawberry_django.mutation(resolver=mutations.create_neuron_model, description="Create a new neuron model")
+    create_simulation = strawberry_django.mutation(resolver=mutations.create_simulation, description="Create a new simulsation")
 
-    request_media_upload: types.PresignedPostCredentials = strawberry_django.mutation(
-        resolver=mutations.request_media_upload,
-        description="Request credentials for media file upload"
-    )
+    # --- Guarded deletes ---------------------------------------------------
+    # One delete per model. Each enforces the deletion guard (core.guards):
+    # admins, the original task assigner, or the (non-bot) creator may delete;
+    # sub-objects defer the check to their governing anchor.
+    delete_instrument = strawberry_django.mutation(resolver=mutations.delete_instrument, description="Delete an existing instrument")
+    delete_model_collection = strawberry_django.mutation(resolver=mutations.delete_model_collection, description="Delete an existing model collection")
+    delete_model_workspace = strawberry_django.mutation(resolver=mutations.delete_model_workspace, description="Delete an existing model workspace")
+    delete_workspace_mapping = strawberry_django.mutation(resolver=mutations.delete_workspace_mapping, description="Delete an existing workspace mapping")
+    delete_mod_environment = strawberry_django.mutation(resolver=mutations.delete_mod_environment, description="Delete an existing mod environment")
+    delete_mechanism = strawberry_django.mutation(resolver=mutations.delete_mechanism, description="Delete an existing mechanism")
+    delete_neuron_model = strawberry_django.mutation(resolver=mutations.delete_neuron_model, description="Delete an existing neuron model")
+    delete_experiment = strawberry_django.mutation(resolver=mutations.delete_experiment, description="Delete an existing experiment")
+    delete_experiment_recording_view = strawberry_django.mutation(resolver=mutations.delete_experiment_recording_view, description="Delete an existing experiment recording view")
+    delete_experiment_stimulus_view = strawberry_django.mutation(resolver=mutations.delete_experiment_stimulus_view, description="Delete an existing experiment stimulus view")
+    delete_block_group = strawberry_django.mutation(resolver=mutations.delete_block_group, description="Delete an existing block group")
+    delete_block_segment = strawberry_django.mutation(resolver=mutations.delete_block_segment, description="Delete an existing block segment")
+    delete_analog_signal = strawberry_django.mutation(resolver=mutations.delete_analog_signal, description="Delete an existing analog signal")
+    delete_analog_signal_channel = strawberry_django.mutation(resolver=mutations.delete_analog_signal_channel, description="Delete an existing analog signal channel")
+    delete_irregularly_sampled_signal = strawberry_django.mutation(resolver=mutations.delete_irregularly_sampled_signal, description="Delete an existing irregularly sampled signal")
+    delete_spike_train = strawberry_django.mutation(resolver=mutations.delete_spike_train, description="Delete an existing spike train")
+    delete_simulation = strawberry_django.mutation(resolver=mutations.delete_simulation, description="Delete an existing simulation")
+    delete_stimulus = strawberry_django.mutation(resolver=mutations.delete_stimulus, description="Delete an existing stimulus")
+    delete_recording = strawberry_django.mutation(resolver=mutations.delete_recording, description="Delete an existing recording")
+    delete_view_collection = strawberry_django.mutation(resolver=mutations.delete_view_collection, description="Delete an existing view collection")
+    delete_timeline_view = strawberry_django.mutation(resolver=mutations.delete_timeline_view, description="Delete an existing timeline view")
 
-
-    request_file_upload: types.Credentials = strawberry_django.mutation(
-        resolver=mutations.request_file_upload,
-        description="Request credentials to upload a new file"
-    )
-    request_file_upload_presigned: types.PresignedPostCredentials = strawberry_django.mutation(
-        resolver=mutations.request_file_upload_presigned,
-        description="Request presigned credentials for file upload"
-    )
-    request_file_access: types.AccessCredentials = strawberry_django.mutation(
-        resolver=mutations.request_file_access,
-        description="Request credentials to access a file"
-    )
     from_file_like = strawberry_django.mutation(
         resolver=mutations.from_file_like,
-        description="Create a file from file-like data"
+        description="Create a file from file-like data",
     )
-    delete_file = strawberry_django.mutation(
-        resolver=mutations.delete_file,
-        description="Delete an existing file"
+    delete_file = strawberry_django.mutation(resolver=mutations.delete_file, description="Delete an existing file")
+    create_file_view = strawberry_django.mutation(
+        resolver=mutations.create_file_view,
+        description="Create a file view linking a file to a trace",
     )
-    
-    
-    create_model_collection = strawberry_django.mutation(
-        resolver=mutations.create_model_collection,
-        description="Create a new model collection"
+    delete_file_view = strawberry_django.mutation(
+        resolver=mutations.delete_file_view,
+        description="Delete an existing file view",
     )
 
+    create_model_collection = strawberry_django.mutation(
+        resolver=mutations.create_model_collection,
+        description="Create a new model collection",
+    )
+
+    # ModelWorkspace — a shared space for collaboratively developing neuron models.
+    create_model_workspace = strawberry_django.mutation(
+        resolver=mutations.create_model_workspace,
+        description="Create a new model workspace",
+    )
+    update_model_workspace = strawberry_django.mutation(
+        resolver=mutations.update_model_workspace,
+        description="Update an existing model workspace",
+    )
+    pin_model_workspace = strawberry_django.mutation(
+        resolver=mutations.pin_model_workspace,
+        description="Pin or unpin a model workspace for the current user",
+    )
+    add_models_to_workspace = strawberry_django.mutation(
+        resolver=mutations.add_models_to_workspace,
+        description="Add neuron models to a workspace (optionally into a group)",
+    )
+    remove_models_from_workspace = strawberry_django.mutation(
+        resolver=mutations.remove_models_from_workspace,
+        description="Remove neuron models from a workspace",
+    )
+    update_workspace_mapping = strawberry_django.mutation(
+        resolver=mutations.update_workspace_mapping,
+        description="Update a workspace mapping (e.g. change its group)",
+    )
 
     # Dataset
     create_dataset = strawberry_django.mutation(
         resolver=mutations.create_dataset,
-        description="Create a new dataset to organize data"
+        description="Create a new dataset to organize data",
     )
-    update_dataset = strawberry_django.mutation(
-        resolver=mutations.update_dataset,
-        description="Update dataset metadata"
-    )
+    update_dataset = strawberry_django.mutation(resolver=mutations.update_dataset, description="Update dataset metadata")
     revert_dataset = strawberry_django.mutation(
         resolver=mutations.revert_dataset,
-        description="Revert dataset to a previous version"
+        description="Revert dataset to a previous version",
     )
-    pin_dataset = strawberry_django.mutation(
-        resolver=mutations.pin_dataset,
-        description="Pin a dataset for quick access"
-    )
-    delete_dataset = strawberry_django.mutation(
-        resolver=mutations.delete_dataset,
-        description="Delete an existing dataset"
-    )
+    pin_dataset = strawberry_django.mutation(resolver=mutations.pin_dataset, description="Pin a dataset for quick access")
+    delete_dataset = strawberry_django.mutation(resolver=mutations.delete_dataset, description="Delete an existing dataset")
     put_datasets_in_dataset = strawberry_django.mutation(
         resolver=mutations.put_datasets_in_dataset,
-        description="Add datasets as children of another dataset"
+        description="Add datasets as children of another dataset",
     )
     release_datasets_from_dataset = strawberry_django.mutation(
         resolver=mutations.release_datasets_from_dataset,
-        description="Remove datasets from being children of another dataset"
+        description="Remove datasets from being children of another dataset",
     )
-    put_images_in_dataset = strawberry_django.mutation(
-        resolver=mutations.put_images_in_dataset,
-        description="Add images to a dataset"
-    )
+    put_images_in_dataset = strawberry_django.mutation(resolver=mutations.put_images_in_dataset, description="Add images to a dataset")
     release_images_from_dataset = strawberry_django.mutation(
         resolver=mutations.release_images_from_dataset,
-        description="Remove images from a dataset"
+        description="Remove images from a dataset",
     )
-    put_files_in_dataset = strawberry_django.mutation(
-        resolver=mutations.put_files_in_dataset,
-        description="Add files to a dataset"
-    )
+    put_files_in_dataset = strawberry_django.mutation(resolver=mutations.put_files_in_dataset, description="Add files to a dataset")
     release_files_from_dataset = strawberry_django.mutation(
         resolver=mutations.release_files_from_dataset,
-        description="Remove files from a dataset"
-    )
-    
-    # Experiment
-    create_experiment = strawberry_django.mutation(
-        resolver=mutations.create_experiment,
-        description="Create a new experiment"
+        description="Remove files from a dataset",
     )
 
-  
+    # Experiment
+    create_experiment = strawberry_django.mutation(resolver=mutations.create_experiment, description="Create a new experiment")
 
     # ROI
-    create_roi = strawberry_django.mutation(
-        resolver=mutations.create_roi,
-        description="Create a new region of interest"
-    )
+    create_roi = strawberry_django.mutation(resolver=mutations.create_roi, description="Create a new region of interest")
     update_roi = strawberry_django.mutation(
         resolver=mutations.update_roi,
-        description="Update an existing region of interest"
+        description="Update an existing region of interest",
     )
     pin_roi = strawberry_django.mutation(
         resolver=mutations.pin_roi,
-        description="Pin a region of interest for quick access"
+        description="Pin a region of interest for quick access",
     )
     delete_roi = strawberry_django.mutation(
         resolver=mutations.delete_roi,
-        description="Delete an existing region of interest"
+        description="Delete an existing region of interest",
     )
-
-
 
 
 @strawberry.type
 class Subscription:
     """The root subscription type"""
 
-    rois = strawberry.subscription(
-        resolver=subscriptions.rois,
-        description="Subscribe to real-time ROI updates"
-    )
+    rois = strawberry.subscription(resolver=subscriptions.rois, description="Subscribe to real-time ROI updates")
     traces = strawberry.subscription(
         resolver=subscriptions.traces,
-        description="Subscribe to real-time image updates"
+        description="Subscribe to real-time image updates",
     )
-    files = strawberry.subscription(
-        resolver=subscriptions.files,
-        description="Subscribe to real-time file updates"
-    )
-    
+    files = strawberry.subscription(resolver=subscriptions.files, description="Subscribe to real-time file updates")
 
 
-schema = strawberry.Schema(
+schema = kante.Schema(
     query=Query,
     subscription=Subscription,
     mutation=Mutation,
     extensions=[
-        KoherentExtension,
+        OpenTelemetryExtension,
         AuthentikateExtension,
+        KoherentExtension,
         DjangoOptimizerExtension,
-        DatalayerExtension,
         DuckExtension,
     ],
-    types=[
-        SynapticConnection,
-        Exp2Synapse
-    ]
+    types=[SynapticConnection, Exp2Synapse, types.TimelineView, types.FileView],
+    config=StrawberryConfig(scalar_map={**core_scalars.SCALAR_MAP, **datalayer_scalars.SCALAR_MAP, **kanne_scalars.SCALAR_MAP}),
 )

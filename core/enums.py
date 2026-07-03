@@ -160,6 +160,22 @@ class SynapseKind(str, Enum):
 class ConnectionKind(str, Enum):
     """Variety expresses the Type of Representation we are dealing with"""
     SYNAPSE = "synapse"
+
+
+@strawberry.enum
+class DistributionKind(str, Enum):
+    """How a section parameter is distributed along a section (NEURON range variable)."""
+    UNIFORM = "uniform"
+    LINEAR = "linear"
+    EXPRESSION = "expression"
+
+
+@strawberry.enum
+class IonStyle(str, Enum):
+    """How an ion's reversal potential and concentrations are treated (NEURON ion_style)."""
+    FIXED_REVERSAL = "fixed_reversal"   # e<ion> is a fixed parameter (set reversal_potential)
+    NERNST = "nernst"                   # e<ion> computed from fixed concentrations via Nernst
+    ACCUMULATED = "accumulated"         # concentrations are states (accumulation mechanism); e follows via Nernst
       
 
 

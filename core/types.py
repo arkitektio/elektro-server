@@ -3,77 +3,79 @@ from pydantic import BaseModel
 import strawberry
 import strawberry_django
 from strawberry import auto
-from typing import List, Optional, Annotated, Union, cast
+from typing import Any, List, Optional, Annotated, Union, cast
 import strawberry_django
-from core import models, scalars, filters, enums
+from core import models, scalars, filters, enums, scoping
+from kanne_server import scalars as quantities
 from django.contrib.auth import get_user_model
 from kante.types import Info
 import datetime
 from asgiref.sync import sync_to_async
 from itertools import chain
 from enum import Enum
-from core.datalayer import get_current_datalayer
+from datalayer.datalayer import get_current_datalayer
 from core.render.objects import models as rmodels
 from strawberry.experimental import pydantic
 from typing import Union
-from strawberry import LazyType
 from core.base_models.type.graphql.cell import Cell
 from core.base_models.type.graphql.topology import Topology
 from core.base_models.type.graphql.model import ModelConfig
 from authentikate.strawberry.types import Client, User
 from koherent.strawberry.types import ProvenanceEntry
+from .type_gen import create_stats_type
+from datalayer import types as dt
+import kante
+from core.parameters import Parameter, ParameterModel
 
 
+def build_prescoped_queryset(info, queryset):
+    """Scope a list queryset to the request's organization.
 
-@strawberry.type(description="Temporary Credentials for a file upload that can be used by a Client (e.g. in a python datalayer)")
-class Credentials:
-    """Temporary Credentials for a a file upload."""
+    Honors an explicit ``filters.scope`` override (not yet implemented) and
+    otherwise filters by the model's discovered organization path (see
+    :mod:`core.scoping`). Mirrors the single-object scoping in ``core.scoping``
+    so list fields and by-id lookups stay tenant-consistent.
+    """
+    if (info.variable_values.get("filters") or {}).get("scope") is not None:
+        raise Exception("Custom scopes not implemented yet")
 
-    status: str
-    access_key: str
-    secret_key: str
-    session_token: str
-    datalayer: str
-    bucket: str
-    key: str
-    store: str
-
-@strawberry.type(description="Temporary Credentials for a file upload that can be used by a Client (e.g. in a python datalayer)")
-class PresignedPostCredentials:
-    """Temporary Credentials for a a file upload."""
-    key: str
-    x_amz_algorithm: str
-    x_amz_credential: str
-    x_amz_date: str
-    x_amz_signature: str
-    policy: str
-    datalayer: str
-    bucket: str
-    store: str
+    path = scoping.organization_path(queryset.model)
+    if path is None:
+        if queryset.model.__name__ not in scoping.UNSCOPED_MODELS:
+            raise LookupError(f"{queryset.model.__name__} has no path to an organization and is not registered in core.scoping.UNSCOPED_MODELS")
+        return queryset
+    return queryset.filter(**{path: info.context.request.organization})
 
 
+def build_prescoper():
+    def prescoper(queryset, info):
+        return build_prescoped_queryset(info, queryset)
 
-@strawberry.type(description="Temporary Credentials for a file download that can be used by a Client (e.g. in a python datalayer)")
-class AccessCredentials:
-    """Temporary Credentials for a a file upload."""
+    return prescoper
 
-    access_key: str
-    secret_key: str
-    session_token: str
-    bucket: str
-    key: str
-    path: str
+
+class OrgScoped:
+    """Mixin that scopes a type's list/relation queryset to the request org.
+
+    strawberry_django calls ``get_queryset`` for both top-level list fields and
+    nested relation resolution, so mixing this in tenant-scopes every read of the
+    type. Resolved via MRO, so it is enough to list it as a base class.
+    """
+
+    @classmethod
+    def get_queryset(cls, queryset, info, **kwargs):
+        return build_prescoped_queryset(info, queryset)
 
 
 @strawberry_django.type(
     models.ViewCollection,
-    filters=filters.TraceFilter,
-    order=filters.TraceOrder,
+    filters=filters.ViewCollectionFilter,
+    ordering=filters.ViewCollectionOrder,
     pagination=True,
 )
-class ViewCollection:
-    """ A colletion of views.
-    
+class ViewCollection(OrgScoped):
+    """A colletion of views.
+
     View collections are use to provide overarching views on your data,
     that are not bound to a specific image. For example, you can create
     a view collection that includes all middle z views of all images with
@@ -81,8 +83,8 @@ class ViewCollection:
 
     View collections are a pure metadata construct and will not map to
     oredering of binary data.
-    
-    
+
+
     """
 
     id: auto
@@ -94,101 +96,103 @@ class ViewCollection:
 @strawberry.enum
 class ViewKind(str, Enum):
     """The kind of view.
-    
+
     Views can be of different kinds. For example, a view can be a label view
     that will map a labeleling agent (e.g. an antibody) to a specific image channel.
-    
+
     Depending on the kind of view, different fields will be available.
-    
+
     """
 
     TIMEPOINT = "timepoint_views"
 
 
-
-@strawberry_django.type(models.ZarrStore)
-class ZarrStore:
-    """Zarr Store.
-    
-    A ZarrStore is a store that contains a Zarr dataset on a connected
-    S3 compatible storage backend. The store will contain the path to the
-    dataset in the corresponding bucket.
-
-    Importantly to retrieve the data, you will need to ask this API for 
-    temporary credentials to access the data. This is an additional step
-    and is required to ensure that the data is only accessible to authorized
-    users.
-    
-    """
-
-
-    id: auto
-    path: str | None = strawberry.field(description="The path to the data. Relative to the bucket.")
-    shape: List[int] | None = strawberry.field(description="The shape of the data.")
-    dtype: str | None = strawberry.field(description="The dtype of the data.")
-    bucket: str = strawberry.field(description="The bucket where the data is stored.")
-    key: str = strawberry.field(description="The key where the data is stored.")
-    chunks: List[int] | None = strawberry.field(description="The chunks of the data.")
-    populated: bool = strawberry.field(description="Whether the zarr store was populated (e.g. was a dataset created).")
-
-
-@strawberry_django.type(models.ParquetStore)
-class ParquetStore:
-    id: auto
-    path: str
-    bucket: str
-    key: str
-
-
-
-@strawberry_django.type(models.BigFileStore)
-class BigFileStore:
-    id: auto
-    path: str
-    bucket: str
-    key: str
-
-    @strawberry.field()
-    def presigned_url(self, info: Info) -> str:
-        datalayer = get_current_datalayer()
-        return cast(models.BigFileStore, self).get_presigned_url(info, datalayer=datalayer)
-
-
-@strawberry_django.type(models.MediaStore)
-class MediaStore:
-    id: auto
-    path: str
-    bucket: str
-    key: str
-
-    @strawberry_django.field()
-    def presigned_url(self, info: Info, host: str | None = None) -> str:
-        datalayer = get_current_datalayer()
-        return cast(models.MediaStore, self).get_presigned_url(info, datalayer=datalayer, host=host)
-
-
-@strawberry_django.type(models.File, filters=filters.FileFilter, pagination=True)
-class File:
+@strawberry_django.type(models.File, filters=filters.FileFilter, ordering=filters.FileOrder, pagination=True)
+class File(OrgScoped):
     id: auto
     name: auto
     origins: List["Trace"] = strawberry_django.field()
-    store: BigFileStore
-   
-   
-@strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, pagination=True)
-class ModelCollection:
+    store: dt.BigFileStore
+    views: List["FileView"] = strawberry_django.field(description="The file views of this file")
+    creator: User | None = strawberry_django.field(description="Who created this file")
+    size: float | None = strawberry_django.field(description="The size of the file in bytes")
+    content_type: str | None = strawberry_django.field(description="The content type of the file")
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+
+
+@kante.django_type(models.ModEnvironment, filters=filters.ModEnvironmentFilter, pagination=True, ordering=filters.ModEnvironmentOrder)
+class ModEnvironment(OrgScoped):
+    id: auto
+    name: auto
+    description: str | None
+    store: dt.BigFileStore
+    mechanisms: List["Mechanism"] = strawberry_django.field()
+
+
+@strawberry_django.type(models.Mechanism, filters=filters.MechanismFilter, pagination=True, ordering=filters.MechanismOrder)
+class Mechanism(OrgScoped):
+    id: auto
+    name: auto
+    description: str | None
+
+    @kante.django_field(description="The parameter ports of the mechanism")
+    def parameters(self, info: Info) -> list[Parameter]:
+        return [ParameterModel(**param) for param in self.parameters]
+
+
+@strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, ordering=filters.ModelCollectionOrder, pagination=True)
+class ModelCollection(OrgScoped):
     id: auto
     name: str
     models: List["NeuronModel"] = strawberry_django.field()
     description: str | None
- 
- 
- 
+
+
+@strawberry_django.type(models.ModelWorkspace, filters=filters.ModelWorkspaceFilter, ordering=filters.ModelWorkspaceOrder, pagination=True)
+class ModelWorkspace(OrgScoped):
+    """A shared space for collaboratively developing neuron models.
+
+    A workspace is a collaboration/sharing boundary: users and AI agents share it
+    to create, edit, simulate and iterate on neuron models together. Models join
+    a workspace through a ``WorkspaceMapping`` (which may also assign them to a
+    named group within the workspace). This is orthogonal to ``ModelCollection`` —
+    a collection groups *comparable* models, a workspace groups *collaborators*
+    around a set of models. A model can belong to both independently.
+    """
+
+    id: auto
+    name: str
+    description: str | None
+    creator: User | None
+    created_at: datetime.datetime
+    mappings: List["WorkspaceMapping"] = strawberry_django.field()
+
+    @strawberry_django.field(description="Whether the current user has pinned this workspace")
+    def pinned(self, info: Info) -> bool:
+        return cast(models.ModelWorkspace, self).pinned_by.filter(id=info.context.request.user.id).exists()
+
+
+@strawberry_django.type(models.WorkspaceMapping, filters=filters.WorkspaceMappingFilter, ordering=filters.WorkspaceMappingOrder, pagination=True)
+class WorkspaceMapping(OrgScoped):
+    """The link between a neuron model and a workspace.
+
+    Optionally assigns the model to a named ``workspace_group`` so a workspace can
+    subdivide its models into groups.
+    """
+
+    id: auto
+    workspace: ModelWorkspace
+    model: "NeuronModel"
+    workspace_group: str
+    created_at: datetime.datetime
+
+
 @strawberry.enum
 class ChangeType(str, Enum):
     REMOVED = "removed"
     ADDED = "added"
     CHANGED = "changed"
+
 
 @strawberry.type
 class Change:
@@ -196,6 +200,70 @@ class Change:
     path: List[str]
     value_a: Optional[scalars.Any]
     value_b: Optional[scalars.Any]
+
+
+def quantity_display(value: Any) -> Optional[str]:
+    """If ``value`` is a serialized quantity struct, render it as a single compact,
+    human-readable string; otherwise return None.
+
+    Quantities are stored in ``json_model`` as dicts, so a naive recursive diff would
+    descend into them and report several rows of internal fields (the raw ``canonical``
+    integer plus the ``given`` string). Collapsing them here yields one readable value:
+
+    - kanne dimension-locked quantity ``{canonical, given, unit}`` -> its ``given`` string
+      (e.g. ``"-67 mV"``);
+    - GenericQuantity ``{magnitude, unit, dimension}`` -> ``"<magnitude> <unit>"``
+      (e.g. ``"0.12 siemens / centimeter ** 2"``, ``"0.7 a.u."``).
+    """
+    if not isinstance(value, dict):
+        return None
+    if "canonical" in value and "given" in value:
+        return value.get("given")
+    if "magnitude" in value and "unit" in value:
+        return f"{value['magnitude']} {value['unit']}"
+    return None
+
+
+def _leaf(value: Any) -> Any:
+    """Condense a quantity struct to its human string for a change value; else pass through."""
+    display = quantity_display(value)
+    return display if display is not None else value
+
+
+def _compare_values(val_a: Any, val_b: Any, path: List[str]) -> List[Change]:
+    """Diff two values at ``path``, treating quantity structs as single human-readable leaves."""
+    changes: List[Change] = []
+
+    disp_a = quantity_display(val_a)
+    disp_b = quantity_display(val_b)
+    if disp_a is not None or disp_b is not None:
+        # At least one side is a quantity — compare as one leaf so a quantity change is a
+        # single readable row (e.g. "-67 mV" -> "-70 mV"), not separate canonical/given rows.
+        left = disp_a if disp_a is not None else val_a
+        right = disp_b if disp_b is not None else val_b
+        if left != right:
+            changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=left, value_b=right))
+        return changes
+
+    if isinstance(val_a, dict) and isinstance(val_b, dict):
+        deeper_changes = compare_models(val_a, val_b, path)
+        if deeper_changes:
+            changes.extend(deeper_changes)
+        elif val_a != val_b:
+            changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b))
+    elif isinstance(val_a, list) and isinstance(val_b, list):
+        min_len = min(len(val_a), len(val_b))
+        for i in range(min_len):
+            changes.extend(_compare_values(val_a[i], val_b[i], path + [str(i)]))
+        for i in range(min_len, len(val_a)):
+            changes.append(Change(type=ChangeType.REMOVED, path=path + [str(i)], value_a=_leaf(val_a[i]), value_b=None))
+        for i in range(min_len, len(val_b)):
+            changes.append(Change(type=ChangeType.ADDED, path=path + [str(i)], value_a=None, value_b=_leaf(val_b[i])))
+    elif val_a != val_b:
+        changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b))
+
+    return changes
+
 
 def compare_models(dict_a: dict, dict_b: dict, path: Optional[List[str]] = None) -> List[Change]:
     if path is None:
@@ -207,74 +275,13 @@ def compare_models(dict_a: dict, dict_b: dict, path: Optional[List[str]] = None)
     keys_b = set(dict_b.keys())
 
     for key in keys_a - keys_b:
-        changes.append(Change(
-            type=ChangeType.REMOVED,
-            path=path + [key],
-            value_a=dict_a[key],
-            value_b=None
-        ))
+        changes.append(Change(type=ChangeType.REMOVED, path=path + [key], value_a=_leaf(dict_a[key]), value_b=None))
 
     for key in keys_b - keys_a:
-        changes.append(Change(
-            type=ChangeType.ADDED,
-            path=path + [key],
-            value_a=None,
-            value_b=dict_b[key]
-        ))
+        changes.append(Change(type=ChangeType.ADDED, path=path + [key], value_a=None, value_b=_leaf(dict_b[key])))
 
     for key in keys_a & keys_b:
-        val_a = dict_a[key]
-        val_b = dict_b[key]
-
-        if isinstance(val_a, dict) and isinstance(val_b, dict):
-            deeper_changes = compare_models(val_a, val_b, path + [key])
-            if deeper_changes:
-                changes.extend(deeper_changes)
-            elif val_a != val_b:
-                changes.append(Change(
-                    type=ChangeType.CHANGED,
-                    path=path + [key],
-                    value_a=val_a,
-                    value_b=val_b
-                ))
-        elif isinstance(val_a, list) and isinstance(val_b, list):
-            # Compare lists element by element
-            min_len = min(len(val_a), len(val_b))
-            for i in range(min_len):
-                item_a = val_a[i]
-                item_b = val_b[i]
-                if isinstance(item_a, dict) and isinstance(item_b, dict):
-                    deeper_changes = compare_models(item_a, item_b, path + [key, str(i)])
-                    changes.extend(deeper_changes)
-                elif item_a != item_b:
-                    changes.append(Change(
-                        type=ChangeType.CHANGED,
-                        path=path + [key, str(i)],
-                        value_a=item_a,
-                        value_b=item_b
-                    ))
-            # Handle extra items
-            for i in range(min_len, len(val_a)):
-                changes.append(Change(
-                    type=ChangeType.REMOVED,
-                    path=path + [key, str(i)],
-                    value_a=val_a[i],
-                    value_b=None
-                ))
-            for i in range(min_len, len(val_b)):
-                changes.append(Change(
-                    type=ChangeType.ADDED,
-                    path=path + [key, str(i)],
-                    value_a=None,
-                    value_b=val_b[i]
-                ))
-        elif val_a != val_b:
-            changes.append(Change(
-                type=ChangeType.CHANGED,
-                path=path + [key],
-                value_a=val_a,
-                value_b=val_b
-            ))
+        changes.extend(_compare_values(dict_a[key], dict_b[key], path + [key]))
 
     return changes
 
@@ -283,129 +290,224 @@ def compare_models(dict_a: dict, dict_b: dict, path: Optional[List[str]] = None)
 class Comparison:
     collection: ModelCollection
     changes: List[Change]
-   
-    
-@strawberry_django.type(models.NeuronModel,  filters=filters.NeuronModelFilter, pagination=True)
-class NeuronModel:
+
+
+@strawberry_django.type(models.NeuronModel, filters=filters.NeuronModelFilter, pagination=True, ordering=filters.NeuronModelOrder)
+class NeuronModel(OrgScoped):
     id: auto
     name: auto
     description: str | None
     creator: User | None
+    environment: ModEnvironment
     model_collections: list[ModelCollection] | None
+    mappings: List["WorkspaceMapping"] = strawberry_django.field()
     simulations: List["Simulation"] = strawberry_django.field()
-    
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+
     @strawberry_django.field()
     def config(self, info: Info) -> "ModelConfig":
         return ModelConfigModel(**self.json_model)
-    
+
     @strawberry_django.field()
     def changes(self, info: Info, to: strawberry.ID | None = None) -> List[Change]:
-        """ Gets the changes"""
+        """Gets the changes"""
         if to is None:
             to_model = self.model_collections.first().models.first()
         else:
             to_model = models.NeuronModel.objects.get(id=to)
-            
+
         changes = compare_models(self.json_model, to_model.json_model)
         return changes
-    
+
     @strawberry_django.field()
     def comparisons(self, info: Info) -> List["Comparison"]:
-        """ Gets the changes"""
+        """Gets the changes"""
         comparisons = []
         for col in self.model_collections.all():
             changes = compare_models(self.json_model, col.models.first().json_model)
             comparisons.append(Comparison(collection=col, changes=changes))
         return comparisons
-    
-    
-    
 
-    
-    
-@strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, pagination=True)
-class Experiment:
+
+@strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, ordering=filters.ExperimentOrder, pagination=True)
+class Experiment(OrgScoped):
     id: auto
     name: str
     description: str | None
     time_trace: "Trace"
+    created_at: datetime.datetime
     recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
     stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
-    
-@strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, pagination=True)
-class Simulation:
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+
+
+@strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, ordering=filters.SimulationOrder, pagination=True)
+class Simulation(OrgScoped):
     id: auto
     name: str
     description: str | None
     kind: enums.StimulusKind
     creator: User | None
     model: NeuronModel
-    duration: int = 400
-    dt: float
+    duration: quantities.Duration
+    dt: quantities.Duration
     time_trace: "Trace"
     stimuli: List["Stimulus"] = strawberry_django.field()
     recordings: List["Recording"] = strawberry_django.field()
     created_at: datetime.datetime
+    recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
+    stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
 
 
-@strawberry_django.type(models.Recording,  filters=filters.RecordingFilter, pagination=True)
-class Recording:
+@strawberry_django.type(models.Recording, filters=filters.RecordingFilter, ordering=filters.RecordingOrder, pagination=True)
+class Recording(OrgScoped):
     id: auto
     simulation: Simulation
     kind: enums.RecordingKind
     trace: "Trace"
     location: str
-    position: float 
+    position: float
     cell: str
-    
+
     @strawberry_django.field()
     def label(self, info: Info) -> str:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
 
-      
-    
-@strawberry_django.type(models.Stimulus,  filters=filters.StimulusFilter, pagination=True)
-class Stimulus:
+@strawberry_django.type(models.Stimulus, filters=filters.StimulusFilter, ordering=filters.StimulusOrder, pagination=True)
+class Stimulus(OrgScoped):
     id: auto
     simulation: Simulation
     kind: enums.StimulusKind
     trace: "Trace"
     location: str
-    position: float 
+    position: float
     cell: str
-    
+
     @strawberry_django.field()
     def label(self, info: Info) -> str:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
 
-@strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentFilter, pagination=True)
-class ExperimentRecordingView:
+@strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentRecordingViewFilter, ordering=filters.ExperimentRecordingViewOrder, pagination=True)
+class ExperimentRecordingView(OrgScoped):
     id: auto
-    recording: Recording 
+    recording: Recording
     label: str | None
-    offset: float | None
-    duration: float | None
-    
-    
-@strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentFilter, pagination=True)
-class ExperimentStimulusView:
-    id: auto
-    stimulus: Stimulus 
-    label: str | None
-    offset: float | None
-    duration: float | None
-    
-    
+    offset: quantities.Duration | None
+    duration: quantities.Duration | None
+    experiment: "Experiment"
 
-@strawberry_django.type(
-    models.Trace, filters=filters.TraceFilter, order=filters.TraceOrder, pagination=True
+
+@strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentStimulusViewFilter, ordering=filters.ExperimentStimulusViewOrder, pagination=True)
+class ExperimentStimulusView(OrgScoped):
+    id: auto
+    stimulus: Stimulus
+    label: str | None
+    offset: quantities.Duration | None
+    duration: quantities.Duration | None
+    experiment: "Experiment"
+
+
+@strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True, ordering=filters.BlockOrder)
+class Block(OrgScoped):
+    id: auto
+    name: str
+    description: str | None
+    trace: "Trace"
+    acquired_at: datetime.datetime | None
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+    creator: User | None = strawberry.field(description="Who created this recording session")
+    groups: List["BlockGroup"] = strawberry_django.field(description="The groups in this recording session")
+    segments: List["BlockSegment"] = strawberry_django.field(description="The segments in this recording session")
+
+
+BlockStats, BlockStatsResolver = create_stats_type(
+    model=models.Block,
+    filters=filters.BlockFilter,
+    allowed_fields={
+        "created_at": "created_at",
+    },
+    allowed_datetime_fields={"created_at": "created_at"},
+    prescope=build_prescoper(),
 )
-class Trace:
-    """ An image.
-    
-    
+
+
+@strawberry_django.type(models.BlockSegment, filters=filters.BlockSegmentFilter, ordering=filters.BlockSegmentOrder, pagination=True)
+class BlockSegment(OrgScoped):
+    id: auto
+    block: Block
+    label: str
+    description: str | None
+    start_time: quantities.Duration | None
+    end_time: quantities.Duration | None
+    creator: User | None = strawberry.field(description="Who created this segment")
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+    groups: List["BlockGroup"] = strawberry_django.field(description="The groups that this segment belongs to")
+    analog_signals: List[Annotated["AnalogSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The analog signals in this group")
+    irregularly_sampled_signals: List[Annotated["IrregularlySampledSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The irregularly sampled signals in this group")
+    spike_trains: List[Annotated["SpikeTrain", strawberry.lazy(__name__)]] = strawberry_django.field(description="The spike trains in this group")
+
+
+@strawberry_django.type(models.BlockGroup, filters=filters.BlockGroupFilter, ordering=filters.BlockGroupOrder, pagination=True)
+class BlockGroup(OrgScoped):
+    id: auto
+    name: str
+    block: Block
+    description: str | None
+    analog_signals: List[Annotated["AnalogSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The analog signals in this group")
+    irregularly_sampled_signals: List[Annotated["IrregularlySampledSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The irregularly sampled signals in this group")
+    spike_trains: List[Annotated["SpikeTrain", strawberry.lazy(__name__)]] = strawberry_django.field(description="The spike trains in this group")
+
+
+@strawberry.interface(description="A signal recorded during a recording session")
+class Signal:
+    name: str
+    segment: BlockSegment
+
+
+@strawberry_django.type(models.AnalogSignalChannel, filters=filters.AnalogSignalChannelFilter, ordering=filters.AnalogSignalChannelOrder, pagination=True)
+class AnalogSignalChannel(OrgScoped):
+    id: auto
+    name: str | None
+    description: str | None
+    label: str | None
+    unit: str | None
+    index: int
+    trace: "Trace"
+    signal: "AnalogSignal"
+
+
+@strawberry_django.type(models.AnalogSignal, filters=filters.AnalogSignalFilter, ordering=filters.AnalogSignalOrder, pagination=True)
+class AnalogSignal(Signal, OrgScoped):
+    id: auto
+    sampling_rate: quantities.Frequency
+    unit: str | None
+    time_trace: "Trace"
+    channels: List[AnalogSignalChannel] = strawberry_django.field()
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+
+
+@strawberry_django.type(models.SpikeTrain, filters=filters.SpikeTrainFilter, ordering=filters.SpikeTrainOrder, pagination=True)
+class SpikeTrain(Signal, OrgScoped):
+    id: auto
+    trace: "Trace"
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+
+
+@strawberry_django.type(models.IrregularlySampledSignal, filters=filters.IrregularlySampledSignalFilter, ordering=filters.IrregularlySampledSignalOrder, pagination=True)
+class IrregularlySampledSignal(Signal, OrgScoped):
+    id: auto
+    trace: "Trace"
+    unit: str | None
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+
+
+@strawberry_django.type(models.Trace, filters=filters.TraceFilter, ordering=filters.TraceOrder, pagination=True)
+class Trace(OrgScoped):
+    """An image.
+
+
     Images are the central data type in mikro. They represent a single 5D bioimage, which
     binary data is stored in a ZarrStore. Images can be annotated with views, which are
     subsets of the image, ordered by its coordinates. Views can be of different kinds, for
@@ -415,32 +517,24 @@ class Trace:
     Images also represent the primary data container for other models of the mikro data model.
     For example rois, metrics, renders, and generated tables are all bound to a specific image,
     and will share the lifecycle of the image.
-    
-    """
 
+    """
 
     id: auto
     name: auto = strawberry_django.field(description="The name of the image")
-    store: ZarrStore = strawberry_django.field(description="The store where the image data is stored.")
+    store: dt.ZarrStore = strawberry_django.field(description="The store where the image data is stored.")
     dataset: Optional["Dataset"] = strawberry_django.field(description="The dataset this image belongs to")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
     creator: User | None = strawberry_django.field(description="Who created this image")
     rois: List["ROI"] = strawberry_django.field(description="The rois of this image")
 
-
-
     @strawberry_django.field(description="Is this image pinned by the current user")
     def pinned(self, info: Info) -> bool:
-        return (
-            cast(models.Image, self)
-            .pinned_by.filter(id=info.context.request.user.id)
-            .exists()
-        )
+        return cast(models.Image, self).pinned_by.filter(id=info.context.request.user.id).exists()
 
     @strawberry_django.field(description="The tags of this image")
     def tags(self, info: Info) -> list[str]:
         return cast(models.Image, self).tags.slugs()
-
 
     @strawberry_django.field()
     def events(
@@ -457,11 +551,12 @@ class Trace:
         return qs
 
 
-@strawberry_django.type(models.Dataset, filters=filters.DatasetFilter, pagination=True)
-class Dataset:
+@strawberry_django.type(models.Dataset, filters=filters.DatasetFilter, ordering=filters.DatasetOrder, pagination=True)
+class Dataset(OrgScoped):
     id: auto
-    images: List["Trace"]
+    traces: List["Trace"]
     files: List["File"]
+    parent: Optional["Dataset"] = strawberry_django.field(description="The parent dataset of this dataset")
     children: List["Dataset"]
     description: str | None
     name: str
@@ -472,16 +567,11 @@ class Dataset:
 
     @strawberry_django.field()
     def pinned(self, info: Info) -> bool:
-        return (
-            cast(models.Dataset, self)
-            .pinned_by.filter(id=info.context.request.user.id)
-            .exists()
-        )
+        return cast(models.Dataset, self).pinned_by.filter(id=info.context.request.user.id).exists()
 
     @strawberry_django.field()
     def tags(self, info: Info) -> list[str]:
         return cast(models.Image, self).tags.slugs()
-
 
 
 class Slice:
@@ -523,21 +613,20 @@ class View:
         y_accessor = min_max_to_accessor(self.y_min, self.y_max)
 
         return [c_accessor, t_accessor, z_accessor, x_accessor, y_accessor]
-    
-
 
 
 @strawberry_django.type(models.TimelineView)
-class TimelineView(View):
-    """ A label view.
-    
+class TimelineView(View, OrgScoped):
+    """A label view.
+
     Label views are used to give a label to a specific image channel. For example, you can
     create a label view that maps an antibody to a specific image channel. This will allow
     you to easily identify the labeling agent in the image. However, label views can be used
     for other purposes as well. For example, you can use a label to mark a specific channel
     to be of poor quality. (e.g. "bad channel").
-    
+
     """
+
     id: auto
     trace: Trace
 
@@ -546,12 +635,24 @@ class TimelineView(View):
         return self.label or "No Label"
 
 
+@strawberry_django.type(models.FileView)
+class FileView(View, OrgScoped):
+    """A file view links a Trace to the source File it originated from.
+
+    It records that this view of the trace was originally part of the file
+    (optionally a specific series within it) and links back to the source file.
+    """
+
+    id: auto
+    trace: Trace
+    file: "File"
+    series_identifier: str | None = None
 
 
+@strawberry_django.type(models.ROI, filters=filters.ROIFilter, ordering=filters.ROIOrder, pagination=True)
+class ROI(OrgScoped):
+    """A region of interest."""
 
-@strawberry_django.type(models.ROI, filters=filters.ROIFilter, pagination=True)
-class ROI:
-    """ A region of interest."""
     id: auto
     trace: "Trace"
     kind: enums.RoiKind
@@ -562,21 +663,12 @@ class ROI:
 
     @strawberry_django.field()
     def pinned(self, info: Info) -> bool:
-        return (
-            self
-            .pinned_by.filter(id=info.context.request.user.id)
-            .exists()
-        )
-    
-    
+        return self.pinned_by.filter(id=info.context.request.user.id).exists()
+
     @strawberry_django.field()
     def name(self, info: Info) -> str:
         return self.kind
-    
+
     @strawberry_django.field()
     def label(self, info: Info) -> str | None:
         return self.label
-    
-
-
-

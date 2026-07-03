@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    branches: [main, next, "*.x"] # main: stable, next: prereleases, N.x: maintenance
+
+# Needed so semantic-release can push the version-bump commit + tag and create
+# the GitHub Release.
+permissions:
+  contents: write
+
+jobs:
+  # 1. Run the suite, then let python-semantic-release decide the next version
+  #    from the conventional-commit history, bump pyproject, write CHANGELOG.md,
+  #    commit, tag (vX.Y.Z on main / vX.Y.Z-rc.N on next) and cut a GitHub Release.
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # semantic-release needs the full history + tags
+
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+          python-version: "3.12"
+
+      - name: Install the project
+        run: uv sync --all-extras --dev
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Python Semantic Release
+        id: release
+        uses: python-semantic-release/python-semantic-release@v9
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Append the Docker image pull instructions and a contributors list to the
+      # freshly-created Release. This only needs the version + git history, so it
+      # does not wait on the image build — the docker job (and its registry tags)
+      # come from the same version.
+      - name: Enrich the GitHub Release notes
+        if: steps.release.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          # Moving channel tag that tracks this release line.
+          case "$BRANCH" in
+            main) channel="latest" ;;
+            next) channel="next" ;;
+            *)    channel="${VERSION%%.*}" ;; # N.x maintenance -> major tag
+          esac
+          # Contributors since the previous release tag (empty range on first release).
+          prev="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          range="${prev:+$prev..}${TAG}"
+          contributors="$(git log --format='- %an' "$range" | sort -u)"
+          body="$(gh release view "$TAG" --json body --jq .body)"
+          {
+            printf '%s\n\n' "$body"
+            printf '## Docker image\n\n'
+            printf '```sh\ndocker pull jhnnsrs/elektro:%s\n```\n\n' "$VERSION"
+            printf 'Also published as `jhnnsrs/elektro:%s`.\n\n' "$channel"
+            printf '## Contributors\n\n%s\n' "$contributors"
+          } | gh release edit "$TAG" --notes-file -
+
+  # 2. Only if a release was actually cut: build the image at the new tag and
+  #    push it under the semver "multi-tag" regime. metadata-action expands the
+  #    tag into the full set, and automatically skips the moving major/minor/
+  #    latest tags for prereleases:
+  #      v1.2.3       -> 1.2.3, 1.2, 1, latest
+  #      v1.2.3-rc.1  -> 1.2.3-rc.1
+  docker:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker meta (semver multi-tag)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: jhnnsrs/elektro
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.release.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release.outputs.tag }}
+            type=semver,pattern={{major}},value=${{ needs.release.outputs.tag }}
+            # Moving staging tag: deployments/next pins jhnnsrs/elektro:next.
+            type=raw,value=next,enable=${{ github.ref_name == 'next' }}
+          # Only main (the newest major) owns `latest`. Maintenance releases off
+          # an N.x branch still get their moving N / N.M tags but must NOT claim
+          # `latest`, or shipping 1.5.3 would point latest back at the old major.
+          flavor: |
+            latest=${{ github.ref_name == 'main' }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+

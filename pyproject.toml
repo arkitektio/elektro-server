@@ -1,25 +1,23 @@
 [project]
 name = "elektro-server"
-version = "0.1.0"
+version = "1.0.0-rc.15"
 description = ""
 authors = [{ name = "jhnnsrs", email = "jhnnsrs@gmail.com" }]
 requires-python = ">=3.12,<4"
 readme = "README.md"
 dependencies = [
-    "django>=5.2",
-    "omegaconf>=2.3.0,<3",
-    "psycopg[binary]>=3",
+    "django>=6",
+    "pydantic-settings[yaml]>=2.2",
+    "psycopg[binary]>=3.2",
     "daphne>=4.0.0,<5",
     "channels-redis>=4.1.0,<5",
-    "django-choices-field>=2.2.2,<3",
-    "authentikate>=0.24",
-    "namegenerator>=1.0.6,<2",
+    "django-choices-field>=3",
+    "authentikate>=2.2.1",
     "ujson>=5.8.0,<6",
-    "aioredis>=2.0.1,<3",
     "jsonpatch~=1.33",
     "django-probes>=1.7.0,<2",
     "rich>=14.0.0",
-    "koherent>=0.2.0",
+    "koherent>=4",
     "django-redis>=5.4.0",
     "boto3>=1.38.9",
     "aiohttp>=3.11.18",
@@ -27,15 +25,34 @@ dependencies = [
     "duckdb>=1.2.2",
     "django-taggit>=6.1.0",
     "django-health-check>=3.20.0",
+    "django-polymorphic>=4.1.0",
+    "kante>=1.2",
+    "uvicorn>=0.46.0",
+    "opentelemetry-instrumentation-django>=0.62b1",
+    "opentelemetry-instrumentation-asgi>=0.62b1",
+    "opentelemetry-sdk>=1.41.1",
+    "opentelemetry-exporter-otlp>=1.41.1",
+    "strawberry-graphql[opentelemetry]>=0.312.0",
+    "opentelemetry-instrumentation-dbapi>=0.62b1",
+    "opentelemetry-instrumentation-psycopg>=0.62b1",
+    "pint>=0.25.3",
+    "whitenoise>=6.6",
 ]
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.8",
+    "pytest-cov>=7.1.0",
+    "python-semantic-release>=9.21.0",
     "django-stubs>=5.2.0",
+    "dokker>=2.5",
     "moto>=5.1.11",
     "mypy>=1.15.0",
+    "numpy>=2.4.6",
+    "obstore>=0.10.1",
     "pytest-asyncio>=1.1.0",
     "pytest-django>=4.11.1",
+    "zarr>=3",
 ]
 
 [tool.django-stubs]
@@ -88,10 +105,42 @@ target-version = "py312"
 
 
 [tool.semantic_release]
+# This server is deployed as Docker images, not a PyPI package — so a release
+# just bumps the version, writes the changelog, tags, and cuts a GitHub Release.
+# No wheel is built and nothing is uploaded to PyPI.
 version_toml = ["pyproject.toml:project.version"]
-upload_to_pypi = true
-branch = "main"
-build_command = "uv build"
+upload_to_pypi = false
+build_command = ""
+commit_message = "chore(release): v{version} [skip ci]"
+
+# main -> stable X.Y.Z releases. next -> prereleases X.Y.Z-rc.N.
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.branches.next]
+match = "next"
+prerelease = true
+prerelease_token = "rc"
+
+# Maintenance branches (1.x, 2.x, ...) cut stable patch/minor releases for an
+# older major after a new major has shipped from main — e.g. 1.5.3 off `1.x`
+# while main is on 2.x. The regex is reused for every future major's line.
+[tool.semantic_release.branches.maintenance]
+match = '^\d+\.x$'
+prerelease = false
+
+# Keep the changelog / release notes focused on user-facing changes. These
+# patterns only filter what's rendered — they do not affect version bumps.
+[tool.semantic_release.changelog]
+exclude_commit_patterns = [
+    '^chore(?:\([^)]*\))?: ', # includes the chore(release): … bump commit
+    '^ci(?:\([^)]*\))?: ',
+    '^build(?:\([^)]*\))?: ',
+    '^style(?:\([^)]*\))?: ',
+    '^test(?:\([^)]*\))?: ',
+    '^Merge ',
+]
 
 
 

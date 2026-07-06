@@ -61,6 +61,7 @@ class ModelConfigInputModel(BaseModel):
 
     @model_validator(mode="after")
     def check_cells(self) -> "ModelConfigInputModel":
+        """ after validation, check that the model is consistent """
         self._check_unique_ions(self.ions, "the model-wide ion defaults")
         if self.ra is not None and self.ra <= 0:
             raise ValueError("The model-wide default ra must be > 0.")

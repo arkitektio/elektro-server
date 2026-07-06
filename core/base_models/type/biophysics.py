@@ -69,7 +69,7 @@ class CompartmentModel(BaseModel):
     color: Optional[List[int]] = Field(default=None, description="An optional RGBA color (list of 4 values) used to render this compartment in the UI.")
 
 
-    def section_param_for_key(self, name):
+    def section_param_for_key(self, name: str) -> SectionParamMapModel | None:
         """Get the section parameter for a given param name."""
         return next((param for param in self.section_params if param.param == name), None)
 
@@ -77,15 +77,17 @@ class CompartmentModel(BaseModel):
 
 
 class BiophysicsModel(BaseModel):
+    """A biophysics model for a neuron, consisting of compartments with mechanisms and parameters."""
     compartments: List[CompartmentModel] = Field(default_factory=list)
 
     
-    def add_compartment(self, compartment: CompartmentModel):
+    def add_compartment(self, compartment: CompartmentModel) -> None:
+        """Add a compartment to the biophysics model."""
         assert self.compartment_for_key(compartment.id) is None, f"Compartment with id {compartment.id} already exists."
         self.compartments.append(compartment)
         
     
-    def compartment_for_key(self, name) -> CompartmentModel :
+    def compartment_for_key(self, name: str) -> CompartmentModel | None:
         """Get the compartment for a given key."""
         return next((comp for comp in self.compartments if comp.id == name), None)
         

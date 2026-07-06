@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.18 (2026-07-06)
+
+### Bug Fixes
+
+- Small docs upgrade
+  ([`1003d31`](https://github.com/arkitektio/elektro-server/commit/1003d315a067a6f96baf3397c8c6822b0b091739))
+
+
 ## v1.0.0-rc.17 (2026-07-06)
 
 

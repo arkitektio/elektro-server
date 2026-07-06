@@ -1,5 +1,6 @@
 from core.base_models.type.model import ModelConfigModel
 from core.analysis import compute_dominance
+from core.analysis.dominance import DEFAULT_WEIGHTS
 from pydantic import BaseModel
 import strawberry
 import strawberry_django
@@ -363,16 +364,54 @@ class NeuronModel(OrgScoped):
         info: Info,
         reference_cell: strawberry.ID | None = None,
         reference_section: strawberry.ID | None = None,
+        weight_conductance: Annotated[
+            Optional[float],
+            strawberry.argument(
+                description=(
+                    "Weight of the conductance load factor (Σ gbar · area — driven by channel "
+                    "densities like g_pas / gnabar_hh). Defaults to the built-in blend when unset."
+                ),
+            ),
+        ] = None,
+        weight_capacitance: Annotated[
+            Optional[float],
+            strawberry.argument(
+                description=(
+                    "Weight of the membrane capacitance factor (cm · area — driven by specific "
+                    "capacitance). Defaults to the built-in blend when unset."
+                ),
+            ),
+        ] = None,
+        weight_axial: Annotated[
+            Optional[float],
+            strawberry.argument(
+                description=(
+                    "Weight of the axial coupling factor (∝ diam² / (Ra · length) — driven by "
+                    "section diameter, axial resistivity and length). Defaults to the built-in "
+                    "blend when unset."
+                ),
+            ),
+        ] = None,
     ) -> List["SectionDominance"]:
         """Per-section dominance scores — how much each section shapes the simulation.
 
         Computed analytically from the stored geometry + biophysics (no NEURON run).
         ``reference_section`` (optionally scoped by ``reference_cell``) pins the site the
         reference score attenuates toward; unset, each cell uses its own soma / root.
+
+        The global score is a weighted blend of three normalized factors — conductance
+        load, capacitance and axial coupling. The ``weight_*`` arguments tune how much each
+        factor drives the score; any left unset keep the default blend.
         """
         reference = None
         if reference_section is not None:
             reference = {"cell_id": reference_cell, "section_id": reference_section}
+        default_conductance, default_capacitance, default_axial = DEFAULT_WEIGHTS
+        weights = (
+            weight_conductance if weight_conductance is not None else default_conductance,
+            weight_capacitance if weight_capacitance is not None else default_capacitance,
+            weight_axial if weight_axial is not None else default_axial,
+        )
         config = ModelConfigModel(**self.json_model)
         return [
             SectionDominance(
@@ -391,7 +430,7 @@ class NeuronModel(OrgScoped):
                 transfer_weight=d.transfer_weight,
                 is_reference=d.is_reference,
             )
-            for d in compute_dominance(config, reference=reference)
+            for d in compute_dominance(config, reference=reference, weights=weights)
         ]
 
 

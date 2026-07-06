@@ -169,6 +169,25 @@ def test_reference_selection_falls_back_to_root_without_soma():
     assert r[("cell0", "child")].is_reference is False
 
 
+def test_weights_shift_the_global_score():
+    # Same model, two extreme weightings. A capacitance-only blend and an axial-only blend
+    # must produce different soma/dend global-score splits than each other (both factors
+    # are non-zero for this geometry-only fixture).
+    config = _config([_cell([SOMA, THIN_DEND])])
+    cap_only = _by_id(compute_dominance(config, weights=(0.0, 1.0, 0.0)))
+    axial_only = _by_id(compute_dominance(config, weights=(0.0, 0.0, 1.0)))
+    cap_ratio = cap_only[("cell0", "soma")].global_score / cap_only[("cell0", "dend")].global_score
+    axial_ratio = axial_only[("cell0", "soma")].global_score / axial_only[("cell0", "dend")].global_score
+    assert cap_ratio != pytest.approx(axial_ratio)
+
+
+def test_custom_weights_still_normalize_to_one():
+    config = _config([_cell([SOMA, THIN_DEND])])
+    results = compute_dominance(config, weights=(0.2, 0.7, 0.1))
+    assert sum(r.global_score for r in results) == pytest.approx(1.0)
+    assert sum(r.reference_score for r in results) == pytest.approx(1.0)
+
+
 def test_geometry_helper_stylized_cylinder():
     config = _config([_cell([{"id": "s", "diam": "3 um", "length": "40 um"}])])
     section = config.cells[0].topology.sections[0]

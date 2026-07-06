@@ -1,4 +1,5 @@
 from core.base_models.type.model import ModelConfigModel
+from core.analysis import compute_dominance
 from pydantic import BaseModel
 import strawberry
 import strawberry_django
@@ -135,7 +136,7 @@ class Mechanism(OrgScoped):
     name: auto
     description: str | None
 
-    @kante.django_field(description="The parameter ports of the mechanism")
+    @kante.django_field(only=["parameters"], description="The parameter ports of the mechanism")
     def parameters(self, info: Info) -> list[Parameter]:
         return [ParameterModel(**param) for param in self.parameters]
 
@@ -292,6 +293,34 @@ class Comparison:
     changes: List[Change]
 
 
+@strawberry.type
+class SectionDominance:
+    """How much a section shapes the whole simulation, estimated analytically from the
+    stored geometry + biophysics (classical cable theory; no NEURON run).
+
+    ``global_score`` and ``reference_score`` are normalized fractions of the model total
+    (each sums to 1 across a model). ``global_score`` is reference-independent (the
+    section's overall weight in the cell); ``reference_score`` attenuates that by
+    electrotonic distance to the reference site (default: the soma / tree root). The
+    remaining fields are the underlying physical factors, exposed for explainability.
+    """
+
+    cell_id: str
+    section_id: str
+    category: str | None
+    global_score: float
+    reference_score: float
+    raw_global: float
+    raw_reference: float
+    area: float  # cm²
+    capacitance: float  # farad
+    axial_conductance: float  # siemens
+    conductance_load: float  # siemens
+    electrotonic_distance: float  # length constants to the reference
+    transfer_weight: float  # exp(-electrotonic_distance)
+    is_reference: bool
+
+
 @strawberry_django.type(models.NeuronModel, filters=filters.NeuronModelFilter, pagination=True, ordering=filters.NeuronModelOrder)
 class NeuronModel(OrgScoped):
     id: auto
@@ -304,11 +333,11 @@ class NeuronModel(OrgScoped):
     simulations: List["Simulation"] = strawberry_django.field()
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
-    @strawberry_django.field()
+    @strawberry_django.field(only=["json_model"])
     def config(self, info: Info) -> "ModelConfig":
         return ModelConfigModel(**self.json_model)
 
-    @strawberry_django.field()
+    @strawberry_django.field(only=["json_model"])
     def changes(self, info: Info, to: strawberry.ID | None = None) -> List[Change]:
         """Gets the changes"""
         if to is None:
@@ -319,7 +348,7 @@ class NeuronModel(OrgScoped):
         changes = compare_models(self.json_model, to_model.json_model)
         return changes
 
-    @strawberry_django.field()
+    @strawberry_django.field(only=["json_model"])
     def comparisons(self, info: Info) -> List["Comparison"]:
         """Gets the changes"""
         comparisons = []
@@ -327,6 +356,43 @@ class NeuronModel(OrgScoped):
             changes = compare_models(self.json_model, col.models.first().json_model)
             comparisons.append(Comparison(collection=col, changes=changes))
         return comparisons
+
+    @strawberry_django.field(only=["json_model"])
+    def section_dominance(
+        self,
+        info: Info,
+        reference_cell: strawberry.ID | None = None,
+        reference_section: strawberry.ID | None = None,
+    ) -> List["SectionDominance"]:
+        """Per-section dominance scores — how much each section shapes the simulation.
+
+        Computed analytically from the stored geometry + biophysics (no NEURON run).
+        ``reference_section`` (optionally scoped by ``reference_cell``) pins the site the
+        reference score attenuates toward; unset, each cell uses its own soma / root.
+        """
+        reference = None
+        if reference_section is not None:
+            reference = {"cell_id": reference_cell, "section_id": reference_section}
+        config = ModelConfigModel(**self.json_model)
+        return [
+            SectionDominance(
+                cell_id=d.cell_id,
+                section_id=d.section_id,
+                category=d.category,
+                global_score=d.global_score,
+                reference_score=d.reference_score,
+                raw_global=d.raw_global,
+                raw_reference=d.raw_reference,
+                area=d.area,
+                capacitance=d.capacitance,
+                axial_conductance=d.axial_conductance,
+                conductance_load=d.conductance_load,
+                electrotonic_distance=d.electrotonic_distance,
+                transfer_weight=d.transfer_weight,
+                is_reference=d.is_reference,
+            )
+            for d in compute_dominance(config, reference=reference)
+        ]
 
 
 @strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, ordering=filters.ExperimentOrder, pagination=True)
@@ -357,6 +423,7 @@ class Simulation(OrgScoped):
     created_at: datetime.datetime
     recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
     stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
+    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @strawberry_django.type(models.Recording, filters=filters.RecordingFilter, ordering=filters.RecordingOrder, pagination=True)
@@ -369,7 +436,7 @@ class Recording(OrgScoped):
     position: float
     cell: str
 
-    @strawberry_django.field()
+    @strawberry_django.field(only=["label", "cell", "location", "position"])
     def label(self, info: Info) -> str:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
@@ -384,7 +451,7 @@ class Stimulus(OrgScoped):
     position: float
     cell: str
 
-    @strawberry_django.field()
+    @strawberry_django.field(only=["label", "cell", "location", "position"])
     def label(self, info: Info) -> str:
         return self.label or f"{self.cell}: {self.location}({self.position})"
 
@@ -604,7 +671,7 @@ class View:
     c_max: int | None = None
     is_global: bool
 
-    @strawberry_django.field(description="The accessor")
+    @strawberry_django.field(only=["t_min", "t_max", "c_min", "c_max"], description="The accessor")
     def accessor(self) -> List[str]:
         z_accessor = min_max_to_accessor(self.z_min, self.z_max)
         t_accessor = min_max_to_accessor(self.t_min, self.t_max)
@@ -665,10 +732,10 @@ class ROI(OrgScoped):
     def pinned(self, info: Info) -> bool:
         return self.pinned_by.filter(id=info.context.request.user.id).exists()
 
-    @strawberry_django.field()
+    @strawberry_django.field(only=["kind"])
     def name(self, info: Info) -> str:
         return self.kind
 
-    @strawberry_django.field()
+    @strawberry_django.field(only=["label"])
     def label(self, info: Info) -> str | None:
         return self.label

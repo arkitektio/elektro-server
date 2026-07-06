@@ -1,12 +1,18 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.17 (2026-07-06)
+
+
 ## v1.0.0-rc.16 (2026-07-06)
 
 ### Bug Fixes
 
 - Add filters and importance score (beta)
   ([`8a03657`](https://github.com/arkitektio/elektro-server/commit/8a036577a496bc1816f62269d36a854a05b24331))
+
+- Added dominance
+  ([`064cdba`](https://github.com/arkitektio/elektro-server/commit/064cdba8b00ed0d50bc4c795fef40fbecf42bf85))
 
 
 ## v1.0.0-rc.15 (2026-07-03)

@@ -64,4 +64,7 @@ DATALAYER = {
     "parquet": {"bucket": "parquet"},
     "media": {"bucket": "media"},
     "bigfile": {"bucket": "media"},
+    # No `role_arn`, so no session can be assumed and a grant would now refuse rather than
+    # quietly return the static key above. Tests exercising a grant care about its shape.
+    "allow_unscoped_fallback": True,
 }

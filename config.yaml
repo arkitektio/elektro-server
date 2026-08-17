@@ -35,6 +35,10 @@ postgres:
   port: 5432
   username: fostgres
 datalayer:
+  # Any ARN-shaped string: MinIO ignores the value and scopes the session by the inline
+  # policy alone. Unset, no role can be assumed and no grant can be issued at all.
+  role_arn: arn:aws:iam::000000000000:role/datalayer
+  session_duration_seconds: 3600
   access_key: crappygreysetter
   secret_key: e8821a29d189789e39c9922a3bfcfb4a
   host: minio

@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.19 (2026-08-17)
+
+### Bug Fixes
+
+- Datalayer
+  ([`a23b88a`](https://github.com/arkitektio/elektro-server/commit/a23b88a0d0345d0e5ad5315fa004dae0829ad204))
+
+
 ## v1.0.0-rc.18 (2026-07-06)
 
 ### Bug Fixes

@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v1.0.0-rc.20 (2026-08-20)
+
+### Bug Fixes
+
+- Authentikate
+  ([`4b2f0e3`](https://github.com/arkitektio/elektro-server/commit/4b2f0e3fa911a36347b7480125397a136f9bd222))
+
+
 ## v1.0.0-rc.19 (2026-08-17)
 
 ### Bug Fixes

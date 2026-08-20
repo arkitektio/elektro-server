@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12, <4"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -157,7 +157,7 @@ wheels = [
 
 [[package]]
 name = "authentikate"
-version = "2.2.1"
+version = "3.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
@@ -167,9 +167,9 @@ dependencies = [
     { name = "kante" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/65/4d6393b2e3b0fb71707befd14ffd1e54200e4afaf89e2c97d4539e0173f9/authentikate-2.2.1.tar.gz", hash = "sha256:ac9c6292bb22d80152e2b7c9af0cae2e5b5ef7fe2b737823621dcab689767798", size = 26261, upload-time = "2026-06-29T15:21:02.756Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/08/f66941416f7f562ae47e946851c7431b69b7d0a237dd116511f340acfafc/authentikate-3.2.0.tar.gz", hash = "sha256:6a17708a9db69a542fc64260385675a0a23aa6ae375a23aa9c6cb8823c1cf349", size = 37745, upload-time = "2026-08-20T14:43:15.863Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ed/41/2a0a4160eb2c7d37efeabcf45349350bda55744d8b7b654d3a6c724ad916/authentikate-2.2.1-py3-none-any.whl", hash = "sha256:94091607fbed5d8bb75a96d133ed0881d9855b3dd9d698d930d8914387c328bc", size = 35182, upload-time = "2026-06-29T15:21:01.668Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/df/6149b57aab05e698d51e6b3cc8666dc7d0eb333a80aa42887b3206bb6dd6/authentikate-3.2.0-py3-none-any.whl", hash = "sha256:d721b86390ce033a047c1d7344062241349e1e26f03f91ec56a74fefdf460ca7", size = 48729, upload-time = "2026-08-20T14:43:14.92Z" },
 ]
 
 [[package]]
@@ -866,7 +866,7 @@ wheels = [
 
 [[package]]
 name = "elektro-server"
-version = "1.0.0rc18"
+version = "1.0.0rc19"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -921,7 +921,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
-    { name = "authentikate", specifier = ">=2.2.1" },
+    { name = "authentikate", specifier = ">=3.2.0" },
     { name = "boto3", specifier = ">=1.38.9" },
     { name = "channels-redis", specifier = ">=4.1.0,<5" },
     { name = "daphne", specifier = ">=4.0.0,<5" },
@@ -934,7 +934,7 @@ requires-dist = [
     { name = "django-taggit", specifier = ">=6.1.0" },
     { name = "duckdb", specifier = ">=1.2.2" },
     { name = "jsonpatch", specifier = "~=1.33" },
-    { name = "kante", specifier = ">=1.2" },
+    { name = "kante", specifier = ">=2.1.1" },
     { name = "koherent", specifier = ">=4" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.41.1" },
     { name = "opentelemetry-instrumentation-asgi", specifier = ">=0.62b1" },
@@ -1347,7 +1347,7 @@ wheels = [
 
 [[package]]
 name = "kante"
-version = "2.0.1"
+version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "channels" },
@@ -1357,9 +1357,9 @@ dependencies = [
     { name = "strawberry-graphql", extra = ["channels"] },
     { name = "strawberry-graphql-django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/20/5d49a033a7bd00c43196c5cbcde41c47426901db6f3bc09c2dd6af692289/kante-2.0.1.tar.gz", hash = "sha256:7a0bf2f2114945270a54bf35917e2271f78c726bd0c5bc0cd71f7b811541bf77", size = 15062, upload-time = "2026-06-20T15:46:02.96Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/06/20/0e4e40ea006a258a6201ced8db148265990e73e13ee68bd73737499b5627/kante-2.1.1.tar.gz", hash = "sha256:a1107fffb561875e943b0faaa09fe9f5285a494a8c6be88f36c04d39ef7e4ec8", size = 28783, upload-time = "2026-08-20T13:47:42.063Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/65/9f7fb77c1d53acff5ded070368623b5c145995c90d418259f92ac6cf40fe/kante-2.0.1-py3-none-any.whl", hash = "sha256:a5ddfdf4c35f500f26b794a1738e641ba424f551de7cdb6ccd969913383eef11", size = 18811, upload-time = "2026-06-20T15:46:01.86Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/dd/fa8db2c5e17f917ebb4d06078dc9a8a9b7f689fef6af5274bd4a078199bc/kante-2.1.1-py3-none-any.whl", hash = "sha256:2d1d8d5381167ca0e306dc84be2b463b93c71b8fe7fb80208ad3d23603dd5aa7", size = 34904, upload-time = "2026-08-20T13:47:41.059Z" },
 ]
 
 [[package]]

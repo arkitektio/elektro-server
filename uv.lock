@@ -157,7 +157,7 @@ wheels = [
 
 [[package]]
 name = "authentikate"
-version = "3.2.0"
+version = "4.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
@@ -167,9 +167,9 @@ dependencies = [
     { name = "kante" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/92/08/f66941416f7f562ae47e946851c7431b69b7d0a237dd116511f340acfafc/authentikate-3.2.0.tar.gz", hash = "sha256:6a17708a9db69a542fc64260385675a0a23aa6ae375a23aa9c6cb8823c1cf349", size = 37745, upload-time = "2026-08-20T14:43:15.863Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/49/c4/49da2457b388eab46c2e157a127a9a9fafeefde4ba9f607b2b135cca7d98/authentikate-4.0.0.tar.gz", hash = "sha256:627895ee781a6d3e7815a27d5a0684f2bba96e89d6a986c38e8c81ebf493fe53", size = 38383, upload-time = "2026-08-21T12:08:16.196Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/df/6149b57aab05e698d51e6b3cc8666dc7d0eb333a80aa42887b3206bb6dd6/authentikate-3.2.0-py3-none-any.whl", hash = "sha256:d721b86390ce033a047c1d7344062241349e1e26f03f91ec56a74fefdf460ca7", size = 48729, upload-time = "2026-08-20T14:43:14.92Z" },
+    { url = "https://files.pythonhosted.org/packages/05/a2/e111512b9c0c3319023367cb6812354565b62591f30898577f8193218240/authentikate-4.0.0-py3-none-any.whl", hash = "sha256:788bed2fed35a810aa4755fc796b59a4ee351913c4d2beb8757e095e9c578b23", size = 49474, upload-time = "2026-08-21T12:08:15.159Z" },
 ]
 
 [[package]]
@@ -559,14 +559,14 @@ wheels = [
 
 [[package]]
 name = "cross-web"
-version = "0.4.1"
+version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/58/e688e99d1493c565d1587e64b499268d0a3129ae59f4efe440aac395f803/cross_web-0.4.1.tar.gz", hash = "sha256:0466295028dcae98c9ab3d18757f90b0e74fac2ff90efbe87e74657546d9993d", size = 157385, upload-time = "2026-01-09T18:17:41.534Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/a0/bdb8370215987cc5bde497cb8b976b17ab14841566ecef2aab6ae3e6c7b0/cross_web-0.7.0.tar.gz", hash = "sha256:15fbc8b9a824a055db8127fd6e43e0773074f620fdecb6b2b587d3d0a2bdd459", size = 332407, upload-time = "2026-05-19T14:18:48.849Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/49/92b46b6e65f09b717a66c4e5a9bc47a45ebc83dd0e0ed126f8258363479d/cross_web-0.4.1-py3-none-any.whl", hash = "sha256:41b07c3a38253c517ec0603c1a366353aff77538946092b0f9a2235033f192c2", size = 14320, upload-time = "2026-01-09T18:17:40.325Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/4a/78b52ec2edcbd9b123638f4e0421fd8699ebe653ebf63ac5f82abd2665bc/cross_web-0.7.0-py3-none-any.whl", hash = "sha256:ddea9be3c68b48eaf16561847a5831a559786949c544b3701432e00a4e8d19d9", size = 25207, upload-time = "2026-05-19T14:18:47.614Z" },
 ]
 
 [[package]]
@@ -866,7 +866,7 @@ wheels = [
 
 [[package]]
 name = "elektro-server"
-version = "1.0.0rc19"
+version = "1.0.0rc20"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -921,7 +921,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
-    { name = "authentikate", specifier = ">=3.2.0" },
+    { name = "authentikate", specifier = ">=4.0.0" },
     { name = "boto3", specifier = ">=1.38.9" },
     { name = "channels-redis", specifier = ">=4.1.0,<5" },
     { name = "daphne", specifier = ">=4.0.0,<5" },
@@ -1347,19 +1347,20 @@ wheels = [
 
 [[package]]
 name = "kante"
-version = "2.1.1"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "channels" },
     { name = "channels-redis" },
     { name = "cross-web" },
     { name = "django" },
+    { name = "pydantic" },
     { name = "strawberry-graphql", extra = ["channels"] },
     { name = "strawberry-graphql-django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/20/0e4e40ea006a258a6201ced8db148265990e73e13ee68bd73737499b5627/kante-2.1.1.tar.gz", hash = "sha256:a1107fffb561875e943b0faaa09fe9f5285a494a8c6be88f36c04d39ef7e4ec8", size = 28783, upload-time = "2026-08-20T13:47:42.063Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/79/f1/f58a2d51f8f9df8458b42531ca983721897492cab7ca34bbe08c0317bfe7/kante-2.2.0.tar.gz", hash = "sha256:d405ef92140a09fbf171217231aefb7b917990099cda827497efc42cd50fc37a", size = 37232, upload-time = "2026-08-21T12:04:56.157Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a9/dd/fa8db2c5e17f917ebb4d06078dc9a8a9b7f689fef6af5274bd4a078199bc/kante-2.1.1-py3-none-any.whl", hash = "sha256:2d1d8d5381167ca0e306dc84be2b463b93c71b8fe7fb80208ad3d23603dd5aa7", size = 34904, upload-time = "2026-08-20T13:47:41.059Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/f9/c38ca2d85eeaba8a6ac7db218971144dcc846988430f1df882361507ca79/kante-2.2.0-py3-none-any.whl", hash = "sha256:aa83bc40a9af29064bf43591d9db2add6ea4503c872d8fbc8ac98dfda2f2feb4", size = 44105, upload-time = "2026-08-21T12:04:55.135Z" },
 ]
 
 [[package]]
@@ -2786,7 +2787,7 @@ wheels = [
 
 [[package]]
 name = "strawberry-graphql"
-version = "0.312.0"
+version = "0.324.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cross-web" },
@@ -2795,15 +2796,16 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dc/24/1392ba1cd2c8472d7afbd6a80790f1b9942d884ed11e739223d745953bbe/strawberry_graphql-0.312.0.tar.gz", hash = "sha256:4fe3af4af95877669bef4e03f63985dbb3f0cff0f08474a7bd3cc98d335a140f", size = 214969, upload-time = "2026-03-21T17:36:30.143Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/f9/7e121f55c93864cbedf2bbcf8920e2456da3adf05d9f3eef101db6633fec/strawberry_graphql-0.324.0.tar.gz", hash = "sha256:4eb6decf0c33524374f24e07ff6d1915da26655a49fa6f656544c293404e2d35", size = 235911, upload-time = "2026-08-10T15:05:44.494Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/c6/0e06d0bdb47278d231f2b8211065e2b64e7fb33d57f5728e60985e45faf2/strawberry_graphql-0.312.0-py3-none-any.whl", hash = "sha256:be95a9ba92e50313a987252448ee6287d34098781f8dd58b2e97cb64aee4a91c", size = 312509, upload-time = "2026-03-21T17:36:32.193Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/56/52b78a3e8de057aadc42f61c82727a914fbb95accc6aae1b5ff0d54e43c9/strawberry_graphql-0.324.0-py3-none-any.whl", hash = "sha256:08c8b3256a1c909c7721f3c1d8e161ac40505ca14991c39d8492898b17e77b6d", size = 338683, upload-time = "2026-08-10T15:05:42.564Z" },
 ]
 
 [package.optional-dependencies]
 channels = [
     { name = "asgiref" },
     { name = "channels" },
+    { name = "django" },
 ]
 opentelemetry = [
     { name = "opentelemetry-api" },
@@ -2812,16 +2814,16 @@ opentelemetry = [
 
 [[package]]
 name = "strawberry-graphql-django"
-version = "0.82.0"
+version = "0.87.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "django" },
     { name = "strawberry-graphql" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/39/e64a6e62297f768d2e10e94d88086f2a9f14ea7a506da5c0b16f1f5c920c/strawberry_graphql_django-0.82.0.tar.gz", hash = "sha256:943a804062599ec752197a85826e7b2aebc55082b6008243832f707fb6bfd235", size = 92831, upload-time = "2026-03-15T11:58:35.466Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3c/62/c23180ccb871fcaf335bb0bb12ce3e6df265c0216cc399e42451b994470d/strawberry_graphql_django-0.87.0.tar.gz", hash = "sha256:f1d703b4f79218cd856deed4db4e966020fdebb08e83c32a3eb1566225e57721", size = 96318, upload-time = "2026-08-06T15:34:32.762Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/48/4b854bbaac3b3540a813fb4ee65b860248add6f87e0ae696630fda562797/strawberry_graphql_django-0.82.0-py3-none-any.whl", hash = "sha256:88fb795be7cb1dbcbb86c2d81b7bf8110bd8f15d35a988d0bf3f6d43b0fffdd3", size = 117184, upload-time = "2026-03-15T11:58:34.053Z" },
+    { url = "https://files.pythonhosted.org/packages/27/4f/966c71c1bcc88ec22e378d0adf68d9c191966a8c3fb91e518a1ce6988a3f/strawberry_graphql_django-0.87.0-py3-none-any.whl", hash = "sha256:2c403d7f77464d477d864391d42cd23246de47e3b60f4856d77424efb3521a77", size = 120629, upload-time = "2026-08-06T15:34:31.442Z" },
 ]
 
 [[package]]

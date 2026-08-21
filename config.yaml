@@ -16,6 +16,10 @@ redis:
   port: 6379
 
 authentikate:
+  # authentikate 4.0 requires AUDIENCE. "*" (ANY_AUDIENCE) accepts a token minted
+  # for any service; the `aud` claim itself is still required. Replace with this
+  # service's identifier to check which service the token was minted for.
+  audience: "*"
   issuers:
   - kind: rsa
     iss: lok

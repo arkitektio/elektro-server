@@ -21,7 +21,7 @@ AUTHENTIKATE = {
         # scoping/permission tests. roles must be set explicitly: StaticToken
         # defaults roles to ["admin"], which would let this user delete anything
         # (can_delete rule 1) and defeat the cross-org denial tests.
-        "othertest": {"sub": "9", "active_org": "other_org", "roles": []},
+        "othertest": {"sub": "9", "org": "other_org", "roles": []},
     },
 }
 

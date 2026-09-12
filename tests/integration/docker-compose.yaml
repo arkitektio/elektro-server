@@ -12,25 +12,26 @@ services:
          - fakts.service=live.arkitekt.postgres
       ports:
         - 5555:5432
-   minio:
-      command: server /data
+   rustfs:
       environment:
-         MINIO_ROOT_PASSWORD: e8821a29d189789e39c9922a3bfcfb4a
-         MINIO_ROOT_USER: crappygreysetter
-      image: quay.io/minio/minio:RELEASE.2025-02-18T16-25-55Z
+         RUSTFS_VOLUMES: /data
+         RUSTFS_ADDRESS: ":9000"
+         RUSTFS_SECRET_KEY: e8821a29d189789e39c9922a3bfcfb4a
+         RUSTFS_ACCESS_KEY: crappygreysetter
+      image: rustfs/rustfs:latest
       ports:
          - 6890:9000
    initc:
       depends_on:
-         minio:
+         rustfs:
             condition: service_started
       environment:
-         MINIO_HOST: http://minio:9000
-         MINIO_ROOT_PASSWORD: e8821a29d189789e39c9922a3bfcfb4a
-         MINIO_ROOT_USER: crappygreysetter
+         RUSTFS_HOST: http://rustfs:9000
+         RUSTFS_SECRET_KEY: e8821a29d189789e39c9922a3bfcfb4a
+         RUSTFS_ACCESS_KEY: crappygreysetter
       image: jhnnsrs/init:next
       volumes:
-         - ./configs/minio.yaml:/workspace/config.yaml
+         - ./configs/rustfs.yaml:/workspace/config.yaml
    redis:
       environment:
          REDIS_HOST: redis

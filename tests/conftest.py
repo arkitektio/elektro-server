@@ -56,13 +56,13 @@ def backend_stack():
 
         e.up()
 
-        # `initc` runs `mc alias set ... http://minio:9000` as its first step, but
-        # compose only waits for minio's container to *start* (service_started), not
-        # for it to accept connections — so without this it races minio and dies with
-        # "connection refused". Gate it on minio's /minio/health/live (200 once serving).
+        # `initc` runs `rc alias set ... http://rustfs:9000` as its first step, but
+        # compose only waits for rustfs's container to *start* (service_started), not
+        # for it to accept connections — so without this it races rustfs and dies with
+        # "connection refused". Gate it on rustfs's /health (200 once serving).
         e.add_health_check(
-            url="http://localhost:6890/minio/health/live",
-            service="minio",
+            url="http://localhost:6890/health",
+            service="rustfs",
             max_retries=30,
             timeout=1,  # ~30s total, matching the postgres deadline below
         )
@@ -251,8 +251,8 @@ ZARR_V3_METADATA = {
 
 
 @pytest.fixture
-def minio_client(backend_stack):
-    """boto3 S3 client pointed at the compose MinIO (see settings_test.DATALAYER)."""
+def s3_client(backend_stack):
+    """boto3 S3 client pointed at the compose RustFS (see settings_test.DATALAYER)."""
     from django.conf import settings
 
     dl = settings.DATALAYER
@@ -274,8 +274,8 @@ def minio_client(backend_stack):
 
 
 @pytest.fixture
-def zarr_store(authenticated_context, minio_client):
-    """Factory: create a ZarrStore row and (by default) seed its zarr.json in MinIO."""
+def zarr_store(authenticated_context, s3_client):
+    """Factory: create a ZarrStore row and (by default) seed its zarr.json in RustFS."""
     from datalayer.models import ZarrStore
 
     @sync_to_async
@@ -288,7 +288,7 @@ def zarr_store(authenticated_context, minio_client):
             bucket="zarr",
         )
         if seed:
-            minio_client.put_object(
+            s3_client.put_object(
                 Bucket="zarr",
                 Key=f"{key}/zarr.json",
                 Body=json.dumps(ZARR_V3_METADATA).encode("utf-8"),

@@ -46,7 +46,7 @@ datalayer:
   session_duration_seconds: 3600
   access_key: crappygreysetter
   secret_key: e8821a29d189789e39c9922a3bfcfb4a
-  host: minio
+  host: rustfs
   port: "9000"
   protocol: http
   media:

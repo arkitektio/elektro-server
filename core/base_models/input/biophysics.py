@@ -25,6 +25,7 @@ class DistributionInputModel(BaseConfig):
 
     @model_validator(mode="after")
     def check_kind(self) -> "DistributionInputModel":
+        """ after validation, check that the required fields for the given kind are present """
         if self.kind == enums.DistributionKind.UNIFORM and self.value is None:
             raise ValueError("A 'uniform' distribution requires a value.")
         if self.kind == enums.DistributionKind.LINEAR and (self.proximal_value is None or self.distal_value is None):
@@ -78,18 +79,20 @@ class CompartmentInputModel(BaseConfig):
     ions: List[IonInputModel] = Field(default_factory=list, description="Ion species settings (reversal potentials and concentrations) applied to this compartment.")
     color: Optional[List[int]] = Field(default=None, description="An optional RGBA color (list of 4 values) used to render this compartment in the UI.")
 
-    def section_param_for_key(self, name):
+    def section_param_for_key(self, name: str) -> SectionParamMapInputModel | None:
         """Get the section parameter for a given param name."""
         return next((param for param in self.section_params if param.param == name), None)
 
 
 class BiophysicsInputModel(BaseConfig):
+    """ A biophysics model for a neuron, consisting of compartments with mechanisms and parameters."""
     compartments: List[CompartmentInputModel] = Field(default_factory=list)
 
-    def add_compartment(self, compartment: CompartmentInputModel):
+    def add_compartment(self, compartment: CompartmentInputModel) -> None:
+        """Add a compartment to the biophysics model."""
         assert self.compartment_for_key(compartment.id) is None, f"Compartment with id {compartment.id} already exists."
         self.compartments.append(compartment)
 
-    def compartment_for_key(self, name) -> CompartmentInputModel:
+    def compartment_for_key(self, name: str) -> CompartmentInputModel | None:
         """Get the compartment for a given key."""
         return next((comp for comp in self.compartments if comp.id == name), None)

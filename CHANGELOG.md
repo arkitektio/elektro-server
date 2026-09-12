@@ -1,7 +1,62 @@
+<!-- Frozen. Releases are tag-only since the move to tag-only semantic-release,
+so this file is no longer generated; entries below stop at the last release that
+predates the switch. Current release notes live on the GitHub Releases page. -->
+
 # CHANGELOG
 
 
-## v1.0.0 (2026-07-03)
+## v1.0.0-rc.22 (2026-09-02)
+
+### Features
+
+- Authentikate update
+  ([`bec0cff`](https://github.com/arkitektio/elektro-server/commit/bec0cffde78d53421565a601d58615884ba3ee3d))
+
+
+## v1.0.0-rc.21 (2026-08-21)
+
+### Bug Fixes
+
+- Authentikate 4
+  ([`1e8145e`](https://github.com/arkitektio/elektro-server/commit/1e8145e2b2c5173358ab459c7bbb35eea42d7e05))
+
+
+## v1.0.0-rc.20 (2026-08-20)
+
+### Bug Fixes
+
+- Authentikate
+  ([`4b2f0e3`](https://github.com/arkitektio/elektro-server/commit/4b2f0e3fa911a36347b7480125397a136f9bd222))
+
+
+## v1.0.0-rc.19 (2026-08-17)
+
+### Bug Fixes
+
+- Datalayer
+  ([`a23b88a`](https://github.com/arkitektio/elektro-server/commit/a23b88a0d0345d0e5ad5315fa004dae0829ad204))
+
+
+## v1.0.0-rc.18 (2026-07-06)
+
+### Bug Fixes
+
+- Small docs upgrade
+  ([`1003d31`](https://github.com/arkitektio/elektro-server/commit/1003d315a067a6f96baf3397c8c6822b0b091739))
+
+
+## v1.0.0-rc.17 (2026-07-06)
+
+
+## v1.0.0-rc.16 (2026-07-06)
+
+### Bug Fixes
+
+- Add filters and importance score (beta)
+  ([`8a03657`](https://github.com/arkitektio/elektro-server/commit/8a036577a496bc1816f62269d36a854a05b24331))
+
+- Added dominance
+  ([`064cdba`](https://github.com/arkitektio/elektro-server/commit/064cdba8b00ed0d50bc4c795fef40fbecf42bf85))
 
 
 ## v1.0.0-rc.15 (2026-07-03)

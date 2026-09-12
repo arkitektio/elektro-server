@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 AccessGrant = base_models.AccessGrant
 StoreModel = TypeVar("StoreModel", bound="models.DatalayerStore")
 
+#: STS refuses a shorter session, and a refused `AssumeRole` used to fall through to the
+#: service's permanent key -- so a caller asking for five minutes silently got forever.
+#: Clamping here keeps `expires_in` a preference rather than a way out.
+MIN_SESSION_DURATION_SECONDS = 900
+
+#: The other end of the same clamp. `expires_in` reaches this from a GraphQL input, so a
+#: caller must not be able to pick a duration STS will reject -- refusing at both ends is a
+#: bound, refusing at one is a way to turn a grant into an error.
+MAX_SESSION_DURATION_SECONDS = 43200
+
 
 # Context variable for the datalayer instance
 datalayer: ContextVar["Datalayer"] = ContextVar("datalayer")
@@ -46,6 +56,11 @@ class DatalayerConfig(BaseModel):
     session_duration_seconds: int = Field(
         3600,
         validation_alias=AliasChoices("SESSION_DURATION_SECONDS", "session_duration_seconds"),
+    )
+    allow_unscoped_fallback: bool = Field(
+        False,
+        validation_alias=AliasChoices("ALLOW_UNSCOPED_FALLBACK", "allow_unscoped_fallback"),
+        description="Hand out this service's own permanent credentials when no scoped session can be issued. Development only -- it makes every grant unlimited in scope and lifetime.",
     )
     access_key: str | None = Field(
         None,
@@ -194,9 +209,10 @@ class Datalayer:
             expires_in: Optional explicit duration override in seconds.
 
         Returns:
-            The requested duration or the configured default.
+            The requested duration or the configured default, clamped to what STS accepts.
         """
-        return expires_in or self.config.session_duration_seconds
+        requested = expires_in or self.config.session_duration_seconds
+        return min(max(requested, MIN_SESSION_DURATION_SECONDS), MAX_SESSION_DURATION_SECONDS)
 
     def get_zarr_metadata(self, store: "models.ZarrStore") -> base_models.ZarrMetadata:
         """Retrieve structured metadata for a Zarr store.
@@ -304,7 +320,15 @@ class Datalayer:
             statements.append(
                 {
                     "Effect": "Allow",
-                    "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+                    # `s3:ListBucket` and nothing else. MinIO validates the inline policy when
+                    # the role is assumed and rejects the whole document if a condition key is
+                    # not valid for every action it covers -- `s3:GetBucketLocation` with an
+                    # `s3:prefix` condition fails with "unsupported condition keys
+                    # '[s3:prefix]'". That refusal landed in the fallback below, so adding a
+                    # harmless-looking action here cost every prefix store its scoping. If a
+                    # reader ever turns out to need `GetBucketLocation`, it goes in a separate
+                    # statement with no `Condition` -- not back into this one.
+                    "Action": ["s3:ListBucket"],
                     "Resource": [f"arn:aws:s3:::{bucket_name}"],
                     "Condition": {
                         "StringLike": {
@@ -316,8 +340,123 @@ class Datalayer:
 
         return {"Version": "2012-10-17", "Statement": statements}
 
+    def _build_general_read_policy(self, bucket_name: str, bucket_key: str) -> dict[str, object]:
+        """Build a read-only session policy covering one whole datalayer bucket.
+
+        Deliberately weaker than :meth:`_build_policy`: a *general* grant is not asked for one
+        store, so there is no key to scope it to. It is still a real bound -- read-only, one
+        bucket -- where these grants previously carried no policy at all and so inherited the
+        service account's cluster-wide ``readwrite`` for their whole lifetime.
+
+        Per-organization scoping, which the ``requestGeneral*Access`` callers actually want,
+        is not expressible here while stores are keyed by an opaque uuid with no
+        per-organization prefix. That is a change to the key layout, not to this policy.
+
+        Args:
+            bucket_name: Physical S3 bucket name.
+            bucket_key: Logical datalayer store type.
+
+        Returns:
+            An IAM policy document permitting reads anywhere in the one bucket.
+        """
+        statements: list[dict[str, object]] = [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject"],
+                "Resource": [f"arn:aws:s3:::{bucket_name}/*"],
+            }
+        ]
+
+        # Same reason as in `_build_policy`: a prefix store is a directory, and a reader that
+        # cannot list it cannot discover its chunks. Unconditional here because a general
+        # grant has no one prefix to condition on.
+        if bucket_key == "zarr":
+            statements.append(
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:ListBucket"],
+                    "Resource": [f"arn:aws:s3:::{bucket_name}"],
+                }
+            )
+
+        return {"Version": "2012-10-17", "Statement": statements}
+
+    def _assume_role(self, action: str, duration: int, policy: dict[str, object] | None) -> tuple[str, str, str]:
+        """Mint temporary credentials by assuming the configured role.
+
+        The only way this codebase obtains scoped credentials. There is deliberately no
+        ``get_session_token`` path any more: MinIO does not route that STS action at all
+        (``InvalidParameterValue: Unsupported action GetSessionToken``), so it could only ever
+        fail, and it failed *into* the unscoped fallback -- which is why a deployment could run
+        for a long time handing out permanent keys with nothing in the logs.
+
+        Args:
+            action: Requested action, used to label the STS session.
+            duration: Credential lifetime in seconds.
+            policy: Inline session policy, or ``None`` for a session bounded only by the
+                service account's own policy.
+
+        Returns:
+            A tuple of access key, secret key, and session token.
+
+        Raises:
+            RuntimeError: If no role is configured, or if STS refuses the request.
+        """
+        if not self.config.role_arn:
+            raise RuntimeError("`DATALAYER.role_arn` is unset, so there is no role to assume and no scoped credentials can be issued. Against MinIO the value is ignored -- any ARN-shaped string will do -- and the session is scoped by the inline policy alone.")
+
+        assume_role_kwargs: dict[str, object] = {
+            "RoleArn": self.config.role_arn,
+            "RoleSessionName": f"elektro-{action}-{uuid.uuid4().hex[:8]}",
+            "DurationSeconds": duration,
+        }
+        if policy is not None:
+            assume_role_kwargs["Policy"] = json.dumps(policy)
+        if self.config.external_id:
+            assume_role_kwargs["ExternalId"] = self.config.external_id
+
+        try:
+            credentials = self._sts.assume_role(**assume_role_kwargs)["Credentials"]
+        except Exception as exc:
+            raise RuntimeError(f"STS refused to issue credentials for a `{action}` session ({exc}).") from exc
+
+        return (
+            credentials["AccessKeyId"],
+            credentials["SecretAccessKey"],
+            credentials["SessionToken"],
+        )
+
+    def _unscoped_fallback(self, what: str, cause: Exception) -> tuple[str, str, str]:
+        """Hand back this service's own permanent credentials, if that is explicitly allowed.
+
+        This used to be the unconditional behaviour on *any* STS failure, and it is why the
+        scoping machinery above was inert: a grant that could not be scoped was indistinguishable
+        from one that was, because both returned usable credentials and neither logged. The
+        credentials handed out here are the service account's -- cluster-wide ``readwrite``,
+        no expiry -- so failing is almost always the better answer.
+
+        Args:
+            what: Description of the grant being issued, for the operator reading the log.
+            cause: The failure that led here.
+
+        Returns:
+            The configured long-lived credentials.
+
+        Raises:
+            RuntimeError: Unless ``DATALAYER.allow_unscoped_fallback`` is set.
+        """
+        if not self.config.allow_unscoped_fallback:
+            raise RuntimeError(f"Could not issue {what}. Refusing to fall back to this service's own permanent credentials, which are unscoped and never expire; set `DATALAYER.allow_unscoped_fallback` to accept that in development.") from cause
+
+        logger.warning("Issuing %s with this service's own permanent credentials because no session could be minted (%s). The client receives an unscoped, non-expiring key.", what, cause)
+        return (
+            self.config.access_key or "",
+            self.config.secret_key or "",
+            self.config.session_token or "",
+        )
+
     def _issue_temporary_credentials(self, bucket_key: str, object_path: str, action: str, expires_in: int) -> tuple[str, str, str]:
-        """Issue temporary credentials for a store action.
+        """Issue temporary credentials scoped to one store's objects.
 
         Args:
             bucket_key: Logical datalayer store type.
@@ -327,90 +466,42 @@ class Datalayer:
 
         Returns:
             A tuple of access key, secret key, and session token.
+
+        Raises:
+            RuntimeError: If no scoped session could be issued and the unscoped fallback is off.
         """
         conf = self.get_bucket_config(bucket_key)
         duration = self._session_duration(expires_in)
-
-        if self.config.role_arn:
-            assume_role_kwargs = {
-                "RoleArn": self.config.role_arn,
-                "RoleSessionName": f"elektro-{action}-{uuid.uuid4().hex[:8]}",
-                "DurationSeconds": duration,
-                "Policy": json.dumps(self._build_policy(conf.bucket, bucket_key, object_path, action)),
-            }
-            if self.config.external_id:
-                assume_role_kwargs["ExternalId"] = self.config.external_id
-            try:
-                credentials = self._sts.assume_role(**assume_role_kwargs)["Credentials"]
-                return (
-                    credentials["AccessKeyId"],
-                    credentials["SecretAccessKey"],
-                    credentials["SessionToken"],
-                )
-            except Exception:
-                pass
+        policy = self._build_policy(conf.bucket, bucket_key, object_path, action)
 
         try:
-            credentials = self._sts.get_session_token(DurationSeconds=duration)["Credentials"]
-            return (
-                credentials["AccessKeyId"],
-                credentials["SecretAccessKey"],
-                credentials["SessionToken"],
-            )
-        except Exception:
-            return (
-                self.config.access_key or "",
-                self.config.secret_key or "",
-                self.config.session_token or "",
-            )
+            return self._assume_role(action, duration, policy)
+        except Exception as exc:
+            return self._unscoped_fallback(f"a `{action}` grant on {bucket_key} store {object_path}", exc)
 
     def _issue_temporary_user_access_credentials(self, bucket_key: str, organization_id: str, user_id: str, expires_in: int) -> tuple[str, str, str]:
-        """Issue temporary credentials for a store action.
+        """Issue temporary read credentials covering a whole datalayer bucket.
 
         Args:
             bucket_key: Logical datalayer store type.
             organization_id: The organization ID.
             user_id: The user ID.
-            action: Requested action such as ``read`` or ``upload``.
             expires_in: Requested credential lifetime in seconds.
 
         Returns:
             A tuple of access key, secret key, and session token.
-        """
-        self.get_bucket_config(bucket_key)  # validates the bucket key
-        duration = self._session_duration(expires_in)
 
-        if self.config.role_arn:
-            assume_role_kwargs = {
-                "RoleArn": self.config.role_arn,
-                "RoleSessionName": f"elektro-read-{uuid.uuid4().hex[:8]}",
-                "DurationSeconds": duration,
-            }
-            if self.config.external_id:
-                assume_role_kwargs["ExternalId"] = self.config.external_id
-            try:
-                credentials = self._sts.assume_role(**assume_role_kwargs)["Credentials"]
-                return (
-                    credentials["AccessKeyId"],
-                    credentials["SecretAccessKey"],
-                    credentials["SessionToken"],
-                )
-            except Exception:
-                pass
+        Raises:
+            RuntimeError: If no scoped session could be issued and the unscoped fallback is off.
+        """
+        conf = self.get_bucket_config(bucket_key)
+        duration = self._session_duration(expires_in)
+        policy = self._build_general_read_policy(conf.bucket, bucket_key)
 
         try:
-            credentials = self._sts.get_session_token(DurationSeconds=duration)["Credentials"]
-            return (
-                credentials["AccessKeyId"],
-                credentials["SecretAccessKey"],
-                credentials["SessionToken"],
-            )
-        except Exception:
-            return (
-                self.config.access_key or "",
-                self.config.secret_key or "",
-                self.config.session_token or "",
-            )
+            return self._assume_role("read", duration, policy)
+        except Exception as exc:
+            return self._unscoped_fallback(f"a general read grant on {bucket_key} for organization {organization_id}", exc)
 
     def generate_media_upload_grant(self, organization_id: int, input: base_models.RequestMediaUploadInput) -> base_models.MediaUploadGrant:
         """Create a media store and a presigned PUT URL for upload.

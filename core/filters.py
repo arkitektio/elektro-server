@@ -42,6 +42,92 @@ class CreatedAtFilterMixin:
         return queryset.filter(created_at__gt=self.created_after)
 
 
+@strawberry.input
+class CreatorFilterMixin:
+    """Filter by who created a record, via the direct ``creator`` FK.
+
+    Universal: works on any model carrying a ``creator`` FK, independent of
+    whether the model tracks provenance history. ``mine`` is the common,
+    biologist-facing case ("show only what I made").
+    """
+
+    created_by: strawberry.ID | None
+    mine: bool | None
+
+    def filter_created_by(self, queryset, info):
+        if self.created_by is None:
+            return queryset
+        return queryset.filter(creator_id=self.created_by)
+
+    def filter_mine(self, queryset, info):
+        if self.mine is None:
+            return queryset
+        user = info.context.request.user
+        if self.mine:
+            return queryset.filter(creator_id=user.id)
+        return queryset.exclude(creator_id=user.id)
+
+
+@strawberry.input
+class ProvenanceFilterMixin:
+    """Flat, biologist-friendly filters over a model's provenance history.
+
+    Requires the model to carry a :func:`koherent.fields.ProvenanceField`
+    (reverse relation ``provenance_entries``). Traversing that one-to-many
+    history relation joins one row per matching entry, so every method ends in
+    ``.distinct()`` to keep an instance from being returned once per match (same
+    pattern as :meth:`BlockFilter.filter_groups`).
+
+    Only apply this mixin to a filter whose model has ``provenance_entries`` —
+    otherwise these lookups raise ``FieldError`` at query time.
+
+    NB: this is the deliberately *flat* counterpart to koherent's own nested
+    ``koherent.strawberry.ProvenanceFilterMixin`` (a ``provenance: {...}`` input).
+    Both can coexist; koherent's is never imported here, so there is no clash.
+    """
+
+    # The human-readable task id string (Task.task_id), not the FK pk. We
+    # traverse ``task__task_id`` deliberately: ``provenance_entries__task_id``
+    # would resolve to the FK's pk column, a different (and confusing) field.
+    provenance_task: str | None
+    provenance_root_task: str | None
+    created_with: str | None
+    created_by_agent: bool | None
+
+    def filter_provenance_task(self, queryset, info):
+        if self.provenance_task is None:
+            return queryset
+        return queryset.filter(
+            provenance_entries__task__task_id=self.provenance_task
+        ).distinct()
+
+    def filter_provenance_root_task(self, queryset, info):
+        if self.provenance_root_task is None:
+            return queryset
+        return queryset.filter(
+            provenance_entries__task__root_task_id=self.provenance_root_task
+        ).distinct()
+
+    def filter_created_with(self, queryset, info):
+        if self.created_with is None:
+            return queryset
+        # A change can be attributed to a client directly (on the history row)
+        # or via the task's executing agent; match either.
+        return queryset.filter(
+            Q(provenance_entries__client__client_id=self.created_with)
+            | Q(provenance_entries__task__agent_client_id=self.created_with)
+        ).distinct()
+
+    def filter_created_by_agent(self, queryset, info):
+        if self.created_by_agent is None:
+            return queryset
+        if self.created_by_agent:
+            # Produced/modified under an automated provenance task.
+            return queryset.filter(provenance_entries__task__isnull=False).distinct()
+        # Human / direct-API only: no provenance entry carries a task.
+        return queryset.exclude(provenance_entries__task__isnull=False).distinct()
+
+
 # Minimum trigram similarity for a fuzzy match to be considered a hit. Postgres'
 # default ``pg_trgm.similarity_threshold`` is 0.3; we loosen it so short / partial
 # terms still surface typo-tolerant matches.
@@ -112,7 +198,13 @@ class SearchFilterMixin:
 
 
 @strawberry_django.filter_type(models.Dataset)
-class DatasetFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+class DatasetFilter(
+    IDFilterMixin,
+    SearchFilterMixin,
+    CreatedAtFilterMixin,
+    CreatorFilterMixin,
+    ProvenanceFilterMixin,
+):
     id: auto
     name: Optional[FilterLookup[str]]
     parent: strawberry.ID | None = None
@@ -135,7 +227,7 @@ class DatasetFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
 
 
 @strawberry_django.filter_type(models.File)
-class FileFilter(IDFilterMixin, SearchFilterMixin):
+class FileFilter(IDFilterMixin, SearchFilterMixin, CreatorFilterMixin, ProvenanceFilterMixin):
     SEARCH_FIELDS = ["name"]
     id: auto
     name: Optional[FilterLookup[str]]
@@ -145,22 +237,16 @@ class FileFilter(IDFilterMixin, SearchFilterMixin):
 
 
 @strawberry_django.filter_type(models.Experiment)
-class ExperimentFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+class ExperimentFilter(
+    IDFilterMixin,
+    SearchFilterMixin,
+    CreatedAtFilterMixin,
+    CreatorFilterMixin,
+    ProvenanceFilterMixin,
+):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
-    created_before: datetime.datetime | None
-    created_after: datetime.datetime | None
-
-    def filter_created_before(self, queryset, info):
-        if self.created_before is None:
-            return queryset
-        return queryset.filter(created_at__lt=self.created_before)
-
-    def filter_created_after(self, queryset, info):
-        if self.created_after is None:
-            return queryset
-        return queryset.filter(created_at__gt=self.created_after)
 
 
 @strawberry_django.filter_type(models.ExperimentRecordingView)
@@ -178,14 +264,14 @@ class ExperimentStimulusViewFilter(IDFilterMixin, SearchFilterMixin):
 
 
 @strawberry_django.filter_type(models.ModelCollection)
-class ModelCollectionFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+class ModelCollectionFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin, CreatorFilterMixin):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
 
 
 @strawberry_django.filter_type(models.ModelWorkspace)
-class ModelWorkspaceFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+class ModelWorkspaceFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin, CreatorFilterMixin):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
@@ -197,22 +283,15 @@ class WorkspaceMappingFilter(IDFilterMixin):
 
 
 @strawberry_django.filter_type(models.Simulation)
-class SimulationFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+class SimulationFilter(
+    IDFilterMixin,
+    SearchFilterMixin,
+    CreatedAtFilterMixin,
+    CreatorFilterMixin,
+    ProvenanceFilterMixin,
+):
     id: auto
     name: Optional[FilterLookup[str]]
-
-    created_before: datetime.datetime | None
-    created_after: datetime.datetime | None
-
-    def filter_created_before(self, queryset, info):
-        if self.created_before is None:
-            return queryset
-        return queryset.filter(created_at__lt=self.created_before)
-
-    def filter_created_after(self, queryset, info):
-        if self.created_after is None:
-            return queryset
-        return queryset.filter(created_at__gt=self.created_after)
 
 
 @strawberry_django.filter_type(models.Recording)
@@ -230,32 +309,26 @@ class StimulusFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
 
 
 @strawberry_django.filter_type(models.NeuronModel)
-class NeuronModelFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+class NeuronModelFilter(
+    IDFilterMixin,
+    SearchFilterMixin,
+    CreatedAtFilterMixin,
+    CreatorFilterMixin,
+    ProvenanceFilterMixin,
+):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
-    created_before: datetime.datetime | None
-    created_after: datetime.datetime | None
-
-    def filter_created_before(self, queryset, info):
-        if self.created_before is None:
-            return queryset
-        return queryset.filter(created_at__lt=self.created_before)
-
-    def filter_created_after(self, queryset, info):
-        if self.created_after is None:
-            return queryset
-        return queryset.filter(created_at__gt=self.created_after)
 
 
 @strawberry_django.filter_type(models.Instrument)
-class InstrumentFilter:
+class InstrumentFilter(ProvenanceFilterMixin):
     id: auto
     name: auto
 
 
 @strawberry_django.filter_type(models.ViewCollection)
-class ViewCollectionFilter(IDFilterMixin, SearchFilterMixin):
+class ViewCollectionFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin):
     SEARCH_FIELDS = ["name"]
     id: auto
     name: Optional[FilterLookup[str]]
@@ -273,7 +346,7 @@ class ContinousScanViewFilter(ViewFilter):
 
 
 @strawberry_django.filter_type(models.Trace)
-class TraceFilter(SearchFilterMixin):
+class TraceFilter(SearchFilterMixin, CreatorFilterMixin, ProvenanceFilterMixin):
     SEARCH_FIELDS = ["name", "description"]
     name: Optional[FilterLookup[str]]
     ids: list[strawberry.ID] | None
@@ -292,7 +365,13 @@ class TraceFilter(SearchFilterMixin):
 
 
 @strawberry_django.filter_type(models.ROI)
-class ROIFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+class ROIFilter(
+    IDFilterMixin,
+    SearchFilterMixin,
+    CreatedAtFilterMixin,
+    CreatorFilterMixin,
+    ProvenanceFilterMixin,
+):
     SEARCH_FIELDS = ["label"]
     id: auto
     kind: auto
@@ -305,25 +384,18 @@ class ROIFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
 
 
 @strawberry_django.filter_type(models.Block)
-class BlockFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
+class BlockFilter(
+    IDFilterMixin,
+    SearchFilterMixin,
+    CreatedAtFilterMixin,
+    CreatorFilterMixin,
+    ProvenanceFilterMixin,
+):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
     label: Optional[FilterLookup[str]]
     trace: strawberry.ID | None = None
     groups: list[strawberry.ID] | None = None
-
-    created_before: datetime.datetime | None
-    created_after: datetime.datetime | None
-
-    def filter_created_before(self, queryset, info):
-        if self.created_before is None:
-            return queryset
-        return queryset.filter(created_at__lt=self.created_before)
-
-    def filter_created_after(self, queryset, info):
-        if self.created_after is None:
-            return queryset
-        return queryset.filter(created_at__gt=self.created_after)
 
     def filter_trace(self, queryset, info):
         if self.trace is None:
@@ -337,7 +409,7 @@ class BlockFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin):
 
 
 @strawberry_django.filter_type(models.BlockSegment)
-class BlockSegmentFilter(IDFilterMixin, SearchFilterMixin):
+class BlockSegmentFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin):
     # BlockSegment has no free-text field; search is a graceful no-op.
     SEARCH_FIELDS = []
     id: auto
@@ -354,7 +426,7 @@ class BlockGroupFilter(IDFilterMixin, SearchFilterMixin):
 
 
 @strawberry_django.filter_type(models.AnalogSignal)
-class AnalogSignalFilter(IDFilterMixin, SearchFilterMixin):
+class AnalogSignalFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
     label: Optional[FilterLookup[str]]
@@ -367,7 +439,7 @@ class AnalogSignalFilter(IDFilterMixin, SearchFilterMixin):
 
 
 @strawberry_django.filter_type(models.IrregularlySampledSignal)
-class IrregularlySampledSignalFilter(IDFilterMixin, SearchFilterMixin):
+class IrregularlySampledSignalFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin):
     SEARCH_FIELDS = ["name"]
     id: auto
     label: Optional[FilterLookup[str]]
@@ -380,7 +452,7 @@ class IrregularlySampledSignalFilter(IDFilterMixin, SearchFilterMixin):
 
 
 @strawberry_django.filter_type(models.SpikeTrain)
-class SpikeTrainFilter(IDFilterMixin, SearchFilterMixin):
+class SpikeTrainFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin):
     SEARCH_FIELDS = ["name"]
     id: auto
     label: Optional[FilterLookup[str]]

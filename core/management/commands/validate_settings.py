@@ -63,16 +63,18 @@ def _add(tree: Tree, data: object, *, secret: bool = False) -> None:
 
 
 class Command(BaseCommand):
+    """ Validate the service configuration (YAML + env) and print the resolved, redacted settings."""
     help = "Validate the service configuration (YAML + env) and print the resolved, redacted settings."
     # A config validator needs no model/URL/DB system checks (and they may fail
     # independently of config); skip them so only configuration is exercised.
-    requires_system_checks: list = []
+    requires_system_checks: list = [] # type: ignore[assignment]  # Django expects a list of strings, but we don't need any checks
+    
 
     def handle(self, *args, **options) -> None:
         console = Console()
         path = os.environ.get("ARKITEKT_CONFIG_FILE", _DEFAULT_CONFIG)
         try:
-            settings = Settings()
+            settings = Settings() # type: ignore[call-arg]  # pydantic BaseSettings reads env + YAML automatically
         except ValidationError as exc:
             console.print(f"[bold red]Invalid configuration[/bold red] (source: {path})")
             for err in exc.errors():

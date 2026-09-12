@@ -410,6 +410,9 @@ class Experiment(models.Model):
     )
     provenance = ProvenanceField()
 
+    class Meta:
+        ordering = ["-created_at"]
+
 
 class ExperimentRecordingView(models.Model):
     """A SimulationView is a view of a simulation.
@@ -778,6 +781,10 @@ class Simulation(models.Model):
         help_text="The user that created the run",
         null=True,
     )
+    provenance = ProvenanceField()
+
+    class Meta:
+        ordering = ["-created_at"]
 
 
 class Stimulus(models.Model):

@@ -10,15 +10,18 @@ DATABASES["default"] = {
     "HOST": "localhost",
     "PORT": "5555",
 }
+# Django forces DEBUG=False under the test runner, and authentikate 3.0 refuses static
+# tokens when DEBUG is False. These are deliberate test fixtures, so opt in explicitly.
 AUTHENTIKATE = {
     **AUTHENTIKATE,
+    "allow_static_tokens_in_production": True,
     "static_tokens": {
         "test": {"sub": "1"},
         # A non-privileged user in a different organization, for cross-tenant
         # scoping/permission tests. roles must be set explicitly: StaticToken
         # defaults roles to ["admin"], which would let this user delete anything
         # (can_delete rule 1) and defeat the cross-org denial tests.
-        "othertest": {"sub": "9", "active_org": "other_org", "roles": []},
+        "othertest": {"sub": "9", "org": "other_org", "roles": []},
     },
 }
 
@@ -64,4 +67,7 @@ DATALAYER = {
     "parquet": {"bucket": "parquet"},
     "media": {"bucket": "media"},
     "bigfile": {"bucket": "media"},
+    # No `role_arn`, so no session can be assumed and a grant would now refuse rather than
+    # quietly return the static key above. Tests exercising a grant care about its shape.
+    "allow_unscoped_fallback": True,
 }

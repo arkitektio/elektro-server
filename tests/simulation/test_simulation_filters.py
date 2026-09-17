@@ -25,19 +25,15 @@ query ($filters: SimulationFilter) {
 
 @sync_to_async
 def _make_sim(ctx, *, name, creator):
-    """A Simulation in the context's org (scoping reaches org via time_trace)."""
+    """A Simulation in the context's org (scoping reaches org via model -> environment)."""
     env = models.ModEnvironment.objects.create(
         name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization
     )
     nm = models.NeuronModel.objects.create(
         name="nm", hash=uuid.uuid4().hex, json_model={}, creator=creator, environment=env
     )
-    trace = models.Trace.objects.create(
-        name="t", creator=creator, organization=ctx.request.organization
-    )
-    return models.Simulation.objects.create(
-        model=nm, time_trace=trace, name=name, duration=400.0, creator=creator
-    )
+    clock = models.CoordinateSystem.objects.create(name=f"{name}/clock", creator=creator, organization=ctx.request.organization)
+    return models.Simulation.objects.create(model=nm, clock=clock, name=name, duration=400.0, creator=creator)
 
 
 @sync_to_async
@@ -66,7 +62,7 @@ def _attach_task(sim, **task_kwargs):
         token_id=f"tok-{uuid.uuid4().hex}",
         args_hash="h",
         args_hash_algorithm="a",
-        organization=sim.time_trace.organization,
+        organization=sim.model.environment.organization,
     )
     defaults.update(task_kwargs)
     task = Task.objects.create(**defaults)

@@ -4,6 +4,7 @@ import kante
 from pydantic import BaseModel
 from core import types, models, scalars, enums
 from core.base_models.input.graphql.biophysics import BiophysicsInput
+from core.scoping import for_org
 
 
 class ViewInputModel(BaseModel):
@@ -48,6 +49,11 @@ def create_model_collection(
         description=parsed.description,
     )
 
-    exp.models.set(models.NeuronModel.objects.filter(id__in=parsed.models))
+    # Scoped, and strict: an id from another organization is an error, not a silently shorter collection.
+    members = list(for_org(models.NeuronModel, info).filter(id__in=parsed.models))
+    missing = sorted(set(map(str, parsed.models)) - {str(member.pk) for member in members})
+    if missing:
+        raise ValueError(f"No neuron model{'' if len(missing) == 1 else 's'} with id {', '.join(missing)} in this organization.")
+    exp.models.set(members)
 
     return exp

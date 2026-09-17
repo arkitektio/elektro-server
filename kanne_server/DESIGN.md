@@ -7,10 +7,10 @@ represented on the wire, in memory, and at rest — and why.
 
 | Layer | Representation | Defined in |
 |---|---|---|
-| GraphQL wire | explicit Pint string (`"100 µs"`) | `kanne/scalars.py` |
+| GraphQL wire | explicit Pint string (`"100 µs"`) | `kanne_server/scalars.py` |
 | In memory (pydantic) | plain canonical **int** (e.g. picoseconds) | — |
-| Typed DB columns | canonical **int** (`BigIntegerField`) | `kanne/fields.py` |
-| JSON blobs (`json_model`) | **dual struct** `{canonical, given, unit}` | `kanne/quantities.py` |
+| Typed DB columns | canonical **int** (`BigIntegerField`) | `kanne_server/fields.py` |
+| JSON blobs (`json_model`) | **dual struct** `{canonical, given, unit}` | `kanne_server/quantities.py` |
 
 A quantity is parsed once at the GraphQL boundary into an integer count of a
 per-dimension **canonical sub-unit** (picoseconds, femtovolts, femtosiemens,
@@ -73,11 +73,11 @@ Scoped deliberately to the **JSON path only**. The typed `QuantityField` columns
 already numeric/searchable, so they stay plain ints; the GraphQL wire is already
 explicit strings. Concretely:
 
-- `kanne/scalars.py` — the wire scalars. `parse_value` (string → canonical int) and
+- `kanne_server/scalars.py` — the wire scalars. `parse_value` (string → canonical int) and
   `serialize` (int → compact string) are **unchanged in contract**. Two helpers were
   factored out for reuse: `format_quantity` (int → compact string) and
   `canonical_base_unit` (→ e.g. `"picosecond"`).
-- `kanne/quantities.py` — per-dimension pydantic storage types, each an
+- `kanne_server/quantities.py` — per-dimension pydantic storage types, each an
   `Annotated[int, BeforeValidator, PlainSerializer]`:
   - **in memory the value stays a plain `int`** — so defaults, hashing, the strawberry
     bridge, and column writes all keep working with no special handling;
@@ -113,8 +113,8 @@ compact form today, so no fidelity is lost relative to current behaviour.
 
 ## Tests
 
-`kanne/tests/test_quantities.py` — in-memory int, JSON struct expansion, string parsing,
+`kanne_server/tests/test_quantities.py` — in-memory int, JSON struct expansion, string parsing,
 struct round-trip, legacy bare-int reads, unit-independent value equality (dedup), and
-dimensional-mismatch rejection. `kanne/tests/test_scalars.py` — the wire scalars.
+dimensional-mismatch rejection. `kanne_server/tests/test_scalars.py` — the wire scalars.
 The `createNeuronModel` end-to-end and dedup paths are covered by
 `tests/neuron_model/` once the integration backend is running.

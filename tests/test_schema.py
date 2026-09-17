@@ -11,10 +11,12 @@ def test_schema_builds():
 
 
 def test_datalayer_scalars_registered():
-    # ArrayLike/BigFileLike are referenced by core mutations, so they must be
-    # emitted via the StrawberryConfig.scalar_map wiring. MediaLike is also
-    # registered but unused in elektro's schema, so strawberry prunes it.
+    # BigFileLike is referenced by core mutations, so it must be emitted via the
+    # StrawberryConfig.scalar_map wiring. An array reference is mikro's ArrayLike: the data
+    # layer is mikro's by name, and the old TraceLike is gone with `fromTraceLike`.
     sdl = schema.as_str()
+    assert "scalar TraceLike" not in sdl
+    assert sdl.count("scalar ArrayLike") == 1, "one scalar for 'a store holding an array'"
     for scalar_name in ["scalar ArrayLike", "scalar BigFileLike"]:
         assert scalar_name in sdl, f"{scalar_name} missing from schema"
 

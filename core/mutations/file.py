@@ -1,83 +1,44 @@
+"""Files: the record of an uploaded big-file store.
+
+**Vendored from mikro** (``mikro/core/mutations/file.py``).
+"""
+
 from kante.types import Info
-import strawberry
 import kante
-from typing import Any
-from pydantic import BaseModel
+import strawberry
+from pydantic import BaseModel, Field
 
 from core import types, models, scalars
-from core.guards import enforce_delete
-from core.mutations.trace import get_trace_dataset
 from datalayer.datalayer import get_current_datalayer
-import json
-from django.conf import settings
-
-
-class RequestFileUploadInputModel(BaseModel):
-    key: str
-    datalayer: str
-    hash: str | None = None
-
-
-@kante.pydantic_input(RequestFileUploadInputModel)
-class RequestFileUploadInput:
-    key: str
-    datalayer: str
-    hash: str | None = None
-
-
-class DeleteFileInputModel(BaseModel):
-    id: str
-
-
-@kante.pydantic_input(DeleteFileInputModel)
-class DeleteFileInput:
-    id: strawberry.ID
-
-
-def delete_file(
-    info: Info,
-    input: DeleteFileInput,
-) -> strawberry.ID:
-    parsed = input.to_pydantic()
-    view = models.File.objects.get(
-        id=parsed.id,
-    )
-    enforce_delete(info, view)
-    view.delete()
-    return parsed.id
-
-
-class PinFileInputModel(BaseModel):
-    id: str
-    pin: bool
-
-
-@kante.pydantic_input(PinFileInputModel)
-class PinFileInput:
-    id: strawberry.ID
-    pin: bool
-
-
-def pin_file(
-    info: Info,
-    input: PinFileInput,
-) -> types.File:
-    raise NotImplementedError("TODO")
+from core.creation import CreationContext
+from core.inputs.file_link import ExportOfInput, ExportOfSpec
+from core.logic import file_link as file_link_logic
+from core.scoping import get_for_org
+from core.mutations._generic import make_delete
 
 
 class FromFileLikeModel(BaseModel):
-    name: str
-    file: Any
-    origins: list[str] | None = None
-    dataset: str | None = None
+    file: str = Field(description="The uploaded big-file store to create the file from")
+    file_name: str = Field(description="The name of the file")
+    folder: str | None = Field(default=None, description="The ID of the folder to put the file in (defaults to the current default folder)")
+    export_of: list[ExportOfSpec] | None = Field(default=None, description="The containers this file was written from")
 
 
-@kante.pydantic_input(FromFileLikeModel)
+@kante.pydantic_input(FromFileLikeModel, description="Input for creating a file record from an uploaded big-file store")
 class FromFileLike:
-    name: str
-    file: scalars.FileLike
-    origins: list[strawberry.ID] | None = None
-    dataset: strawberry.ID | None = None
+    """Input for creating a file record from an uploaded big-file store"""
+
+    file: scalars.FileLike = strawberry.field(description="The uploaded big-file store to create the file from")
+    file_name: str = strawberry.field(description="The name of the file")
+    folder: strawberry.ID | None = strawberry.field(default=None, description="The ID of the folder to put the file in (defaults to the current default folder)")
+    export_of: list[ExportOfInput] | None = strawberry.field(
+        default=None,
+        description=(
+            "Optional statement of what this file was written from: the dataset exported to NWB, the annotation collection written to a CSV of events. Recorded as a link between data and "
+            "bytes, deliberately not as a coordinate-graph edge -- a file has no space, so there is no map to state. The mirror of `sourceFiles` on a container's create mutation; "
+            "use `linkFile` to record an export against a file that already exists"
+        ),
+    )
 
 
 def from_file_like(
@@ -85,96 +46,43 @@ def from_file_like(
     input: FromFileLike,
 ) -> types.File:
     parsed = input.to_pydantic()
-    datalayer = get_current_datalayer()
-    store = models.BigFileStore.objects.get(id=parsed.file)
-    store.fill_info(datalayer)
+    store = get_for_org(models.BigFileStore, info, id=parsed.file)
+    store.fill_info()
 
-    dataset_id = parsed.dataset or get_trace_dataset(info).id
+    dl = get_current_datalayer()
 
-    # Size is best-effort metadata: it requires an S3 head_object call, which may be
-    # unavailable (e.g. object not yet readable). content_type comes straight off the store.
-    try:
-        size = store.calculate_size(datalayer)
-    except Exception:
-        size = None
+    ctx = CreationContext.from_info(info)
+    folder = get_for_org(models.Folder, info, id=parsed.folder) if parsed.folder else models.Folder.objects.get_current_default(ctx)
 
     file = models.File.objects.create(
-        dataset_id=dataset_id,
-        creator=info.context.request.user,
-        organization=info.context.request.organization,
-        membership=info.context.request.membership,
-        name=store.original_file_name or parsed.name,
-        size=size,
+        folder=folder,
+        creator=ctx.user,
+        organization=ctx.organization,
+        membership=ctx.membership,
+        # The supplied name, not the store's. `fileName` was required and then ignored, so a
+        # client that passed "cell3.abf" got whatever name the upload grant happened to
+        # record -- the store's is the fallback, not the answer.
+        name=parsed.file_name or store.original_file_name,
+        size=dl.get_object_size(store.bucket, store.key),
         content_type=store.content_type,
         store=store,
+        **ctx.provenance_kwargs(),
     )
 
-    if parsed.origins:
-        file.origins.set(parsed.origins)
+    file_link_logic.write_export_links(info, file=file, export_of=parsed.export_of or [], ctx=ctx)
 
-    return file
-
-
-class DeleteEraInputModel(BaseModel):
-    id: str
+    return strawberry.cast(types.File, file)
 
 
-@kante.pydantic_input(DeleteEraInputModel)
-class DeleteEraInput:
-    id: strawberry.ID
+class DeleteFileInputModel(BaseModel):
+    id: str = Field(description="The ID of the file to delete")
 
 
-def delete_era(
-    info: Info,
-    input: DeleteEraInput,
-) -> strawberry.ID:
-    parsed = input.to_pydantic()
-    item = models.File.objects.get(id=parsed.id)
-    item.delete()
-    return parsed.id
+@kante.pydantic_input(DeleteFileInputModel, description="Input for deleting a file by ID")
+class DeleteFileInput:
+    """Input for deleting a file by ID"""
+
+    id: strawberry.ID = strawberry.field(description="The ID of the file to delete")
 
 
-class CreateFileViewInputModel(BaseModel):
-    file: str
-    trace: str
-    series_identifier: str | None = None
-    a_min: int | None = None
-    a_max: int | None = None
-    t_min: int | None = None
-    t_max: int | None = None
-    c_min: int | None = None
-    c_max: int | None = None
-    is_global: bool = False
-
-
-@kante.pydantic_input(CreateFileViewInputModel)
-class CreateFileViewInput:
-    file: strawberry.ID
-    trace: strawberry.ID
-    series_identifier: str | None = None
-    a_min: int | None = None
-    a_max: int | None = None
-    t_min: int | None = None
-    t_max: int | None = None
-    c_min: int | None = None
-    c_max: int | None = None
-    is_global: bool = False
-
-
-def create_file_view(
-    info: Info,
-    input: CreateFileViewInput,
-) -> types.FileView:
-    parsed = input.to_pydantic()
-    return models.FileView.objects.create(
-        file=models.File.objects.get(id=parsed.file),
-        trace_id=parsed.trace,
-        series_identifier=parsed.series_identifier,
-        a_min=parsed.a_min,
-        a_max=parsed.a_max,
-        t_min=parsed.t_min,
-        t_max=parsed.t_max,
-        c_min=parsed.c_min,
-        c_max=parsed.c_max,
-        is_global=parsed.is_global,
-    )
+delete_file = make_delete(models.File, DeleteFileInput)

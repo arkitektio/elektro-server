@@ -30,7 +30,7 @@ def _info(user, organization, roles):
 
 
 def _make_dataset(ctx):
-    return models.Dataset.objects.create(
+    return models.Folder.objects.create(
         name="DS",
         creator=ctx.request.user,
         organization=ctx.request.organization,
@@ -81,15 +81,11 @@ def test_anchor_defers_recording_to_simulation(authenticated_context):
     nm = models.NeuronModel.objects.create(
         name="nm", hash="h1", json_model={}, creator=ctx.request.user, environment=env
     )
-    tt = models.Trace.objects.create(
+    tt = models.ArrayDataset.objects.create(
         name="t", creator=ctx.request.user, organization=ctx.request.organization
     )
-    sim = models.Simulation.objects.create(
-        model=nm, time_trace=tt, name="sim", duration=400.0, creator=ctx.request.user
-    )
-    rec = models.Recording.objects.create(
-        simulation=sim, trace=tt, kind="VOLTAGE", cell="soma", location="0", position="0.5"
-    )
+    sim = models.Simulation.objects.create(model=nm, name="sim", duration=400.0, creator=ctx.request.user)
+    rec = models.Recording.objects.create(simulation=sim, dataset=tt, kind="VOLTAGE", cell="soma", location="0", position=0.5)
 
     # The recording's governing anchor is its simulation.
     assert guards.resolve_anchor(rec) == sim
@@ -108,7 +104,7 @@ def test_anchor_defers_recording_to_simulation(authenticated_context):
 
 
 DELETE_DATASET = """
-mutation ($input: DeleteDatasetInput!) { deleteDataset(input: $input) }
+mutation ($input: DeleteFolderInput!) { deleteFolder(input: $input) }
 """
 
 DELETE_RECORDING = """
@@ -121,7 +117,7 @@ async def test_delete_denied_for_other_org(aexecute, authenticated_context, othe
     ds = await sync_to_async(_make_dataset)(authenticated_context)
     res = await aexecute(DELETE_DATASET, {"input": {"id": str(ds.id)}}, context=other_org_context)
     assert res.errors
-    assert await models.Dataset.objects.filter(id=ds.id).aexists()
+    assert await models.Folder.objects.filter(id=ds.id).aexists()
 
 
 @pytest.mark.asyncio

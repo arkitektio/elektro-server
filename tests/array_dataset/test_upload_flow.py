@@ -1,16 +1,16 @@
 """End-to-end Zarr upload flow against the schema:
 
-requestZarrUpload -> (write a real Zarr v3 array to MinIO through obstore using
-the issued grant) -> finishZarrUpload -> fromTraceLike.
+requestZarrUpload -> (write a real Zarr v3 array to RustFS through obstore using
+the issued grant) -> finishZarrUpload -> createArrayDataset.
 
-This complements test_from_trace_like (which hand-seeds zarr.json): here the
+This complements test_array_dataset (which hand-seeds zarr.json): here the
 store is populated by an actual client-style upload, validating the datalayer's
 grant / finish / get_zarr_metadata chain.
 """
 
 import pytest
 
-from core.models import Dataset, Trace
+from core.models import DataArray, Folder
 from datalayer.models import ZarrStore
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -50,14 +50,14 @@ mutation ($input: RequestZarrAccessInput!) {
 }
 """
 
-FROM_TRACE_LIKE = """
-mutation ($input: FromTraceLikeInput!) {
-  fromTraceLike(input: $input) { id name }
+CREATE_ARRAY_DATASET = """
+mutation ($input: CreateArrayDatasetInput!) {
+  createArrayDataset(input: $input) { id name shape folder { name } }
 }
 """
 
 
-async def test_zarr_upload_to_trace_flow(
+async def test_zarr_upload_to_array_dataset_flow(
     aexecute, authenticated_context, upload_zarr_to_grant, read_zarr_from_grant
 ):
     # 1. Request an upload grant -> server creates the ZarrStore + returns S3 creds.
@@ -78,24 +78,25 @@ async def test_zarr_upload_to_trace_flow(
     assert store.populated
     assert store.shape == [4, 4]
 
-    # 4. Create a Trace from that store (explicit dataset avoids the get_trace_dataset bug).
-    ds = await Dataset.objects.acreate(
+    # 4. Create an array dataset from that store, filed in a folder of our choosing.
+    ds = await Folder.objects.acreate(
         name="ds",
         creator=authenticated_context.request.user,
         organization=authenticated_context.request.organization,
         membership=authenticated_context.request.membership,
     )
     res = await aexecute(
-        FROM_TRACE_LIKE,
-        {"input": {"array": grant["store"], "name": "uploaded", "dataset": str(ds.id)}},
+        CREATE_ARRAY_DATASET,
+        # Nothing in the bytes says (t, c) rather than (sweep, t), so the axes are always declared.
+        {"input": {"data": grant["store"], "scales": [], "name": "uploaded", "folder": str(ds.id), "axes": [{"name": "t", "type": "TIME"}, {"name": "c", "type": "CHANNEL"}]}},
     )
     assert not res.errors, res.errors
-    assert res.data["fromTraceLike"]["name"] == "uploaded"
+    assert res.data["createArrayDataset"] == {"id": res.data["createArrayDataset"]["id"], "name": "uploaded", "shape": [4, 4], "folder": {"name": "ds"}}
 
-    trace = await Trace.objects.aget(name="uploaded")
-    assert str(trace.store_id) == grant["store"]
+    level_0 = await DataArray.objects.aget(dataset__name="uploaded", level=0)
+    assert str(level_0.store_id) == grant["store"], "the store belongs to the level, not to the dataset"
 
-    # 5. Request read access for the trace's store and pull the array back from S3.
+    # 5. Request read access for the level's store and pull the array back from S3.
     import numpy as np
 
     acc = await aexecute(REQUEST_ZARR_ACCESS, {"input": {"storeId": grant["store"]}})

@@ -16,7 +16,6 @@ from asgiref.sync import sync_to_async
 from itertools import chain
 from enum import Enum
 from datalayer.datalayer import get_current_datalayer
-from core.render.objects import models as rmodels
 from strawberry.experimental import pydantic
 from typing import Union
 from core.base_models.type.graphql.cell import Cell
@@ -24,102 +23,13 @@ from core.base_models.type.graphql.topology import Topology
 from core.base_models.type.graphql.model import ModelConfig
 from authentikate.strawberry.types import Client, User
 from koherent.strawberry.types import ProvenanceEntry
-from .type_gen import create_stats_type
+from core.type_gen import create_stats_type
 from datalayer import types as dt
 import kante
 from core.parameters import Parameter, ParameterModel
 
 
-def build_prescoped_queryset(info, queryset):
-    """Scope a list queryset to the request's organization.
-
-    Honors an explicit ``filters.scope`` override (not yet implemented) and
-    otherwise filters by the model's discovered organization path (see
-    :mod:`core.scoping`). Mirrors the single-object scoping in ``core.scoping``
-    so list fields and by-id lookups stay tenant-consistent.
-    """
-    if (info.variable_values.get("filters") or {}).get("scope") is not None:
-        raise Exception("Custom scopes not implemented yet")
-
-    path = scoping.organization_path(queryset.model)
-    if path is None:
-        if queryset.model.__name__ not in scoping.UNSCOPED_MODELS:
-            raise LookupError(f"{queryset.model.__name__} has no path to an organization and is not registered in core.scoping.UNSCOPED_MODELS")
-        return queryset
-    return queryset.filter(**{path: info.context.request.organization})
-
-
-def build_prescoper():
-    def prescoper(queryset, info):
-        return build_prescoped_queryset(info, queryset)
-
-    return prescoper
-
-
-class OrgScoped:
-    """Mixin that scopes a type's list/relation queryset to the request org.
-
-    strawberry_django calls ``get_queryset`` for both top-level list fields and
-    nested relation resolution, so mixing this in tenant-scopes every read of the
-    type. Resolved via MRO, so it is enough to list it as a base class.
-    """
-
-    @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
-        return build_prescoped_queryset(info, queryset)
-
-
-@strawberry_django.type(
-    models.ViewCollection,
-    filters=filters.ViewCollectionFilter,
-    ordering=filters.ViewCollectionOrder,
-    pagination=True,
-)
-class ViewCollection(OrgScoped):
-    """A colletion of views.
-
-    View collections are use to provide overarching views on your data,
-    that are not bound to a specific image. For example, you can create
-    a view collection that includes all middle z views of all images with
-    a certain tag.
-
-    View collections are a pure metadata construct and will not map to
-    oredering of binary data.
-
-
-    """
-
-    id: auto
-    name: auto
-    views: List["View"]
-    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
-
-
-@strawberry.enum
-class ViewKind(str, Enum):
-    """The kind of view.
-
-    Views can be of different kinds. For example, a view can be a label view
-    that will map a labeleling agent (e.g. an antibody) to a specific image channel.
-
-    Depending on the kind of view, different fields will be available.
-
-    """
-
-    TIMEPOINT = "timepoint_views"
-
-
-@strawberry_django.type(models.File, filters=filters.FileFilter, ordering=filters.FileOrder, pagination=True)
-class File(OrgScoped):
-    id: auto
-    name: auto
-    origins: List["Trace"] = strawberry_django.field()
-    store: dt.BigFileStore
-    views: List["FileView"] = strawberry_django.field(description="The file views of this file")
-    creator: User | None = strawberry_django.field(description="Who created this file")
-    size: float | None = strawberry_django.field(description="The size of the file in bytes")
-    content_type: str | None = strawberry_django.field(description="The content type of the file")
-    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+from core.types._shared import OrgScoped, build_prescoped_queryset, build_prescoper  # noqa: E402,F401  (re-exported: mutations and tests import them from here)
 
 
 @kante.django_type(models.ModEnvironment, filters=filters.ModEnvironmentFilter, pagination=True, ordering=filters.ModEnvironmentOrder)
@@ -434,98 +344,155 @@ class NeuronModel(OrgScoped):
         ]
 
 
-@strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, ordering=filters.ExperimentOrder, pagination=True)
-class Experiment(OrgScoped):
-    id: auto
-    name: str
-    description: str | None
-    time_trace: "Trace"
-    created_at: datetime.datetime
-    recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
-    stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
-    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
-
-
 @strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, ordering=filters.SimulationOrder, pagination=True)
 class Simulation(OrgScoped):
+    """One run of a neuron model: what was injected, what was recorded, and the clock it ran on."""
+
     id: auto
     name: str
     description: str | None
-    kind: enums.StimulusKind
     creator: User | None
     model: NeuronModel
-    duration: quantities.Duration
-    dt: quantities.Duration
-    time_trace: "Trace"
+    duration: quantities.Duration = strawberry_django.field(description="How long the model was run for (NEURON's tstop)")
+    dt: quantities.Duration | None = strawberry_django.field(description="The integration time step (NEURON's dt). An integrator parameter, not the sampling period: a run can record more coarsely than it integrates. Null when unstated")
     stimuli: List["Stimulus"] = strawberry_django.field()
     recordings: List["Recording"] = strawberry_django.field()
     created_at: datetime.datetime
-    recording_views: List["ExperimentRecordingView"] = strawberry_django.field()
-    stimulus_views: List["ExperimentStimulusView"] = strawberry_django.field()
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+    clock: Optional[Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")]] = strawberry_django.field(
+        description="The clock the run's recordings and stimuli are timed against: a coordinate system with one TIME axis, in milliseconds by default. Laying a run into an experiment is one edge from this clock into the experiment's world"
+    )
+
+    @strawberry_django.field(
+        select_related=["clock"],
+        description=(
+            "The dataset whose values are the instants the run's samples were recorded at. Derived: it is the field of the time lookups from the run's datasets onto its clock. "
+            "Null for a run recorded at a fixed interval, which has a sampling law instead -- see `samplingRate`"
+        ),
+    )
+    def time_dataset(self, info: Info) -> Optional[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
+        """The times dataset, read off a lookup edge."""
+        from core.logic import clocks
+
+        simulation = cast(models.Simulation, self)
+        for grid in _site_grids(simulation):
+            times = clocks.times_dataset_of(grid, simulation.clock)
+            if times is not None:
+                return times
+        return None
+
+    @strawberry_django.field(
+        select_related=["clock"],
+        description=(
+            "The rate the run's samples were recorded at, when every recording and stimulus agrees on one. Derived from their sampling laws -- each dataset has its own edge onto the run's "
+            "clock, and this is their common value. Null for a run timed by `timeDataset`, and null when the edges have been corrected apart: ask each recording for its own `samplingRate` then"
+        ),
+    )
+    def sampling_rate(self, info: Info) -> quantities.Frequency | None:
+        """The rate every sampling law of the run states, if they state one."""
+        from core.logic import clocks
+
+        simulation = cast(models.Simulation, self)
+        rates = {clocks.sampling_of(grid, simulation.clock)[0] for grid in _site_grids(simulation)}
+        return rates.pop() if len(rates) == 1 else None
+
+
+def _site_grids(simulation: "models.Simulation") -> list:
+    """The sample grids of a run's recordings and stimuli, recordings first."""
+    sites = [*simulation.recordings.select_related("dataset__coordinate_system"), *simulation.stimuli.select_related("dataset__coordinate_system")]
+    return [site.dataset.coordinate_system for site in sites if site.dataset.coordinate_system_id is not None]
+
+
+_SITE_TIMING_RELATIONS = ["dataset__coordinate_system", "simulation__clock"]
+
+
+def _site_sampling(site) -> tuple:  # noqa: ANN001 - a recording or a stimulus row
+    """``(sampling_rate, t_start)`` of one site's dataset on its run's clock."""
+    from core.logic import clocks
+
+    return clocks.sampling_of(site.dataset.coordinate_system, site.simulation.clock)
 
 
 @strawberry_django.type(models.Recording, filters=filters.RecordingFilter, ordering=filters.RecordingOrder, pagination=True)
 class Recording(OrgScoped):
+    """What was recorded from the model at one site."""
+
     id: auto
     simulation: Simulation
     kind: enums.RecordingKind
-    trace: "Trace"
-    location: str
-    position: float
-    cell: str
+    dataset: Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")] = strawberry_django.field(description="The recorded samples: an array dataset with a TIME axis. Its `valueUnit` says what was recorded")
+    cell: str | None = strawberry_django.field(description="The id of the cell, as the model config names it")
+    location: str | None = strawberry_django.field(description="The id of the section, as the model config names it")
+    position: float | None = strawberry_django.field(description="The normalized position along the section, 0 to 1")
 
-    @strawberry_django.field(only=["label", "cell", "location", "position"])
+    @strawberry_django.field(description="The stated label, or the site spelled out as 'cell: location(position)'")
     def label(self, info: Info) -> str:
-        return self.label or f"{self.cell}: {self.location}({self.position})"
+        return cast(models.Recording, self).display_label
+
+    @strawberry_django.field(select_related=_SITE_TIMING_RELATIONS, description="The rate this dataset's samples were recorded at. Derived from its sampling law, the edge from its sample grid onto the run's clock. Null when the run is timed by `timeDataset`")
+    def sampling_rate(self, info: Info) -> quantities.Frequency | None:
+        """The rate the sampling law states."""
+        return _site_sampling(cast(models.Recording, self))[0]
+
+    @strawberry_django.field(select_related=_SITE_TIMING_RELATIONS, description="When sample 0 was recorded, on the run's clock. Derived from the same sampling-law edge as `samplingRate`")
+    def t_start(self, info: Info) -> quantities.Duration | None:
+        """The start time the sampling law states."""
+        return _site_sampling(cast(models.Recording, self))[1]
 
 
 @strawberry_django.type(models.Stimulus, filters=filters.StimulusFilter, ordering=filters.StimulusOrder, pagination=True)
 class Stimulus(OrgScoped):
+    """What was injected into the model at one site."""
+
     id: auto
     simulation: Simulation
     kind: enums.StimulusKind
-    trace: "Trace"
-    location: str
-    position: float
-    cell: str
+    dataset: Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")] = strawberry_django.field(description="The injected samples: an array dataset with a TIME axis. Its `valueUnit` says what was injected")
+    cell: str | None = strawberry_django.field(description="The id of the cell, as the model config names it")
+    location: str | None = strawberry_django.field(description="The id of the section, as the model config names it")
+    position: float | None = strawberry_django.field(description="The normalized position along the section, 0 to 1")
 
-    @strawberry_django.field(only=["label", "cell", "location", "position"])
+    @strawberry_django.field(description="The stated label, or the site spelled out as 'cell: location(position)'")
     def label(self, info: Info) -> str:
-        return self.label or f"{self.cell}: {self.location}({self.position})"
+        return cast(models.Stimulus, self).display_label
+
+    @strawberry_django.field(select_related=_SITE_TIMING_RELATIONS, description="The rate this dataset's samples were recorded at. Derived from its sampling law, the edge from its sample grid onto the run's clock. Null when the run is timed by `timeDataset`")
+    def sampling_rate(self, info: Info) -> quantities.Frequency | None:
+        """The rate the sampling law states."""
+        return _site_sampling(cast(models.Stimulus, self))[0]
+
+    @strawberry_django.field(select_related=_SITE_TIMING_RELATIONS, description="When sample 0 was recorded, on the run's clock. Derived from the same sampling-law edge as `samplingRate`")
+    def t_start(self, info: Info) -> quantities.Duration | None:
+        """The start time the sampling law states."""
+        return _site_sampling(cast(models.Stimulus, self))[1]
 
 
-@strawberry_django.type(models.ExperimentRecordingView, filters=filters.ExperimentRecordingViewFilter, ordering=filters.ExperimentRecordingViewOrder, pagination=True)
-class ExperimentRecordingView(OrgScoped):
-    id: auto
-    recording: Recording
-    label: str | None
-    offset: quantities.Duration | None
-    duration: quantities.Duration | None
-    experiment: "Experiment"
-
-
-@strawberry_django.type(models.ExperimentStimulusView, filters=filters.ExperimentStimulusViewFilter, ordering=filters.ExperimentStimulusViewOrder, pagination=True)
-class ExperimentStimulusView(OrgScoped):
-    id: auto
-    stimulus: Stimulus
-    label: str | None
-    offset: quantities.Duration | None
-    duration: quantities.Duration | None
-    experiment: "Experiment"
-
-
-@strawberry_django.type(models.Block, filters=filters.BlockFilter, pagination=True, ordering=filters.BlockOrder)
+@strawberry_django.type(models.Block, filters=filters.BlockFilter, ordering=filters.BlockOrder, pagination=True)
 class Block(OrgScoped):
+    """A recording session: the top-level container of Neo's data model."""
+
     id: auto
     name: str
     description: str | None
-    trace: "Trace"
-    acquired_at: datetime.datetime | None
+    created_at: datetime.datetime
+    folder: Optional[Annotated["Folder", strawberry.lazy("core.types.folder")]] = strawberry_django.field(description="The folder this block is filed in. Organisational only")
+    origin: Optional[Annotated["File", strawberry.lazy("core.types.folder")]] = strawberry_django.field(description="The file this block was read from, if any")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
-    creator: User | None = strawberry.field(description="Who created this recording session")
+    creator: User | None = strawberry_django.field(description="Who created this recording session")
     groups: List["BlockGroup"] = strawberry_django.field(description="The groups in this recording session")
-    segments: List["BlockSegment"] = strawberry_django.field(description="The segments in this recording session")
+    segments: List["BlockSegment"] = strawberry_django.field(description="The segments of this recording session, in order")
+    clock: Optional[Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")]] = strawberry_django.field(
+        description="The session clock: a coordinate system with one TIME axis. Its `epoch` is when the recording started; every segment's clock is this one or is related to it by an offset edge"
+    )
+
+    @strawberry_django.field(select_related=["clock"], description="The wall-clock instant the recording started. Derived: it is the `epoch` of the session `clock`, so everything timed against that clock agrees about it")
+    def recording_time(self, info: Info) -> datetime.datetime | None:
+        """The session clock's epoch."""
+        return cast(models.Block, self).recording_time
+
+    @strawberry_django.field(description="Is this block pinned by the current user")
+    def pinned(self, info: Info) -> bool:
+        return cast(models.Block, self).pinned_by.filter(id=info.context.request.user.id).exists()
 
 
 BlockStats, BlockStatsResolver = create_stats_type(
@@ -541,240 +508,188 @@ BlockStats, BlockStatsResolver = create_stats_type(
 
 @strawberry_django.type(models.BlockSegment, filters=filters.BlockSegmentFilter, ordering=filters.BlockSegmentOrder, pagination=True)
 class BlockSegment(OrgScoped):
+    """One contiguous stretch of a session -- a trial, a sweep, a protocol step. Neo's Segment."""
+
     id: auto
     block: Block
-    label: str
+    index: int
+    name: str | None
     description: str | None
-    start_time: quantities.Duration | None
-    end_time: quantities.Duration | None
-    creator: User | None = strawberry.field(description="Who created this segment")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
-    groups: List["BlockGroup"] = strawberry_django.field(description="The groups that this segment belongs to")
-    analog_signals: List[Annotated["AnalogSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The analog signals in this group")
-    irregularly_sampled_signals: List[Annotated["IrregularlySampledSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The irregularly sampled signals in this group")
-    spike_trains: List[Annotated["SpikeTrain", strawberry.lazy(__name__)]] = strawberry_django.field(description="The spike trains in this group")
+    analog_signals: List[Annotated["AnalogSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The regularly sampled signals of this segment")
+    irregularly_sampled_signals: List[Annotated["IrregularlySampledSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The irregularly sampled signals of this segment")
+    spike_trains: List[Annotated["SpikeTrain", strawberry.lazy(__name__)]] = strawberry_django.field(description="The spike trains of this segment")
+    clock: Optional[Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")]] = strawberry_django.field(
+        description="The clock this segment's signals are timed against. The session's own when the signals' start times are session-relative; otherwise the segment's own, related to the session's by one offset edge when its start is known"
+    )
+
+    @strawberry_django.field(
+        select_related=["clock", "block__clock"],
+        description="Where this segment starts on the session clock. Derived from the offset edge between the two clocks: zero when the segment shares the session's clock, null when its own clock was never related to it",
+    )
+    def start_time(self, info: Info) -> quantities.Duration | None:
+        """The segment clock's offset on the session clock."""
+        from core.logic import clocks
+
+        segment = cast(models.BlockSegment, self)
+        if segment.clock_id is None:
+            return None
+        if segment.clock_id == segment.block.clock_id:
+            return 0
+        return clocks.offset_of(segment.clock, segment.block.clock)
 
 
 @strawberry_django.type(models.BlockGroup, filters=filters.BlockGroupFilter, ordering=filters.BlockGroupOrder, pagination=True)
 class BlockGroup(OrgScoped):
+    """A named grouping across a block's segments -- a tetrode, a brain area, a sorted unit. Neo's Group."""
+
     id: auto
     name: str
     block: Block
     description: str | None
+    parent: Optional[Annotated["BlockGroup", strawberry.lazy(__name__)]]
+    children: List[Annotated["BlockGroup", strawberry.lazy(__name__)]] = strawberry_django.field(description="The groups nested in this one")
     analog_signals: List[Annotated["AnalogSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The analog signals in this group")
     irregularly_sampled_signals: List[Annotated["IrregularlySampledSignal", strawberry.lazy(__name__)]] = strawberry_django.field(description="The irregularly sampled signals in this group")
     spike_trains: List[Annotated["SpikeTrain", strawberry.lazy(__name__)]] = strawberry_django.field(description="The spike trains in this group")
 
 
-@strawberry.interface(description="A signal recorded during a recording session")
+@strawberry.interface(description="A signal recorded in a segment: a named dataset, timed against the segment's clock by an edge of the coordinate graph")
 class Signal:
+    """What every signal kind shares."""
+
+    id: strawberry.ID
     name: str
-    segment: BlockSegment
-
-
-@strawberry_django.type(models.AnalogSignalChannel, filters=filters.AnalogSignalChannelFilter, ordering=filters.AnalogSignalChannelOrder, pagination=True)
-class AnalogSignalChannel(OrgScoped):
-    id: auto
-    name: str | None
     description: str | None
-    label: str | None
-    unit: str | None
-    index: int
-    trace: "Trace"
-    signal: "AnalogSignal"
+    segment: BlockSegment
+    dataset: Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]
+
+
+def _signal_timing(signal) -> tuple:  # noqa: ANN001 - any signal row
+    """The sample grid of a signal's dataset, and the clock of its segment: the two ends of its timing edge."""
+    return signal.dataset.coordinate_system, signal.segment.clock
+
+
+_TIMING_RELATIONS = ["dataset__coordinate_system", "segment__clock"]
 
 
 @strawberry_django.type(models.AnalogSignal, filters=filters.AnalogSignalFilter, ordering=filters.AnalogSignalOrder, pagination=True)
 class AnalogSignal(Signal, OrgScoped):
+    """A regularly sampled signal: Neo's AnalogSignal, one (t, c) dataset for all its channels."""
+
     id: auto
-    sampling_rate: quantities.Frequency
-    unit: str | None
-    time_trace: "Trace"
-    channels: List[AnalogSignalChannel] = strawberry_django.field()
+    name: str
+    description: str | None
+    color: str
+    segment: BlockSegment
+    dataset: Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")] = strawberry_django.field(description="The samples: one dataset, with a CHANNEL axis when the signal has more than one channel. Its `valueUnit` is the signal's unit")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+
+    @strawberry_django.field(
+        select_related=_TIMING_RELATIONS,
+        description=(
+            "The sampling rate. Derived: it is read off the sampling law, the one edge from the dataset's sample grid onto the segment's clock -- so correcting that edge "
+            "(updateTransformation) corrects this. Exact up to about 100 kHz; read the edge's `affine` when the last digit matters. Null if the edge was deleted"
+        ),
+    )
+    def sampling_rate(self, info: Info) -> quantities.Frequency | None:
+        """The rate the sampling law states."""
+        from core.logic import clocks
+
+        return clocks.sampling_of(*_signal_timing(cast(models.AnalogSignal, self)))[0]
+
+    @strawberry_django.field(select_related=_TIMING_RELATIONS, description="When sample 0 was taken, on the segment's clock. Derived from the same sampling-law edge as `samplingRate`")
+    def t_start(self, info: Info) -> quantities.Duration | None:
+        """The start time the sampling law states."""
+        from core.logic import clocks
+
+        return clocks.sampling_of(*_signal_timing(cast(models.AnalogSignal, self)))[1]
+
+    @strawberry_django.field(select_related=_TIMING_RELATIONS, description="The sampling law itself: the edge from the dataset's sample grid onto the segment's clock, with its validity and provenance")
+    def sampling_law(self, info: Info) -> Optional[Annotated["Transformation", strawberry.lazy("core.types.coords")]]:
+        """The edge `samplingRate` and `tStart` are read from."""
+        grid, clock = _signal_timing(cast(models.AnalogSignal, self))
+        if grid is None or clock is None:
+            return None
+        return models.Transformation.objects.filter(input=grid, output=clock, parent__isnull=True).order_by("pk").first()
 
 
 @strawberry_django.type(models.SpikeTrain, filters=filters.SpikeTrainFilter, ordering=filters.SpikeTrainOrder, pagination=True)
 class SpikeTrain(Signal, OrgScoped):
+    """The spike times of one unit: Neo's SpikeTrain. The dataset's values are the times."""
+
     id: auto
-    trace: "Trace"
+    name: str
+    description: str | None
+    segment: BlockSegment
+    dataset: Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")] = strawberry_django.field(description="The spike times: one value per spike along an INDEX axis, in the unit of the segment's clock")
+    waveforms: Optional[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]] = strawberry_django.field(description="The spike waveforms, as a (spike, c, t) dataset")
+    t_start: quantities.Duration = strawberry_django.field(description="The start of the window the unit was observed over, on the segment's clock. Stored, not derived: a train with no spikes over 10 s is a different measurement from one with no spikes over 100 s")
+    t_stop: quantities.Duration = strawberry_django.field(description="The end of the window the unit was observed over, on the segment's clock")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
 
 @strawberry_django.type(models.IrregularlySampledSignal, filters=filters.IrregularlySampledSignalFilter, ordering=filters.IrregularlySampledSignalOrder, pagination=True)
 class IrregularlySampledSignal(Signal, OrgScoped):
-    id: auto
-    trace: "Trace"
-    unit: str | None
-    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
-
-
-@strawberry_django.type(models.Trace, filters=filters.TraceFilter, ordering=filters.TraceOrder, pagination=True)
-class Trace(OrgScoped):
-    """An image.
-
-
-    Images are the central data type in mikro. They represent a single 5D bioimage, which
-    binary data is stored in a ZarrStore. Images can be annotated with views, which are
-    subsets of the image, ordered by its coordinates. Views can be of different kinds, for
-    example, a label view will map a labeling agent (e.g. an antibody) to a specific image
-    channel. Depending on the kind of view, different fields will be available.
-
-    Images also represent the primary data container for other models of the mikro data model.
-    For example rois, metrics, renders, and generated tables are all bound to a specific image,
-    and will share the lifecycle of the image.
-
-    """
+    """A signal sampled at arbitrary instants: Neo's IrregularlySampledSignal."""
 
     id: auto
-    name: auto = strawberry_django.field(description="The name of the image")
-    store: dt.ZarrStore = strawberry_django.field(description="The store where the image data is stored.")
-    dataset: Optional["Dataset"] = strawberry_django.field(description="The dataset this image belongs to")
-    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
-    creator: User | None = strawberry_django.field(description="Who created this image")
-    rois: List["ROI"] = strawberry_django.field(description="The rois of this image")
-
-    @strawberry_django.field(description="Is this image pinned by the current user")
-    def pinned(self, info: Info) -> bool:
-        return cast(models.Image, self).pinned_by.filter(id=info.context.request.user.id).exists()
-
-    @strawberry_django.field(description="The tags of this image")
-    def tags(self, info: Info) -> list[str]:
-        return cast(models.Image, self).tags.slugs()
-
-    @strawberry_django.field()
-    def events(
-        self,
-        info: Info,
-        filters: filters.ROIFilter | None = strawberry.UNSET,
-    ) -> List["ROI"]:
-        qs = self.events.all()
-
-        # apply filters if defined
-        if filters is not strawberry.UNSET:
-            qs = strawberry_django.filters.apply(filters, qs, info)
-
-        return qs
-
-
-@strawberry_django.type(models.Dataset, filters=filters.DatasetFilter, ordering=filters.DatasetOrder, pagination=True)
-class Dataset(OrgScoped):
-    id: auto
-    traces: List["Trace"]
-    files: List["File"]
-    parent: Optional["Dataset"] = strawberry_django.field(description="The parent dataset of this dataset")
-    children: List["Dataset"]
-    description: str | None
     name: str
-    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
-    is_default: bool
-    created_at: datetime.datetime
-    creator: User | None
-
-    @strawberry_django.field()
-    def pinned(self, info: Info) -> bool:
-        return cast(models.Dataset, self).pinned_by.filter(id=info.context.request.user.id).exists()
-
-    @strawberry_django.field()
-    def tags(self, info: Info) -> list[str]:
-        return cast(models.Image, self).tags.slugs()
-
-
-class Slice:
-    min: int
-    max: int
-
-
-def min_max_to_accessor(min, max):
-    if min is None:
-        min = ""
-    if max is None:
-        max = ""
-    return f"{min}:{max}"
-
-
-@strawberry_django.interface(models.View)
-class View:
-    """A view is a subset of an image."""
-
-    image: "Trace"
-    z_min: int | None = None
-    z_max: int | None = None
-    x_min: int | None = None
-    x_max: int | None = None
-    y_min: int | None = None
-    y_max: int | None = None
-    t_min: int | None = None
-    t_max: int | None = None
-    c_min: int | None = None
-    c_max: int | None = None
-    is_global: bool
-
-    @strawberry_django.field(only=["t_min", "t_max", "c_min", "c_max"], description="The accessor")
-    def accessor(self) -> List[str]:
-        z_accessor = min_max_to_accessor(self.z_min, self.z_max)
-        t_accessor = min_max_to_accessor(self.t_min, self.t_max)
-        c_accessor = min_max_to_accessor(self.c_min, self.c_max)
-        x_accessor = min_max_to_accessor(self.x_min, self.x_max)
-        y_accessor = min_max_to_accessor(self.y_min, self.y_max)
-
-        return [c_accessor, t_accessor, z_accessor, x_accessor, y_accessor]
-
-
-@strawberry_django.type(models.TimelineView)
-class TimelineView(View, OrgScoped):
-    """A label view.
-
-    Label views are used to give a label to a specific image channel. For example, you can
-    create a label view that maps an antibody to a specific image channel. This will allow
-    you to easily identify the labeling agent in the image. However, label views can be used
-    for other purposes as well. For example, you can use a label to mark a specific channel
-    to be of poor quality. (e.g. "bad channel").
-
-    """
-
-    id: auto
-    trace: Trace
-
-    @strawberry_django.field()
-    def label(self, info: Info) -> str:
-        return self.label or "No Label"
-
-
-@strawberry_django.type(models.FileView)
-class FileView(View, OrgScoped):
-    """A file view links a Trace to the source File it originated from.
-
-    It records that this view of the trace was originally part of the file
-    (optionally a specific series within it) and links back to the source file.
-    """
-
-    id: auto
-    trace: Trace
-    file: "File"
-    series_identifier: str | None = None
-
-
-@strawberry_django.type(models.ROI, filters=filters.ROIFilter, ordering=filters.ROIOrder, pagination=True)
-class ROI(OrgScoped):
-    """A region of interest."""
-
-    id: auto
-    trace: "Trace"
-    kind: enums.RoiKind
-    vectors: list[scalars.FiveDVector]
-    created_at: datetime.datetime
-    creator: User | None
+    description: str | None
+    segment: BlockSegment
+    dataset: Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")] = strawberry_django.field(description="The samples. Its `valueUnit` is the signal's unit")
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
-    @strawberry_django.field()
-    def pinned(self, info: Info) -> bool:
-        return self.pinned_by.filter(id=info.context.request.user.id).exists()
+    @strawberry_django.field(
+        select_related=_TIMING_RELATIONS,
+        description="The dataset whose values are the instants the samples were taken at. Derived: it is the field of the time lookup, the FIELD edge from the signal's sample grid onto the segment's clock",
+    )
+    def time_dataset(self, info: Info) -> Optional[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
+        """The times dataset, read off the lookup edge."""
+        from core.logic import clocks
 
-    @strawberry_django.field(only=["kind"])
-    def name(self, info: Info) -> str:
-        return self.kind
+        return clocks.times_dataset_of(*_signal_timing(cast(models.IrregularlySampledSignal, self)))
 
-    @strawberry_django.field(only=["label"])
-    def label(self, info: Info) -> str | None:
-        return self.label
+
+# The coordinate graph lives in its own module, at the path mikro keeps it. Imported last:
+# its lazy annotations point back at the types above.
+from core.types.coords import (  # noqa: E402,F401
+    Axis,
+    CoordinateSystem,
+    Transformation,
+    Selector,
+    PlacementStep,
+    AffinePlacement,
+    AxisExtent,
+    SourcePlacement,
+    CoordinateGraph,
+    LineageGraph,
+    transformation_types,
+)
+
+# The data layer, at the paths mikro keeps it: what lives in a space, and where it is filed.
+from core.types.array_dataset import (  # noqa: E402,F401
+    ArrayDataset,
+    DataArray,
+    CoordinateAnchor,
+    RigState,
+    ValueHistogram,
+    ChannelLabel,
+    ValueUnit,
+    AcquisitionMetadata,
+    Lens,
+    Slice,
+)
+from core.types.folder import File, Folder  # noqa: E402,F401
+from core.types.file_link import FileLink, FileLinkContainer  # noqa: E402,F401
+
+# Annotations are drawn in a space of the graph, and experiments compose over it and show them: in that order.
+from core.types.annotation import Annotation, AnnotationCollection, BoundingBox, Coordinate  # noqa: E402,F401
+from core.types.experiment import (  # noqa: E402,F401
+    Experiment,
+    ExperimentView,
+    ExperimentLensView,
+    ExperimentRecordingView,
+    ExperimentStimulusView,
+    ExperimentAnnotationView,
+)

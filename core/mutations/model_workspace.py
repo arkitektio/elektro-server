@@ -3,6 +3,7 @@ import strawberry
 import kante
 from pydantic import BaseModel
 from core import types, models
+from core.scoping import get_for_org
 
 
 class CreateModelWorkspaceInputModel(BaseModel):
@@ -59,7 +60,7 @@ def update_model_workspace(
     input: UpdateModelWorkspaceInput,
 ) -> types.ModelWorkspace:
     parsed = input.to_pydantic()
-    workspace = models.ModelWorkspace.objects.get(id=parsed.id)
+    workspace = get_for_org(models.ModelWorkspace, info, id=parsed.id)
     if parsed.name is not None:
         workspace.name = parsed.name
     if parsed.description is not None:
@@ -73,7 +74,7 @@ def pin_model_workspace(
     input: PinModelWorkspaceInput,
 ) -> types.ModelWorkspace:
     parsed = input.to_pydantic()
-    workspace = models.ModelWorkspace.objects.get(id=parsed.id)
+    workspace = get_for_org(models.ModelWorkspace, info, id=parsed.id)
     user = info.context.request.user
     if parsed.pin:
         workspace.pinned_by.add(user)

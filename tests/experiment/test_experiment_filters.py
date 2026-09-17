@@ -24,10 +24,9 @@ query ($filters: ExperimentFilter) {
 
 @sync_to_async
 def _make_experiment(ctx, *, name, creator):
-    trace = models.Trace.objects.create(
-        name="t", creator=creator, organization=ctx.request.organization
-    )
-    return models.Experiment.objects.create(name=name, creator=creator, time_trace=trace)
+    # An experiment carries its own organization and composes over a world it adopts.
+    world = models.CoordinateSystem.objects.create(name=f"{name}/world", creator=creator, organization=ctx.request.organization)
+    return models.Experiment.objects.create(name=name, creator=creator, organization=ctx.request.organization, world=world)
 
 
 @sync_to_async
@@ -55,7 +54,7 @@ def _attach_task(exp):
         token_id=f"tok-{uuid.uuid4().hex}",
         args_hash="h",
         args_hash_algorithm="a",
-        organization=exp.time_trace.organization,
+        organization=exp.organization,
     )
     entry = exp.provenance_entries.order_by("history_date").first()
     entry.task = task

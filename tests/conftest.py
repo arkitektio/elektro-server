@@ -89,6 +89,15 @@ def backend_stack():
                     raise
                 time.sleep(0.2)
 
+        # The suite builds its schema straight from the models (migrations disabled), so the
+        # cube extension migration never runs here -- but CREATE TABLE for
+        # Annotation.bbox_cube needs the type to exist. Install it into template1 so the test
+        # database pytest-django creates from it inherits it, and into testdb itself for
+        # anything connecting directly.
+        for dbname in ("template1", "testdb"):
+            with psycopg.connect(dbname=dbname, user="test", password="test", host="localhost", port=5555, autocommit=True) as connection:
+                connection.execute("CREATE EXTENSION IF NOT EXISTS cube")
+
         yield
 
 
@@ -171,6 +180,35 @@ def authenticated_context(db, backend_stack):
 
 
 @pytest.fixture(scope="function")
+def bot_context(db, backend_stack) -> HttpContext:
+    """A non-admin user (static token "bottest") in the SAME org as authenticated_context.
+
+    Holds only the "bot" role, so the delete guard actually applies to it -- the context used
+    to exercise the denial path through GraphQL. Vendored from mikro's conftest.
+    """
+    user, _ = User.objects.get_or_create(
+        sub="2", iss="static_issuer", defaults={"username": "static_issuer_2"}
+    )
+    client, _ = Client.objects.get_or_create(client_id="oinsoins")
+    org, _ = Organization.objects.get_or_create(slug="static_org")
+    membership, _ = Membership.objects.get_or_create(
+        user=user,
+        organization=org,
+        defaults={"roles": ["bot"]},
+    )
+
+    request = UniversalRequest(
+        _extensions={"token": "bottest"},
+        _client=client,  # type: ignore
+        _user=user,  # type: ignore
+        _organization=org,  # type: ignore
+    )
+    request.set_membership(membership)  # type: ignore
+
+    return HttpContext(request=request, response=TemporalResponse(), headers={"Authorization": "Bearer bottest"}, type="http")
+
+
+@pytest.fixture(scope="function")
 def other_org_context(db, backend_stack) -> HttpContext:
     """A context for a user in a different organization (static token "othertest")."""
     user, _ = User.objects.get_or_create(
@@ -222,32 +260,63 @@ def simple_api_context(db, backend_stack) -> HttpContext:
 # ---------------------------------------------------------------------------
 
 
+def fresh_request(ctx: HttpContext) -> HttpContext:
+    """A new request for the same identity.
+
+    Per-request memos live on the context (kante's ``_loaders``): the placement search of an
+    experiment is built once per request and reused by every view that asks. A test that
+    executes two documents against one context object is therefore not making two requests,
+    and would read the first one's answers back after a mutation changed them.
+    """
+    request = UniversalRequest(
+        _extensions=dict(ctx.request._extensions),
+        _client=ctx.request._client,
+        _user=ctx.request._user,
+        _organization=ctx.request._organization,
+    )
+    request.set_membership(ctx.request._membership)  # type: ignore[arg-type]
+    return HttpContext(request=request, response=TemporalResponse(), headers=ctx.headers, type="http")
+
+
 @pytest.fixture
 def aexecute(authenticated_context):
-    """Run a GraphQL document against the schema, defaulting to the authed context."""
+    """Run a GraphQL document against the schema, as one request, defaulting to the authed identity."""
     from elektro_server.schema import schema
 
     async def _run(query, variables=None, context=None):
         return await schema.execute(
             query,
             variable_values=variables or {},
-            context_value=context or authenticated_context,
+            context_value=fresh_request(context or authenticated_context),
         )
 
     return _run
 
 
-# Minimal valid Zarr v3 array metadata — enough for Datalayer.get_zarr_metadata.
-ZARR_V3_METADATA = {
-    "zarr_format": 3,
-    "node_type": "array",
-    "shape": [4, 4],
-    "data_type": "float64",
-    "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 4]}},
-    "chunk_key_encoding": {"name": "default"},
-    "fill_value": 0,
-    "codecs": [],
-}
+def zarr_v3_metadata(shape: list[int], dimension_names: list[str | None] | None = None) -> dict:
+    """Minimal valid Zarr v3 array metadata -- enough for Datalayer.get_zarr_metadata.
+
+    The server reads this and never a chunk, so a store is fully described by it: its shape
+    is what an axis declaration is checked against, and its dimension names, when present,
+    are what the declared axis names must agree with.
+    """
+    metadata = {
+        "zarr_format": 3,
+        "node_type": "array",
+        "shape": list(shape),
+        "data_type": "float64",
+        "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": list(shape)}},
+        "chunk_key_encoding": {"name": "default"},
+        "fill_value": 0,
+        "codecs": [],
+    }
+    if dimension_names is not None:
+        metadata["dimension_names"] = list(dimension_names)
+    return metadata
+
+
+# A one-dimensional signal: the one shape whose axes need no declaring (a single TIME axis).
+ZARR_V3_METADATA = zarr_v3_metadata([8])
 
 
 @pytest.fixture
@@ -279,7 +348,7 @@ def zarr_store(authenticated_context, s3_client):
     from datalayer.models import ZarrStore
 
     @sync_to_async
-    def _make(context=None, seed=True):
+    def _make(context=None, seed=True, shape=None, dimension_names=None):
         ctx = context or authenticated_context
         key = uuid.uuid4().hex
         store = ZarrStore.objects.create(
@@ -288,44 +357,114 @@ def zarr_store(authenticated_context, s3_client):
             bucket="zarr",
         )
         if seed:
+            metadata = zarr_v3_metadata(shape, dimension_names) if shape is not None else ZARR_V3_METADATA
             s3_client.put_object(
                 Bucket="zarr",
                 Key=f"{key}/zarr.json",
-                Body=json.dumps(ZARR_V3_METADATA).encode("utf-8"),
+                Body=json.dumps(metadata).encode("utf-8"),
             )
         return store
 
     return _make
 
 
-@pytest.fixture
-def bigfile_store(authenticated_context):
-    """Factory: create a BigFileStore row (fill_info is local, no S3 needed)."""
-    from datalayer.models import BigFileStore
+CREATE_ARRAY_DATASET = """
+mutation ($input: CreateArrayDatasetInput!) {
+  createArrayDataset(input: $input) {
+    id
+    name
+    shape
+    axisNames
+    valueUnit
+    spec
+    multiscale
+    folder { id name }
+    intrinsicSystem { id name axes { name type unit } }
+    dataArrays { id level shape scaleMethod }
+    anchors { id coordinates channelLabel { label } valueUnit { unit } }
+  }
+}
+"""
 
-    @sync_to_async
-    def _make(context=None):
-        ctx = context or authenticated_context
-        return BigFileStore.objects.create(
-            organization=ctx.request.organization,
-            key=uuid.uuid4().hex,
-            bucket="media",
-        )
+#: The axes a store of a given rank is declared with when a test does not say: a recording.
+_DEFAULT_AXES = {
+    1: [{"name": "t", "type": "TIME"}],
+    2: [{"name": "t", "type": "TIME"}, {"name": "c", "type": "CHANNEL"}],
+}
+
+
+@pytest.fixture
+def create_array_dataset(aexecute, zarr_store):
+    """Factory: an array dataset made the way a client makes one -- a real zarr.json in RustFS, then ``createArrayDataset``.
+
+    The first of the two steps every interpretation test takes: data enters here, and
+    ``createBlock`` / ``createSimulation`` then name it by id. Returns the mutation's payload,
+    or the raw result when ``raw=True`` (for a test about a refusal).
+    """
+
+    async def _make(name="dataset", shape=None, *, axes=None, value_unit=None, anchors=None, levels=None, derived_from=None, folder=None, context=None, raw=False):
+        shape = list(shape or [1000])
+        axes = axes or _DEFAULT_AXES[len(shape)]
+        names = [axis["name"] for axis in axes]
+        store = await zarr_store(context=context, shape=shape, dimension_names=names)
+        scales = []
+        for level, (level_shape, method) in enumerate(levels or [], start=1):
+            level_store = await zarr_store(context=context, shape=list(level_shape), dimension_names=names)
+            scales.append({"level": level, "array": str(level_store.pk), **({"scaleMethod": method} if method else {})})
+
+        all_anchors = list(anchors or [])
+        if value_unit is not None:
+            all_anchors.append({"axisAnchors": [], "valueUnit": {"unit": value_unit}})
+
+        payload = {"data": str(store.pk), "scales": scales, "name": name, "axes": axes}
+        if all_anchors:
+            payload["anchors"] = all_anchors
+        if derived_from is not None:
+            payload["derivedFrom"] = derived_from
+        if folder is not None:
+            payload["folder"] = str(folder)
+
+        result = await aexecute(CREATE_ARRAY_DATASET, {"input": payload}, context=context)
+        if raw:
+            return result
+        assert not result.errors, result.errors
+        return result.data["createArrayDataset"]
 
     return _make
 
 
 @pytest.fixture
-def make_trace(authenticated_context):
-    """Factory: create a Trace row (store is nullable, so no object store needed)."""
-    from core.models import Trace
+def bigfile_store(authenticated_context, s3_client):
+    """Factory: create a BigFileStore row and (by default) put its bytes in RustFS.
+
+    ``fromFileLike`` reads the object's size off the store, so a file made from a store whose
+    upload never happened is refused -- pass ``content=None`` for that case.
+    """
+    from datalayer.models import BigFileStore
 
     @sync_to_async
-    def _make(context=None, name="trace", dataset=None):
+    def _make(context=None, content=b"elektro", **kwargs):
         ctx = context or authenticated_context
-        return Trace.objects.create(
+        key = uuid.uuid4().hex
+        store = BigFileStore.objects.create(organization=ctx.request.organization, key=key, bucket="media", **kwargs)
+        if content is not None:
+            s3_client.put_object(Bucket="media", Key=key, Body=content)
+        return store
+
+    return _make
+
+
+@pytest.fixture
+def make_dataset(authenticated_context):
+    """Factory: create an ArrayDataset row with no grid and no levels -- for tests about filing and tenancy, not about the graph."""
+    from core.models import ArrayDataset
+
+    @sync_to_async
+    def _make(context=None, name="dataset", folder=None):
+        ctx = context or authenticated_context
+        return ArrayDataset.objects.create(
             name=name,
-            dataset=dataset,
+            folder=folder,
             creator=ctx.request.user,
             organization=ctx.request.organization,
         )
@@ -362,40 +501,61 @@ def make_neuron_model(authenticated_context):
 
 @pytest.fixture
 def make_simulation_chain(authenticated_context):
-    """Factory: NeuronModel -> Trace -> Simulation -> Recording + Stimulus.
+    """Factory: NeuronModel -> Simulation on its clock -> a Recording and a Stimulus, each over its own dataset.
 
-    Returns a namespace with .neuron_model/.time_trace/.simulation/.recording/.stimulus
-    so experiment tests can reference real Stimulus/Recording ids without an object store.
+    Built the way ``createSimulation`` builds it, without an object store (see
+    ``tests/seed.py``): every dataset owns its sample grid and gets its own timing edge onto
+    the run's one clock. ``timing`` picks how -- ``"sampling"`` for a sampling law (a fixed
+    recording interval, the default) or ``"lookup"`` for a times dataset (a variable time step).
+
+    Returns a namespace with .neuron_model/.simulation/.clock/.recording/.stimulus,
+    .grid (the recording's sample grid), .stimulus_grid, and .time_dataset, which is None
+    unless the run is timed by a lookup.
     """
     from core import models
+    from core.logic import clocks
+    from tests import seed
 
     @sync_to_async
-    def _make(context=None):
+    def _make(context=None, *, name="sim", samples=400, rate="10 kHz", t_start="0 ms", timing="sampling", unit="millisecond"):
+        from kanne_server import scalars as quantities
+
+        def parse(scalar, text):
+            """A pint string, lowered to kanne's canonical integer exactly as the API boundary lowers it."""
+            return quantities.SCALAR_MAP[scalar].parse_value(text)
+
         ctx = context or authenticated_context
-        environment = models.ModEnvironment.objects.create(
-            name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization
-        )
-        nm = models.NeuronModel.objects.create(
-            name="NeuronModel",
-            hash=uuid.uuid4().hex,
-            json_model={},
-            creator=ctx.request.user,
-            environment=environment,
-        )
-        time_trace = models.Trace.objects.create(
-            name="time", creator=ctx.request.user, organization=ctx.request.organization
-        )
-        sim = models.Simulation.objects.create(
-            model=nm, time_trace=time_trace, name="sim", duration=400.0, creator=ctx.request.user
-        )
-        rec = models.Recording.objects.create(
-            simulation=sim, trace=time_trace, kind="VOLTAGE", cell="soma", location="0", position="0.5"
-        )
-        stim = models.Stimulus.objects.create(
-            simulation=sim, trace=time_trace, kind="CURRENT", cell="soma", location="0", position="0.5"
-        )
+        creation = seed._creation(ctx)
+        environment = models.ModEnvironment.objects.create(name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization)
+        nm = models.NeuronModel.objects.create(name="NeuronModel", hash=uuid.uuid4().hex, json_model={}, creator=ctx.request.user, environment=environment)
+
+        clock = clocks.create_clock(name=f"{name}/clock", unit=unit, ctx=creation)
+        sim = models.Simulation.objects.create(model=nm, clock=clock, name=name, duration=parse(quantities.Duration, "40 ms"), creator=ctx.request.user)
+
+        rec_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/soma.v", seed.T_AXES, [[samples]], None, "mV", None)
+        stim_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/iclamp", seed.T_AXES, [[samples]], None, "nA", None)
+        rec = models.Recording.objects.create(simulation=sim, dataset=rec_dataset, kind="VOLTAGE", cell="soma", location="0", position=0.5)
+        stim = models.Stimulus.objects.create(simulation=sim, dataset=stim_dataset, kind="CURRENT", cell="soma", location="0", position=0.5)
+
+        time_dataset = None
+        if timing != "sampling":
+            time_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/times", seed.T_AXES, [[samples]], None, unit, None)
+        # One edge per dataset, all onto the run's one clock.
+        for dataset in (rec_dataset, stim_dataset):
+            if time_dataset is None:
+                clocks.write_sampling_law(grid=dataset.coordinate_system, clock=clock, sampling_rate=parse(quantities.Frequency, rate), t_start=parse(quantities.Duration, t_start), ctx=creation)
+            else:
+                clocks.write_time_lookup(grid=dataset.coordinate_system, clock=clock, times=time_dataset, input_axis="t", ctx=creation)
+
         return SimpleNamespace(
-            neuron_model=nm, time_trace=time_trace, simulation=sim, recording=rec, stimulus=stim
+            neuron_model=nm,
+            simulation=sim,
+            clock=clock,
+            grid=rec_dataset.coordinate_system,
+            stimulus_grid=stim_dataset.coordinate_system,
+            recording=rec,
+            stimulus=stim,
+            time_dataset=time_dataset,
         )
 
     return _make

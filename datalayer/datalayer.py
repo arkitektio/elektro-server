@@ -1083,6 +1083,10 @@ class Datalayer:
     def delete_object(self, bucket_key: str, object_path: str) -> None:
         """Delete a single object with service credentials.
 
+        Only correct for stores whose key names one object. A zarr key is a *prefix* and
+        S3 answers `DeleteObject` on a prefix with a 204 having deleted nothing, so use
+        :meth:`delete_prefix` for those -- or let `DatalayerStore.delete` choose.
+
         Args:
             bucket_key: Logical datalayer store type.
             object_path: Store-relative object key.
@@ -1092,6 +1096,42 @@ class Datalayer:
             Bucket=conf.bucket,
             Key=self.build_object_key(bucket_key, object_path),
         )
+
+    def delete_prefix(self, bucket_key: str, object_path: str) -> int:
+        """Delete every object under a prefix, and return how many were removed.
+
+        The only way to remove a zarr: its key is a directory holding `zarr.json` and a tree of
+        chunk objects, and S3 has no recursive delete. Listing is paginated and deletion is
+        batched at the API's limit of 1000 keys per call, so a 100k-chunk array costs ~100
+        round trips rather than 100k.
+
+        Idempotent, which is what makes the sweeper safe to re-run: a prefix that is already
+        gone lists empty and returns 0.
+
+        Args:
+            bucket_key: Logical datalayer store type.
+            object_path: Store-relative prefix.
+
+        Returns:
+            The number of objects deleted.
+        """
+        conf = self.get_bucket_config(bucket_key)
+        prefix = self.build_object_key(bucket_key, object_path).rstrip("/") + "/"
+
+        deleted = 0
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=conf.bucket, Prefix=prefix):
+            keys = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+            if not keys:
+                continue
+            for start in range(0, len(keys), 1000):
+                self._s3.delete_objects(Bucket=conf.bucket, Delete={"Objects": keys[start : start + 1000], "Quiet": True})
+            deleted += len(keys)
+
+        # A store written as a bare object at the prefix itself (no trailing slash) would be
+        # missed by the listing above, so clear it too. Deleting an absent key is a no-op.
+        self.delete_object(bucket_key, object_path)
+        return deleted
 
 
 GLOBAL_DL = None

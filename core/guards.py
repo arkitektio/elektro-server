@@ -32,8 +32,7 @@ BOT_ROLE = "bot"
 # the model is its own anchor (it carries creator/provenance directly).
 ANCHOR_PATHS: dict[type, tuple[str, ...]] = {
     # Self-anchored: carry creator and/or provenance directly.
-    models.Dataset: (),
-    models.Instrument: (),
+    models.Folder: (),
     models.File: (),
     models.ModelCollection: (),
     models.ModelWorkspace: (),
@@ -41,25 +40,40 @@ ANCHOR_PATHS: dict[type, tuple[str, ...]] = {
     models.NeuronModel: (),
     models.Experiment: (),
     models.Block: (),
-    models.Trace: (),
+    models.ArrayDataset: (),
     models.Simulation: (),
-    models.ViewCollection: (),
-    models.ROI: (),
+    models.AnnotationCollection: (),
+    # An annotation carries its own creator and provenance: whoever drew a shape may delete it,
+    # whoever owns the collection it was drawn into.
+    models.Annotation: (),
+    # The coordinate graph: a space and an edge each carry creator and provenance.
+    models.CoordinateSystem: (),
+    models.Transformation: (),
+    # A file link carries its own creator and provenance, whichever side it was stated from.
+    models.FileLink: (),
     # Governed by a parent anchor.
     models.WorkspaceMapping: ("workspace",),
     models.Mechanism: ("environment",),
     models.ExperimentRecordingView: ("experiment",),
     models.ExperimentStimulusView: ("experiment",),
-    models.BlockGroup: ("session",),
-    models.BlockSegment: ("session",),
-    models.AnalogSignal: ("recording_segment", "session"),
-    models.AnalogSignalChannel: ("signal", "recording_segment", "session"),
-    models.IrregularlySampledSignal: ("recording_segment", "session"),
-    models.SpikeTrain: ("recording_segment", "session"),
+    models.ExperimentAnnotationView: ("experiment",),
+    models.BlockGroup: ("block",),
+    models.BlockSegment: ("block",),
+    models.AnalogSignal: ("segment", "block"),
+    models.IrregularlySampledSignal: ("segment", "block"),
+    models.SpikeTrain: ("segment", "block"),
     models.Stimulus: ("simulation",),
     models.Recording: ("simulation",),
-    models.TimelineView: ("trace",),
-    models.FileView: ("trace",),
+    models.Axis: ("coordinate_system",),
+    # A level, a lens and an anchor are parts of their dataset; a spoke hangs off an anchor.
+    models.DataArray: ("dataset",),
+    models.Lens: ("dataset",),
+    models.CoordinateAnchor: ("dataset",),
+    models.RigState: ("anchor", "dataset"),
+    models.AcquisitionMetadata: ("anchor", "dataset"),
+    models.ValueHistogram: ("anchor", "dataset"),
+    models.ChannelLabel: ("anchor", "dataset"),
+    models.ValueUnit: ("anchor", "dataset"),
 }
 
 
@@ -107,6 +121,11 @@ def _original_task_assigner(anchor: Any) -> Any | None:
         creation = manager.order_by("history_date").first()
     task = getattr(creation, "task", None) if creation is not None else None
     return getattr(task, "assigner", None) if task is not None else None
+
+
+def is_org_admin(info: Info) -> bool:
+    """Whether the current user holds the ``admin`` role in the active organization."""
+    return ADMIN_ROLE in _current_roles(info.context.request)
 
 
 def can_delete(info: Info, instance: Any) -> bool:

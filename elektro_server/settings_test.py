@@ -22,6 +22,10 @@ AUTHENTIKATE = {
         # defaults roles to ["admin"], which would let this user delete anything
         # (can_delete rule 1) and defeat the cross-org denial tests.
         "othertest": {"sub": "9", "org": "other_org", "roles": []},
+        # A non-admin user in the SAME organization, for delete-ownership tests: holding
+        # only "bot", neither rule 1 (admin) nor rule 3 (a bot's creations belong to the
+        # task's assigner) lets them delete, so the guard's denial path is reachable.
+        "bottest": {"sub": "2", "roles": ["bot"]},
     },
 }
 

@@ -13,6 +13,7 @@ import hashlib
 import json
 import strawberry
 from operator import itemgetter
+from core.scoping import get_for_org
 
 
 def get_model_hash(model_instance, float_precision: int = 5) -> str:
@@ -96,10 +97,10 @@ def create_neuron_model(
 
     
 
-    parent = models.NeuronModel.objects.get(id=parsed.parent) if parsed.parent is not None else None
+    parent = get_for_org(models.NeuronModel, info, id=parsed.parent) if parsed.parent is not None else None
 
     if parsed.environment is not None:
-        environment = models.ModEnvironment.objects.get(id=parsed.environment)
+        environment = get_for_org(models.ModEnvironment, info, id=parsed.environment)
     elif parent is not None:
         # Inherit the environment from the parent when none is given explicitly.
         environment = parent.environment

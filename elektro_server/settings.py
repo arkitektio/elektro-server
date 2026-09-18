@@ -77,7 +77,7 @@ AWS_QUERYSTRING_EXPIRE = 3600
 AWS_S3_REGION_NAME = conf.datalayer.region
 
 ZARR_BUCKET = conf.datalayer.zarr.bucket
-PARQUET_BUCKET = conf.datalayer.zarr.bucket
+PARQUET_BUCKET = conf.datalayer.parquet.bucket
 FILE_BUCKET = conf.datalayer.media.bucket
 MEDIA_BUCKET = conf.datalayer.media.bucket
 

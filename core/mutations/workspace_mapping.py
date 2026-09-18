@@ -3,6 +3,7 @@ import strawberry
 import kante
 from pydantic import BaseModel
 from core import types, models, inputs
+from core.scoping import get_for_org
 
 
 class AddModelsToWorkspaceInputModel(BaseModel):
@@ -34,7 +35,7 @@ def add_models_to_workspace(
     input: AddModelsToWorkspaceInput,
 ) -> types.ModelWorkspace:
     parsed = input.to_pydantic()
-    workspace = models.ModelWorkspace.objects.get(id=parsed.workspace)
+    workspace = get_for_org(models.ModelWorkspace, info, id=parsed.workspace)
 
     for model_id in parsed.models:
         models.WorkspaceMapping.objects.get_or_create(
@@ -51,7 +52,7 @@ def remove_models_from_workspace(
     input: inputs.DesociateInput,
 ) -> types.ModelWorkspace:
     parsed = input.to_pydantic()
-    workspace = models.ModelWorkspace.objects.get(id=parsed.other)
+    workspace = get_for_org(models.ModelWorkspace, info, id=parsed.other)
     models.WorkspaceMapping.objects.filter(
         workspace=workspace,
         model_id__in=parsed.selfs,
@@ -64,7 +65,7 @@ def update_workspace_mapping(
     input: UpdateWorkspaceMappingInput,
 ) -> types.WorkspaceMapping:
     parsed = input.to_pydantic()
-    mapping = models.WorkspaceMapping.objects.get(id=parsed.id)
+    mapping = get_for_org(models.WorkspaceMapping, info, id=parsed.id)
     mapping.workspace_group = parsed.workspace_group
     mapping.save()
     return mapping

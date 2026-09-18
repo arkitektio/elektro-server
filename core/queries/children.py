@@ -1,0 +1,99 @@
+from core import models, types, filters as f, pagination as p
+from core.utils import paginate_querysets
+import strawberry
+from typing import Annotated, Union
+from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+from enum import Enum
+from core.scoping import get_for_org
+from kante.types import Info
+
+
+@strawberry.enum
+class ChildrenOrderField(str, Enum):
+    # No `UPDATED_AT`: no model in this app has an `updated_at` column, so asking for it
+    # raised `Cannot resolve keyword 'updated_at' into field` and took the whole query with
+    # it. It was an option that could only ever fail, on every folder, for every caller.
+    CREATED_AT = "created_at"
+    NAME = "name"
+
+
+@strawberry.enum
+class ChildrenOrderDirection(str, Enum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+@strawberry.input
+class ChildrenOrder:
+    field: ChildrenOrderField
+    direction: ChildrenOrderDirection
+
+
+#: Everything that can sit in a folder: sub-folders, raw files, and the four containers. Named
+#: explicitly -- an anonymous union takes its SDL name from its members concatenated, which for
+#: six members is unusable.
+#:
+#: Vendored from mikro (``mikro/core/queries/children.py``).
+FolderChild = Annotated[
+    Union[
+        types.Folder,
+        types.File,
+        types.ArrayDataset,
+        types.TableDataset,
+        types.SparseDataset,
+        types.AnnotationCollection,
+    ],
+    strawberry.union("FolderChild", description="Anything filed in a folder: a sub-folder, a file, an array dataset, a table dataset, a sparse dataset, or an annotation collection"),
+]
+
+
+#: Everything filed in a folder, in the order the union lists them: the reverse accessor, the
+#: column a child is named by, and the one it is described by (a file has none).
+_CHILD_SOURCES = [
+    ("children", "name", "description"),
+    ("files", "name", None),
+    ("array_datasets", "name", "description"),
+    ("table_datasets", "name", "description"),
+    ("sparse_datasets", "name", "description"),
+    ("annotation_collections", "name", "description"),
+]
+
+
+def children(
+    info: Info,
+    parent: strawberry.ID,
+    filters: f.FolderChildrenFilter | None = None,
+    pagination: p.ChildrenPaginationInput | None = None,
+    order: ChildrenOrder | None = None,
+) -> list[FolderChild]:
+    if filters is None:
+        filters = f.FolderChildrenFilter()
+    if pagination is None:
+        pagination = p.ChildrenPaginationInput()
+
+    folder = get_for_org(models.Folder, info, id=parent)
+
+    querysets = []
+    search = filters.search.strip() if filters.search else ""
+    search_query = SearchQuery(search) if search else None
+
+    for accessor, name_field, description_field in _CHILD_SOURCES:
+        queryset = getattr(folder, accessor).all()
+
+        if search_query is not None:
+            fields = [name_field] + ([description_field] if description_field else [])
+            search_vector = SearchVector(*fields)
+            queryset = queryset.annotate(search=search_vector, rank=SearchRank(search_vector, search_query)).filter(search=search_query).order_by("-rank")
+
+        if order:
+            order_prefix = "" if order.direction == ChildrenOrderDirection.ASC else "-"
+            order_field = name_field if order.field is ChildrenOrderField.NAME else order.field.value
+            queryset = queryset.order_by(f"{order_prefix}{order_field}")
+
+        querysets.append(queryset)
+
+    return paginate_querysets(
+        *querysets,
+        limit=pagination.limit,
+        offset=pagination.offset,
+    )

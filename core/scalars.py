@@ -10,26 +10,19 @@ from typing import NewType
 import strawberry
 from strawberry.types.scalar import ScalarDefinition
 
-TraceLike = NewType("TraceLike", str)
+ArrayLike = NewType("ArrayLike", str)
 RGBAColor = NewType("RGBAColor", list)
-UntypedPlateChild = NewType("UntypedPlateChild", object)
 FileLike = NewType("FileLike", str)
 StructureString = NewType("StructureString", str)
 ParquetLike = NewType("ParquetLike", str)
+# One sparse matrix as one uploaded prefix: a zarr *group* holding `data`, `indices` and
+# `indptr`. Distinct from `ArrayLike`, which names a single array -- a group has three shapes,
+# three dtypes and three chunkings, and `get_zarr_metadata` refuses anything but an array.
+SporadikLike = NewType("SporadikLike", str)
 Matrix = NewType("Matrix", object)
-MikroStore = NewType("MikroStore", str)
-Milliseconds = NewType("Milliseconds", float)
-Micrometers = NewType("Micrometers", float)
-Microliters = NewType("Microliters", float)
-Micrograms = NewType("Micrograms", float)
 FourByFourMatrix = NewType("FourByFourMatrix", object)
 FiveDVector = NewType("FiveDVector", list)
-FourDVector = NewType("FourDVector", list)
-ThreeDVector = NewType("ThreeDVector", list)
 TwoDVector = NewType("TwoDVector", list)
-UntypedRender = NewType("UntypedRender", object)
-Metric = NewType("Metric", object)
-MetricMap = NewType("MetricMap", object)
 Any = NewType("Any", object)
 
 
@@ -39,8 +32,8 @@ def _identity(v: object) -> object:
 
 
 SCALAR_MAP: dict[object, ScalarDefinition] = {
-    TraceLike: strawberry.scalar(
-        name="TraceLike",
+    ArrayLike: strawberry.scalar(
+        name="ArrayLike",
         description="The `ArrayLike` scalar type represents a reference to a store "
         "previously created by the user n a datalayer",
         serialize=_identity,
@@ -49,12 +42,6 @@ SCALAR_MAP: dict[object, ScalarDefinition] = {
     RGBAColor: strawberry.scalar(
         name="RGBAColor",
         description="The Color scalar type represents a color as a list of 4 values RGBA",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    UntypedPlateChild: strawberry.scalar(
-        name="UntypedPlateChild",
-        description="The `UntypedPlateChild` scalar type represents a plate child",
         serialize=_identity,
         parse_value=_identity,
     ),
@@ -79,42 +66,15 @@ SCALAR_MAP: dict[object, ScalarDefinition] = {
         serialize=_identity,
         parse_value=_identity,
     ),
+    SporadikLike: strawberry.scalar(
+        name="SporadikLike",
+        description="A reference to an uploaded **sporadik store**: one prefix holding one child per axis made contiguous, under `layouts/axis{k}`, each an anndata-spelled sparse group of `data`, `indices` and `indptr`. Named for the wire format. Request it with `requestSparseUpload`, write the layouts, land the `sporadik` block last, then `finishSparseUpload` -- which reads that block and refuses a prefix without one, because zarr fills a missing chunk rather than failing and a torn upload is otherwise indistinguishable from a finished one. A dataset registered this way declares no encoding, no shape and no chunking: the server reads them from the artifact, so they cannot be stated wrong",
+        serialize=_identity,
+        parse_value=_identity,
+    ),
     Matrix: strawberry.scalar(
         name="Matrix",
         description="The `Matrix` scalar type represents a matrix values as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    MikroStore: strawberry.scalar(
-        name="MikroStore",
-        description="The `MikroStore` scalar type represents a matrix values "
-        "as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    Milliseconds: strawberry.scalar(
-        name="Milliseconds",
-        description="The `Matrix` scalar type represents a matrix values as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    Micrometers: strawberry.scalar(
-        name="Micrometers",
-        description="The `Micrometers` scalar type represents a matrix values"
-        "as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    Microliters: strawberry.scalar(
-        name="Microliters",
-        description="The `Microliters` scalar type represnts a volume of liquid"
-        "as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    Micrograms: strawberry.scalar(
-        name="Micrograms",
-        description="The `Micrograms` scalar type represents a mass of a substance",
         serialize=_identity,
         parse_value=_identity,
     ),
@@ -131,39 +91,9 @@ SCALAR_MAP: dict[object, ScalarDefinition] = {
         serialize=_identity,
         parse_value=_identity,
     ),
-    FourDVector: strawberry.scalar(
-        name="FourDVector",
-        description="The `Vector` scalar type represents a matrix values as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    ThreeDVector: strawberry.scalar(
-        name="ThreeDVector",
-        description="The `Vector` scalar type represents a matrix values as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
     TwoDVector: strawberry.scalar(
         name="TwoDVector",
         description="The `Vector` scalar type represents a matrix values as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    UntypedRender: strawberry.scalar(
-        name="UntypedRender",
-        description="The `UntypedRender` scalar type represents a matrix values as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    Metric: strawberry.scalar(
-        name="Metric",
-        description="The `Metric` scalar type represents a matrix values as specified by",
-        serialize=_identity,
-        parse_value=_identity,
-    ),
-    MetricMap: strawberry.scalar(
-        name="MetricMap",
-        description="The `MetricMap` scalar type represents a matrix values as specified by",
         serialize=_identity,
         parse_value=_identity,
     ),

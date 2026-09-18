@@ -82,6 +82,18 @@ Length = Annotated[int, _length[0], _length[1]]
 _potential = _markers(_scalars.ElectricPotential)
 ElectricPotential = Annotated[int, _potential[0], _potential[1]]
 
+_frequency = _markers(_scalars.Frequency)
+Frequency = Annotated[int, _frequency[0], _frequency[1]]
+
+_current = _markers(_scalars.ElectricCurrent)
+ElectricCurrent = Annotated[int, _current[0], _current[1]]
+
+_resistance = _markers(_scalars.ElectricalResistance)
+ElectricalResistance = Annotated[int, _resistance[0], _resistance[1]]
+
+_capacitance = _markers(_scalars.Capacitance)
+Capacitance = Annotated[int, _capacitance[0], _capacitance[1]]
+
 _concentration = _markers(_scalars.Concentration)
 Concentration = Annotated[int, _concentration[0], _concentration[1]]
 

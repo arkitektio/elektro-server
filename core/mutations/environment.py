@@ -11,6 +11,7 @@ from core.guards import enforce_delete
 from datalayer import models as datalayer_models
 import kante
 from pydantic import BaseModel
+from core.scoping import get_for_org
 
 
 class RequestFileUploadInputModel(BaseModel):
@@ -40,8 +41,7 @@ def delete_file(
     input: DeleteFileInput,
 ) -> strawberry.ID:
     parsed = input.to_pydantic()
-    view = models.File.objects.get(
-        id=parsed.id,
+    view = get_for_org(models.File, info, id=parsed.id,
     )
     view.delete()
     return parsed.id
@@ -99,7 +99,7 @@ def create_mod_environment(
 ) -> types.ModEnvironment:
     input = input.to_pydantic()
 
-    store = datalayer_models.BigFileStore.objects.get(id=input.zip_file)
+    store = get_for_org(datalayer_models.BigFileStore, info, id=input.zip_file)
     store.fill_info()
 
     environment = models.ModEnvironment.objects.create(
@@ -134,7 +134,7 @@ def delete_mechanism(
     input: DeleteMechanismInput,
 ) -> strawberry.ID:
     parsed = input.to_pydantic()
-    item = models.Mechanism.objects.get(id=parsed.id)
+    item = get_for_org(models.Mechanism, info, id=parsed.id)
     enforce_delete(info, item)
     item.delete()
     return parsed.id

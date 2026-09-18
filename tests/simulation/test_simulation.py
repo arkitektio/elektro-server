@@ -13,10 +13,12 @@ from pytest import approx
 
 from core.models import ArrayDataset, CoordinateSystem, RecordingSite, Simulation, StimulusSite, Transformation
 
+from tests.seed import SOMA_MODEL
+
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
 
-_DATASET = "id name valueUnit intrinsicSystem { id residents { __typename } } anchors { coordinates recordingSite { kind label cell location position } stimulusSite { kind label } }"
+_DATASET = "id name valueUnit intrinsicSystem { id residents { __typename } } anchors { coordinates recordingSite { kind label cell location position model { id } } stimulusSite { kind label } }"
 
 CREATE_SIMULATION = """
 mutation ($input: CreateSimulationInput!) {
@@ -43,20 +45,20 @@ def _datasets(recording: dict, stimulus: dict) -> dict:
     return {"datasets": [recording["id"], stimulus["id"]]}
 
 
-async def _run_datasets(create_array_dataset, samples: int = 1600, stimulus_samples: int | None = None):
-    """A recorded and an injected dataset, each carrying its site on its whole-dataset anchor."""
+async def _run_datasets(create_array_dataset, model, samples: int = 1600, stimulus_samples: int | None = None):
+    """A recorded and an injected dataset, each carrying its site -- a place on ``model`` -- on its whole-dataset anchor."""
     recording = await create_array_dataset(
-        "soma.v", [samples], anchors=[{"axisAnchors": [], "valueUnit": {"unit": "mV"}, "recordingSite": {"kind": "VOLTAGE", "cell": "soma", "location": "0", "position": 0.5}}]
+        "soma.v", [samples], anchors=[{"axisAnchors": [], "valueUnit": {"unit": "mV"}, "recordingSite": {"model": str(model.id), "kind": "VOLTAGE", "cell": "soma", "location": "0", "position": 0.5}}]
     )
     stimulus = await create_array_dataset(
-        "iclamp", [stimulus_samples or samples], anchors=[{"axisAnchors": [], "valueUnit": {"unit": "nA"}, "stimulusSite": {"kind": "CURRENT", "cell": "soma", "location": "0", "position": 0.5, "label": "IClamp"}}]
+        "iclamp", [stimulus_samples or samples], anchors=[{"axisAnchors": [], "valueUnit": {"unit": "nA"}, "stimulusSite": {"model": str(model.id), "kind": "CURRENT", "cell": "soma", "location": "0", "position": 0.5, "label": "IClamp"}}]
     )
     return recording, stimulus
 
 
 async def test_a_run_recorded_at_a_fixed_interval_has_a_sampling_law_per_dataset(aexecute, make_neuron_model, create_array_dataset):
-    nm = await make_neuron_model()
-    rec, stim = await _run_datasets(create_array_dataset)
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    rec, stim = await _run_datasets(create_array_dataset, nm)
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "Sim", "model": str(nm.id), "duration": "40 ms", "dt": "25 us", "sampling": {"rate": "40 kHz"}, **_datasets(rec, stim)}})
     assert not res.errors, res.errors
     sim = res.data["createSimulation"]
@@ -70,7 +72,7 @@ async def test_a_run_recorded_at_a_fixed_interval_has_a_sampling_law_per_dataset
     assert [d["id"] for d in sim["datasets"]] == [rec["id"], stim["id"]], "the run's datasets are read off its timing edges, in the order they were written"
     assert (recording["id"], stimulus["id"]) == (rec["id"], stim["id"]), "the run named the datasets; it did not copy them"
     (site,) = [anchor["recordingSite"] for anchor in recording["anchors"] if anchor["recordingSite"]]
-    assert site == {"kind": "VOLTAGE", "label": "soma: 0(0.5)", "cell": "soma", "location": "0", "position": 0.5}, "where it was recorded is the dataset's own spoke"
+    assert site == {"kind": "VOLTAGE", "label": "soma: 0(0.5)", "cell": "soma", "location": "0", "position": 0.5, "model": {"id": str(nm.id)}}, "where it was recorded is the dataset's own spoke, a place on the model"
     (injected,) = [anchor["stimulusSite"] for anchor in stimulus["anchors"] if anchor["stimulusSite"]]
     assert injected == {"kind": "CURRENT", "label": "IClamp"}
     assert (recording["valueUnit"], stimulus["valueUnit"]) == ("mV", "nA"), "what was measured is the dataset's to say"
@@ -85,8 +87,8 @@ async def test_a_run_recorded_at_a_fixed_interval_has_a_sampling_law_per_dataset
 
 
 async def test_a_run_with_a_variable_time_step_is_timed_by_a_lookup(aexecute, make_neuron_model, create_array_dataset):
-    nm = await make_neuron_model()
-    rec, stim = await _run_datasets(create_array_dataset, 731)
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    rec, stim = await _run_datasets(create_array_dataset, nm, 731)
     times = await create_array_dataset("CVode/times", [731], value_unit="millisecond")
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "CVode", "model": str(nm.id), "duration": "40 ms", "timeDataset": times["id"], **_datasets(rec, stim)}})
     assert not res.errors, res.errors
@@ -104,8 +106,8 @@ async def test_a_run_with_a_variable_time_step_is_timed_by_a_lookup(aexecute, ma
 
 
 async def test_delete_simulation_deletes_the_interpretation_and_none_of_the_data(aexecute, make_neuron_model, create_array_dataset):
-    nm = await make_neuron_model()
-    rec, stim = await _run_datasets(create_array_dataset, 731)
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    rec, stim = await _run_datasets(create_array_dataset, nm, 731)
     times = await create_array_dataset("times", [731], value_unit="millisecond")
     created = await aexecute(CREATE_SIMULATION, {"input": {"name": "Gone", "model": str(nm.id), "duration": "40 ms", "timeDataset": times["id"], **_datasets(rec, stim)}})
     assert not created.errors, created.errors
@@ -122,16 +124,17 @@ async def test_delete_simulation_deletes_the_interpretation_and_none_of_the_data
 
 
 async def test_create_simulation_unknown_dataset(aexecute, make_neuron_model, create_array_dataset):
-    nm = await make_neuron_model()
-    rec, _ = await _run_datasets(create_array_dataset)
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    rec, _ = await _run_datasets(create_array_dataset, nm)
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "SimBad", "model": str(nm.id), "duration": "400 ms", "sampling": {"rate": "1 kHz"}, **_datasets(rec, {"id": "999999"})}})
     assert res.errors
     assert not await Simulation.objects.filter(name="SimBad").aexists(), "resolved before anything is written: no half-made run"
     assert await Transformation.objects.acount() == 0
 
 
-async def test_create_simulation_unknown_model(aexecute, create_array_dataset):
-    rec, stim = await _run_datasets(create_array_dataset)
+async def test_create_simulation_unknown_model(aexecute, make_neuron_model, create_array_dataset):
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    rec, stim = await _run_datasets(create_array_dataset, nm)
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "SimNoModel", "model": "999999", "duration": "400 ms", "sampling": {"rate": "1 kHz"}, **_datasets(rec, stim)}})
     assert res.errors
 
@@ -139,22 +142,22 @@ async def test_create_simulation_unknown_model(aexecute, create_array_dataset):
 @pytest.mark.parametrize("timing", [{}, {"sampling": {"rate": "1 kHz"}, "timeDataset": "1"}], ids=["neither", "both"])
 async def test_a_run_is_timed_in_exactly_one_way(aexecute, make_neuron_model, create_array_dataset, timing):
     """Both would be two statements of one fact, free to disagree; neither leaves the datasets with no time at all."""
-    nm = await make_neuron_model()
-    rec, stim = await _run_datasets(create_array_dataset)
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    rec, stim = await _run_datasets(create_array_dataset, nm)
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "Untimed", "model": str(nm.id), "duration": "40 ms", **timing, **_datasets(rec, stim)}})
     assert res.errors and "timed in exactly one way" in str(res.errors[0])
 
 
 async def test_the_datasets_of_one_run_have_one_sample_count(aexecute, make_neuron_model, create_array_dataset):
-    nm = await make_neuron_model()
-    rec, stim = await _run_datasets(create_array_dataset, 1600, 1599)
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    rec, stim = await _run_datasets(create_array_dataset, nm, 1600, 1599)
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "Ragged", "model": str(nm.id), "duration": "40 ms", "sampling": {"rate": "40 kHz"}, **_datasets(rec, stim)}})
     assert res.errors and "the same number of samples" in str(res.errors[0])
     assert not await Simulation.objects.filter(name="Ragged").aexists()
 
 
 async def test_a_site_needs_a_time_axis(aexecute, make_neuron_model, create_array_dataset):
-    nm = await make_neuron_model()
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
     rec = await create_array_dataset("soma.v", [100])
     stim = await create_array_dataset("not samples", [100], axes=[{"name": "unit", "type": "INDEX"}])
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "Untimed", "model": str(nm.id), "duration": "40 ms", "sampling": {"rate": "1 kHz"}, **_datasets(rec, stim)}})
@@ -162,8 +165,8 @@ async def test_a_site_needs_a_time_axis(aexecute, make_neuron_model, create_arra
 
 
 async def test_sample_times_must_be_one_per_sample(aexecute, make_neuron_model, create_array_dataset):
-    nm = await make_neuron_model()
-    rec, stim = await _run_datasets(create_array_dataset, 731)
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    rec, stim = await _run_datasets(create_array_dataset, nm, 731)
     times = await create_array_dataset("times", [730], value_unit="millisecond")
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "Short", "model": str(nm.id), "duration": "40 ms", "timeDataset": times["id"], **_datasets(rec, stim)}})
     assert res.errors and "exactly one instant per sample" in str(res.errors[0])
@@ -171,14 +174,14 @@ async def test_sample_times_must_be_one_per_sample(aexecute, make_neuron_model, 
 
 async def test_a_run_named_with_no_datasets_is_only_its_clock(aexecute, make_neuron_model, create_array_dataset):
     """CS-first: mint the run's clock, then time datasets on it one sampling law at a time -- the same as a recording session."""
-    nm = await make_neuron_model()
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "Later", "model": str(nm.id), "duration": "40 ms"}})
     assert not res.errors, res.errors
     sim = res.data["createSimulation"]
     assert sim["datasets"] == [] and sim["samplingRate"] is None
     assert sim["clock"]["axes"] == [{"name": "t", "type": "TIME", "unit": "millisecond"}]
 
-    rec, _ = await _run_datasets(create_array_dataset, 400)
+    rec, _ = await _run_datasets(create_array_dataset, nm, 400)
     timed = await aexecute(
         "mutation ($input: CreateSamplingLawInput!) { createSamplingLaw(input: $input) { id kind } }",
         {"input": {"source": rec["intrinsicSystem"]["id"], "clock": sim["clock"]["id"], "samplingRate": "10 kHz"}},
@@ -196,18 +199,76 @@ async def test_a_run_named_with_no_datasets_is_only_its_clock(aexecute, make_neu
 
 
 async def test_timing_is_refused_without_datasets_to_time(aexecute, make_neuron_model):
-    nm = await make_neuron_model()
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
     res = await aexecute(CREATE_SIMULATION, {"input": {"name": "Empty", "model": str(nm.id), "duration": "40 ms", "sampling": {"rate": "1 kHz"}}})
     assert res.errors and "no datasets were named" in str(res.errors[0])
 
 
-async def test_a_dataset_carries_one_site_per_anchor(aexecute, create_array_dataset):
+async def test_a_dataset_carries_one_site_per_anchor(aexecute, make_neuron_model, create_array_dataset):
     """A value was recorded or injected: a clamp's command and its response are two channels, each with a site."""
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
     res = await create_array_dataset(
         "both",
         [100],
-        anchors=[{"axisAnchors": [], "recordingSite": {"kind": "VOLTAGE"}, "stimulusSite": {"kind": "CURRENT"}}],
+        anchors=[{"axisAnchors": [], "recordingSite": {"model": str(nm.id), "kind": "VOLTAGE"}, "stimulusSite": {"model": str(nm.id), "kind": "CURRENT"}}],
         raw=True,
     )
     assert res.errors and "both a recording site and a stimulus site" in str(res.errors[0])
     assert not await RecordingSite.objects.aexists() and not await StimulusSite.objects.aexists()
+
+
+# --- a site is part of a neuron model ------------------------------------------------------------
+
+TWO_CELLS = {
+    "cells": [
+        {"id": "pyr", "biophysics": {"compartments": []}, "topology": {"sections": [{"id": "soma", "length": "20 um"}, {"id": "apical", "length": "200 um"}]}},
+        {"id": "int", "biophysics": {"compartments": []}, "topology": {"sections": [{"id": "soma", "length": "10 um"}]}},
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    ("site", "refusal"),
+    [
+        ({"cell": "basket"}, "has no cell 'basket'. Its cells are ['int', 'pyr']"),
+        ({"cell": "int", "location": "apical"}, "cell 'int' of model 'two cells' has no section 'apical'. Its sections are ['soma']"),
+        ({"location": "soma"}, "Name the `cell` the section belongs to"),
+    ],
+    ids=["unknown-cell", "section-of-another-cell", "section-without-cell"],
+)
+async def test_a_site_names_a_place_its_model_declares(make_neuron_model, create_array_dataset, site, refusal):
+    nm = await make_neuron_model(name="two cells", json_model=TWO_CELLS)
+    res = await create_array_dataset("soma.v", [100], anchors=[{"axisAnchors": [], "recordingSite": {"model": str(nm.id), **site}}], raw=True)
+    assert res.errors and refusal in str(res.errors[0]), res.errors
+    assert not await ArrayDataset.objects.aexists(), "refused with its dataset: one transaction"
+
+
+async def test_a_section_alone_is_read_on_the_models_only_cell(make_neuron_model, create_array_dataset):
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    dataset = await create_array_dataset("soma.v", [100], anchors=[{"axisAnchors": [], "stimulusSite": {"model": str(nm.id), "location": "0", "position": 0.5}}])
+    site = await StimulusSite.objects.select_related("model").aget(anchor__dataset_id=dataset["id"])
+    assert (site.model_id, site.cell, site.location) == (nm.id, None, "0"), "the cell is not written in for the caller; the model has one"
+
+
+async def test_a_site_is_on_a_model_of_the_callers_organization(make_neuron_model, create_array_dataset, other_org_context):
+    theirs = await make_neuron_model(context=other_org_context, json_model=SOMA_MODEL)
+    res = await create_array_dataset("soma.v", [100], anchors=[{"axisAnchors": [], "recordingSite": {"model": str(theirs.id), "cell": "soma"}}], raw=True)
+    assert res.errors and not await RecordingSite.objects.aexists()
+
+
+async def test_a_run_times_only_datasets_sited_on_its_model(aexecute, make_neuron_model, create_array_dataset):
+    ran = await make_neuron_model(name="ran", json_model=SOMA_MODEL)
+    other = await make_neuron_model(name="other", json_model=SOMA_MODEL)
+    rec, _ = await _run_datasets(create_array_dataset, ran)
+    _, stim = await _run_datasets(create_array_dataset, other)
+    res = await aexecute(CREATE_SIMULATION, {"input": {"name": "Mixed", "model": str(ran.id), "duration": "40 ms", "sampling": {"rate": "40 kHz"}, **_datasets(rec, stim)}})
+    assert res.errors and "carries sites on model ['other'], but this is a run of model 'ran'" in str(res.errors[0]), res.errors
+    assert not await Simulation.objects.filter(name="Mixed").aexists()
+
+
+async def test_a_model_lists_the_sites_that_are_part_of_it(aexecute, make_neuron_model, create_array_dataset):
+    nm = await make_neuron_model(json_model=SOMA_MODEL)
+    await _run_datasets(create_array_dataset, nm)
+    res = await aexecute("query ($id: ID!) { neuronModel(id: $id) { recordingSites { kind cell } stimulusSites { label } } }", {"id": str(nm.id)})
+    assert not res.errors, res.errors
+    assert res.data["neuronModel"] == {"recordingSites": [{"kind": "VOLTAGE", "cell": "soma"}], "stimulusSites": [{"label": "IClamp"}]}

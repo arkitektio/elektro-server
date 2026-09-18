@@ -319,10 +319,15 @@ async def test_a_trace_layer_draws_a_lens_or_a_dataset_but_not_both(aexecute, ma
     assert res.errors and "exactly one of the two" in str(res.errors[0])
 
 
-async def test_an_adopted_world_needs_a_time_axis(aexecute, authenticated_context):
-    world = await seed.create_world(authenticated_context, "space only", axes=seed.ZYX_WORLD_AXES)
-    res = await aexecute(CREATE_EXPERIMENT, {"input": {"name": "Flat", "coordinateSystem": str(world.pk)}})
-    assert res.errors and "has no TIME axis" in str(res.errors[0])
+async def test_an_adopted_world_needs_a_time_or_a_space_axis(aexecute, authenticated_context):
+    """A timeline (a clock) or a place (a probe's space); a spectrum alone is neither."""
+    spectrum = await seed.create_world(authenticated_context, "spectrum only", axes=[seed.physical_axis("f", seed.enums.AxisType.FREQUENCY, "hertz")])
+    res = await aexecute(CREATE_EXPERIMENT, {"input": {"name": "Flat", "coordinateSystem": str(spectrum.pk)}})
+    assert res.errors and "has no TIME or SPACE axis" in str(res.errors[0])
+
+    place = await seed.create_world(authenticated_context, "probe space", axes=seed.ZYX_WORLD_AXES)
+    res = await aexecute(CREATE_EXPERIMENT, {"input": {"name": "Probe", "coordinateSystem": str(place.pk)}})
+    assert not res.errors, res.errors
 
 
 async def test_another_organization_cannot_draw_this_ones_recordings_or_adopt_its_world(aexecute, authenticated_context, make_simulation_chain, other_org_context):

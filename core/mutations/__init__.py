@@ -63,6 +63,14 @@ from .experiment_layer import (
     create_events_layer,
     update_events_layer,
     create_annotation_layer,
+    create_heatmap_layer,
+    update_heatmap_layer,
+    create_series_layer,
+    update_series_layer,
+    create_waveform_layer,
+    update_waveform_layer,
+    create_point_layer,
+    update_point_layer,
 )
 from .model_collection import *
 from .model_workspace import (

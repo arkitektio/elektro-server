@@ -197,27 +197,44 @@ def write_offset(
     ctx: CreationContext,
     name: str | None = None,
     validity: "enums.PlacementValidity | str | None" = None,
+    drift_ppm: float = 0.0,
 ) -> "models.Transformation":
     """State "``source``'s zero is ``offset`` into ``target``" as one edge between two clocks.
 
     ``offset`` is kanne's canonical picoseconds. MANUAL by default: someone decided where this
     recording sits, which is a different claim from one read off metadata.
+
+    ``drift_ppm`` is how much faster ``source`` ticks than ``target``, in parts per million: a
+    probe's crystal against a DAQ's. It is the factor of the edge -- ``t_target = t_source *
+    (1 + drift * 1e-6) + offset`` -- so a drifting clock is one AFFINE edge, never a SCALE beside a
+    TRANSLATION (two edges between the same two spaces are rivals, not a composition).
     """
     source_unit, target_unit = clock_unit(source), clock_unit(target)
     start = seconds_in(target_unit, offset / _PICOSECONDS_PER_SECOND)
     axes = {"input_axes": [time_axis(source).name], "output_axes": [time_axis(target).name]}
 
-    if coords_logic.units_are_interchangeable(source_unit, target_unit):
-        # One unit on both sides: a bare offset. BY_DIMENSION so the two axes need not share a name.
+    if coords_logic.units_are_interchangeable(source_unit, target_unit) and not drift_ppm:
+        # One unit on both sides, no drift: a bare offset. BY_DIMENSION so the two axes need not share a name.
         return graph_logic.build_registration_edge(
             input_system=source, output_system=target, kind=enums.TransformKind.BY_DIMENSION, name=name, translation=[start], validity=validity, ctx=ctx, **axes
         )
 
-    # Two units: the edge has to state the factor, which a TRANSLATION cannot.
-    factor = seconds_in(target_unit, seconds_from(source_unit, 1.0))
+    # Two units, or a drift: the edge has to state the factor, which a TRANSLATION cannot.
+    factor = seconds_in(target_unit, seconds_from(source_unit, 1.0)) * (1.0 + drift_ppm * 1e-6)
     return graph_logic.build_registration_edge(
         input_system=source, output_system=target, kind=enums.TransformKind.BY_DIMENSION, name=name, affine=[[factor, start]], validity=validity, ctx=ctx, **axes
     )
+
+
+def nominal_offset(source: "models.CoordinateSystem", target: "models.CoordinateSystem") -> int | None:
+    """Where ``source``'s zero sits on ``target`` by their epochs alone, in canonical picoseconds; None unless both are anchored.
+
+    The *nominal* sync: what two wall clocks say, before a TTL alignment corrects it. Read here
+    to default an offset, never folded into a path -- the edge is what states it.
+    """
+    if source.epoch is None or target.epoch is None:
+        return None
+    return int(round((source.epoch - target.epoch).total_seconds() * _PICOSECONDS_PER_SECOND))
 
 
 # --- what an interpretation checks before it times a dataset ---------------------------------------
@@ -372,3 +389,17 @@ def timing_clocks_of(grid: "models.CoordinateSystem | None") -> "list[models.Coo
     for edge in edges:
         seen.setdefault(edge.output_id, edge.output)
     return list(seen.values())
+
+
+def drift_of(source: "models.CoordinateSystem | None", target: "models.CoordinateSystem | None") -> float | None:
+    """How much faster ``source`` ticks than ``target``, in ppm, read off the edge between them. None when no such edge relates them.
+
+    The edge's factor, less the unit conversion between the two clocks: a millisecond clock onto a
+    second clock has a factor of 0.001 and no drift.
+    """
+    law = _law_between(source, target)
+    if law is None:
+        return None
+    factor, _, target_unit = law
+    nominal = seconds_in(target_unit, seconds_from(clock_unit(source), 1.0))
+    return (factor / nominal - 1.0) * 1e6

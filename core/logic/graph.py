@@ -1055,19 +1055,25 @@ def _assert_axis_types_correspond(
         )
 
 
-def _assert_epochs_agree(input_system: "models.CoordinateSystem", output_system: "models.CoordinateSystem") -> None:
-    """Refuse to relate two clocks that start at different instants.
+def _assert_epochs_agree(input_system: "models.CoordinateSystem", output_system: "models.CoordinateSystem", *, kind: str | None = None, params: dict | None = None) -> None:
+    """Refuse to relate two clocks that start at different instants *without saying how*.
 
     ``CoordinateSystem.epoch`` states that ``wall_clock = epoch + t * unit``. Nothing in either
     composer or either walk reads it -- so composing a path across two spaces whose epochs differ
-    silently treats their ``t = 0`` as the same instant, and a 09:00 acquisition aligned against
-    an 11:00 one is two hours wrong with no error anywhere.
+    through an edge that states no offset silently treats their ``t = 0`` as the same instant, and a
+    09:00 acquisition aligned against an 11:00 one is two hours wrong with no error anywhere.
 
     Refused rather than composed, deliberately. Composing the offset would mean an edge whose
     effective parameters depend on a column *neither endpoint's parameters mention*, which is the
-    same "a fact stored somewhere no query can find it" this model exists to avoid. Stating the
-    offset as a TRANSLATION on the time axis puts it on the edge, where every reader already
-    looks. Two spaces that share an epoch, or where either declines to name one, are unaffected.
+    same "a fact stored somewhere no query can find it" this model exists to avoid. So the edge
+    has to state it: a TRANSLATION, an AFFINE (which is also how clock *drift* is written -- a
+    factor a few ppm off one), or a BY_DIMENSION carrying either. Those are accepted whatever the
+    epochs say, because synchronising two clocks is exactly the claim that their nominal offset
+    was not quite right. What stays refused is an edge with no constant term on the time axis --
+    IDENTITY, SCALE, MAP_AXIS, a scale-only BY_DIMENSION -- which asserts the two zeros coincide
+    when the epochs say they do not. (This used to refuse *every* kind, the recommended
+    TRANSLATION included; fixed in mikro and elektro together.) Two spaces that share an epoch,
+    or where either declines to name one, are unaffected.
     """
     left, right = input_system.epoch, output_system.epoch
     if left is None or right is None or left == right:
@@ -1075,10 +1081,33 @@ def _assert_epochs_agree(input_system: "models.CoordinateSystem", output_system:
     has_clock = any(axis.type == enums.AxisTypeChoices.TIME.value for axis in input_system.axes.all()) and any(axis.type == enums.AxisTypeChoices.TIME.value for axis in output_system.axes.all())
     if not has_clock:
         return
+    if _states_an_offset(kind, params or {}):
+        return
     raise ValueError(
-        f"'{input_system.name}' and '{output_system.name}' both carry a time axis but anchor it to different instants ({left.isoformat()} and {right.isoformat()}), so relating them without saying so would assert that those two instants are the same moment. "
-        "State the offset as a TRANSLATION on the time axis, or give the two spaces the same epoch."
+        f"'{input_system.name}' and '{output_system.name}' both carry a time axis but anchor it to different instants ({left.isoformat()} and {right.isoformat()}), and a {kind or 'relation'} "
+        "states no offset between them -- it would assert that those two instants are the same moment. State the offset: a TRANSLATION on the time axis, or an AFFINE "
+        "(a factor and an offset, which is also how drift is written), or give the two spaces the same epoch."
     )
+
+
+#: The kinds whose parameters can state a constant term on an axis. Everything else -- IDENTITY,
+#: SCALE, MAP_AXIS -- maps zero onto zero by construction.
+_OFFSET_KINDS = frozenset({"TRANSLATION", "AFFINE", "ROTATION", "BY_DIMENSION", "FIELD", "SEQUENCE"})
+
+
+def _states_an_offset(kind: str | None, params: dict) -> bool:
+    """Whether an edge of this kind, with these parameters, says where one zero sits on the other.
+
+    A FIELD (a lookup, whose values are the instants) and a SEQUENCE (whose children are checked
+    as they are written) count; a BY_DIMENSION counts only when it carries a translation or an
+    affine, since a scale-only one pins zero to zero exactly as a SCALE does.
+    """
+    kind = getattr(kind, "value", kind)
+    if kind not in _OFFSET_KINDS:
+        return False
+    if kind == "BY_DIMENSION":
+        return params.get("translation") is not None or bool(params.get("affine"))
+    return True
 
 
 def assert_edge_rank(
@@ -1133,7 +1162,10 @@ def assert_edge_rank(
     # Two clocks anchored to different instants cannot be related by an edge that says nothing
     # about the offset. Checked for every kind, before the per-kind branches: it is a fact about
     # the two *spaces*, not about the map, so no kind is exempt from it.
-    _assert_epochs_agree(input_system, output_system)
+    if subset_axes is None:
+        # A wrapper child's offset may live in a sibling (a SCALE beside a TRANSLATION under one
+        # BY_DIMENSION), so the rule is the wrapper's to answer, not each child's.
+        _assert_epochs_agree(input_system, output_system, kind=kind, params=params)
 
     # An INDEX axis has no metric -- that is its definition, not an omission -- so the kinds
     # that do arithmetic on a coordinate mean nothing over it. Checked here rather than left
@@ -3525,17 +3557,18 @@ def lens_source_system(lens: "models.Lens") -> "models.CoordinateSystem | None":
 def layer_source_system(layer: "models.ExperimentLayer") -> "models.CoordinateSystem | None":
     """The coordinate system a layer's data is expressed in, per kind.
 
-    mikro's function, over elektro's four kinds. A trace layer's data lives in its lens' space;
-    a spikes layer's in the space its sparse dataset owns (a raster's ``(unit, t)``); an events
-    layer's in the space its table owns (its TIME coordinate column); an annotation layer's in
-    its collection's drawing space. Read the lens-backed kinds off
-    :data:`core.enums.LENS_BACKED_KINDS` rather than spelling them again.
+    mikro's function, over elektro's kinds. A trace, heatmap or waveform layer's data lives in its
+    lens' space; a spikes layer's in the space its sparse dataset owns (a raster's ``(unit, t)``);
+    an events, series or point layer's in the space its table owns (its TIME or SPACE coordinate
+    columns); an annotation layer's in its collection's drawing space. Read the groups off
+    :data:`core.enums.LENS_BACKED_KINDS` and :data:`core.enums.TABLE_BACKED_KINDS` rather than
+    spelling them again.
     """
     if layer.kind in enums.LENS_BACKED_KINDS and layer.lens_id:
         return lens_source_system(layer.lens)
     if layer.kind == enums.ExperimentLayerKindChoices.SPIKES.value and layer.sparse_dataset_id:
         return getattr(layer.sparse_dataset, "coordinate_system", None)
-    if layer.kind == enums.ExperimentLayerKindChoices.EVENTS.value and layer.table_dataset_id:
+    if layer.kind in enums.TABLE_BACKED_KINDS and layer.table_dataset_id:
         return getattr(layer.table_dataset, "coordinate_system", None)
     if layer.kind == enums.ExperimentLayerKindChoices.ANNOTATION.value and layer.annotation_collection_id:
         return getattr(layer.annotation_collection, "coordinate_system", None)

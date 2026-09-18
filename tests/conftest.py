@@ -528,18 +528,18 @@ def make_simulation_chain(authenticated_context):
         ctx = context or authenticated_context
         creation = seed._creation(ctx)
         environment = models.ModEnvironment.objects.create(name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization)
-        nm = models.NeuronModel.objects.create(name="NeuronModel", hash=uuid.uuid4().hex, json_model={}, creator=ctx.request.user, environment=environment)
+        nm = models.NeuronModel.objects.create(name="NeuronModel", hash=uuid.uuid4().hex, json_model=seed.SOMA_MODEL, creator=ctx.request.user, environment=environment)
 
         clock = clocks.create_clock(name=f"{name}/clock", unit=unit, ctx=creation)
         sim = models.Simulation.objects.create(model=nm, clock=clock, name=name, duration=parse(quantities.Duration, "40 ms"), creator=ctx.request.user)
 
         rec_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/soma.v", seed.T_AXES, [[samples]], None, "mV", None)
         stim_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/iclamp", seed.T_AXES, [[samples]], None, "nA", None)
-        # The sites are spokes on the datasets' own whole-dataset anchors, as createArrayDataset writes them.
+        # The sites are spokes on the datasets' own whole-dataset anchors, as createArrayDataset writes them, each part of the run's model.
         rec_anchor = models.CoordinateAnchor.objects.get_or_create(dataset=rec_dataset, coordinates={})[0]
-        models.RecordingSite.objects.create(anchor=rec_anchor, kind="VOLTAGE", cell="soma", location="0", position=0.5)
+        models.RecordingSite.objects.create(anchor=rec_anchor, model=nm, kind="VOLTAGE", cell="soma", location="0", position=0.5)
         stim_anchor = models.CoordinateAnchor.objects.get_or_create(dataset=stim_dataset, coordinates={})[0]
-        models.StimulusSite.objects.create(anchor=stim_anchor, kind="CURRENT", cell="soma", location="0", position=0.5)
+        models.StimulusSite.objects.create(anchor=stim_anchor, model=nm, kind="CURRENT", cell="soma", location="0", position=0.5)
         rec, stim = rec_dataset, stim_dataset
 
         time_dataset = None

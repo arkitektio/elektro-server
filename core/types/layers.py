@@ -8,7 +8,11 @@ fields vendored from mikro's ``Layer`` -- and one concrete type per kind, resolv
 * :class:`TraceLayer` -- a lens over an array dataset (a recording, a stimulus, any signal);
 * :class:`SpikesLayer` -- a sparse dataset with a TIME axis, drawn as a raster;
 * :class:`EventsLayer` -- a table dataset with a TIME column, drawn as marks or intervals;
-* :class:`AnnotationLayer` -- an annotation collection's hand-drawn marks.
+* :class:`AnnotationLayer` -- an annotation collection's hand-drawn marks;
+* :class:`HeatmapLayer` -- a lens drawn as an image, time across and one other axis down;
+* :class:`SeriesLayer` -- a numeric table column drawn as a line over time;
+* :class:`WaveformLayer` -- per-unit templates in peri-spike time;
+* :class:`PointLayer` -- a table placed in space, a point per row.
 
 A concrete type reachable only through the interface is not auto-discovered by strawberry, so
 :data:`layer_types` is registered in the schema's ``types=``. Drop one and it vanishes from the
@@ -96,7 +100,8 @@ def _filter_bys(stored: list | None) -> List[FilterBy]:
         "One thing drawn in an experiment, alpha-blended over the layers below it. mikro's Layer, over time. It carries view state only: where its data sits on the timeline "
         "is a coordinate system and the edges out of it, and every placement question a layer answers -- `pathToWorld`, `placement`, `placementValidity`, `placementInvariance` "
         "-- is derived from the graph on read and stored nowhere, so correcting one sampling law moves every layer that looks through it. The concrete kind carries its own "
-        "source and render settings: TraceLayer (a lens over an array dataset), SpikesLayer (a spike raster), EventsLayer (an event table), AnnotationLayer (hand-drawn marks)"
+        "source and render settings: TraceLayer and HeatmapLayer (a lens over an array dataset, as lines or as an image), SpikesLayer (a spike raster), WaveformLayer (per-unit "
+        "templates in peri-spike time), EventsLayer and SeriesLayer (a table with a TIME column, as marks or as a line), PointLayer (a table placed in space), AnnotationLayer (hand-drawn marks)"
     ),
 )
 class ExperimentLayer:
@@ -200,6 +205,30 @@ class LevelPlacement:
     path: List[PlacementStep] | None = strawberry.field(description="The path from this level's sample grid to the experiment's world, or null when the dataset is not placed in it")
 
 
+def _lens_duration(lens: "models.Lens") -> int | None:
+    """How much time a lens shows: its extent along the sample axis over the sampling law's rate. None over a lookup or on no clock."""
+    grid = lens.dataset.coordinate_system
+    timing = clocks.timing_clocks_of(grid)
+    sample_axis = clocks.time_axis(grid) if grid is not None else None
+    if not timing or sample_axis is None:
+        return None
+    rate, _ = clocks.sampling_of(grid, timing[0])
+    if rate is None:
+        return None
+    samples = lens.get_size_of_axis(sample_axis.name)
+    step = next((entry.step or 1 for entry in lens.slices_list if entry.axis == sample_axis.name), 1)
+    # samples * step / rate, in picoseconds, with the rate in nanohertz.
+    return int(round(samples * step * 1e21 / rate))
+
+
+def _level_paths(layer, info: Info) -> List["LevelPlacement"]:  # noqa: ANN001 - a lens-backed layer row
+    """One placement per pyramid level of a lens-backed layer's dataset: mikro's ``_level_placements``."""
+    return [
+        LevelPlacement(data_array=array, path=None if steps is None else [PlacementStep(transformation=edge, inverted=inverted) for edge, inverted in steps])
+        for array, steps in scene_graph.for_request(info, layer.experiment).level_placements(layer)
+    ]
+
+
 @kante.django_type(
     models.ExperimentLayer,
     filters=filters.ExperimentLayerFilter,
@@ -229,28 +258,14 @@ class TraceLayer(ExperimentLayer):
     )
     def duration(self, info: Info) -> quantities.Duration | None:
         """The shown extent along time: samples over rate."""
-        grid = self.lens.dataset.coordinate_system
-        timing = clocks.timing_clocks_of(grid)
-        sample_axis = clocks.time_axis(grid) if grid is not None else None
-        if not timing or sample_axis is None:
-            return None
-        rate, _ = clocks.sampling_of(grid, timing[0])
-        if rate is None:
-            return None
-        samples = self.lens.get_size_of_axis(sample_axis.name)
-        step = next((entry.step or 1 for entry in self.lens.slices_list if entry.axis == sample_axis.name), 1)
-        # samples * step / rate, in picoseconds, with the rate in nanohertz.
-        return int(round(samples * step * 1e21 / rate))
+        return _lens_duration(self.lens)
 
     @kante.django_field(
         description="Per pyramid level, the path from that level's sample grid to this experiment's world. What a client zoomed out over an hour of data reads: pick a level by zoom and use its path"
     )
     def level_paths(self, info: Info) -> List[LevelPlacement]:
         """One placement per pyramid level of the lens' dataset."""
-        return [
-            LevelPlacement(data_array=array, path=None if steps is None else [PlacementStep(transformation=edge, inverted=inverted) for edge, inverted in steps])
-            for array, steps in scene_graph.for_request(info, self.experiment).level_placements(self)
-        ]
+        return _level_paths(self, info)
 
     @classmethod
     def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
@@ -336,13 +351,13 @@ class EventsLayer(ExperimentLayer):
         column = self.table_dataset.columns.filter(role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=enums.AxisTypeChoices.TIME.value).order_by("order").first()
         return column.name if column is not None else None
 
-    @kante.django_field(field_name="event_color_bys", description="The colourings this layer offers: columns of the event table or of tables it references")
+    @kante.django_field(field_name="table_color_bys", description="The colourings this layer offers: columns of the event table or of tables it references")
     def color_bys(self, info: Info) -> List[ColorBy]:
-        return _color_bys(self.event_color_bys)
+        return _color_bys(self.table_color_bys)
 
-    @kante.django_field(field_name="event_filter_bys", description="The filters this layer offers: columns of the event table or of tables it references")
+    @kante.django_field(field_name="table_filter_bys", description="The filters this layer offers: columns of the event table or of tables it references")
     def filter_bys(self, info: Info) -> List[FilterBy]:
-        return _filter_bys(self.event_filter_bys)
+        return _filter_bys(self.table_filter_bys)
 
     @classmethod
     def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
@@ -367,5 +382,207 @@ class AnnotationLayer(ExperimentLayer):
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.ANNOTATION.value
 
 
+@kante.django_type(
+    models.ExperimentLayer,
+    filters=filters.ExperimentLayerFilter,
+    ordering=order.ExperimentLayerOrder,
+    pagination=True,
+    description=(
+        "A heatmap: a lens over an array dataset drawn as an image, time across and one other axis down -- a spectrogram (t, f), a depth or current-source-density plot (t, c). "
+        "mikro's intensity layer, over time: a continuous colormap between `climMin` and `climMax`, through `gamma`"
+    ),
+)
+class HeatmapLayer(ExperimentLayer):
+    """A heatmap layer: a lens drawn as an image."""
+
+    id: auto
+    lens: Lens = kante.django_field(description="The selection this layer draws. Every axis but TIME and `rowAxis` is fixed to one position")
+    colormap: enums.ColorMap | None = kante.django_field(description="The continuous colormap the values are drawn through")
+    clim_min: float | None = kante.django_field(description="The value at the bottom of the colormap, in the dataset's value unit")
+    clim_max: float | None = kante.django_field(description="The value at the top of the colormap, in the dataset's value unit")
+    gamma: float | None = kante.django_field(description="The gamma the colour range is drawn through; null is linear")
+
+    row_axis: str | None = kante.django_field(
+        description="The axis drawn down the image: the stated one, or the dataset's FREQUENCY axis, else CHANNEL, else INDEX -- resolved and checked when the layer was written"
+    )
+
+    @kante.django_field(description="How much time this layer shows: its lens' extent along the sample axis over the sampling law's rate. Null over a lookup")
+    def duration(self, info: Info) -> quantities.Duration | None:
+        return _lens_duration(self.lens)
+
+    @kante.django_field(description="Per pyramid level, the path from that level's sample grid to this experiment's world: what a client zoomed out over an hour of data reads")
+    def level_paths(self, info: Info) -> List[LevelPlacement]:
+        return _level_paths(self, info)
+
+    @classmethod
+    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+        return getattr(obj, "kind", None) == enums.ExperimentLayerKind.HEATMAP.value
+
+
+@kante.django_type(
+    models.ExperimentLayer,
+    filters=filters.ExperimentLayerFilter,
+    ordering=order.ExperimentLayerOrder,
+    pagination=True,
+    description=(
+        "A series: one numeric column of a table with a TIME column, drawn as a line over time -- running speed, pupil size, a temperature: a signal that arrives as rows "
+        "rather than as an array. Placed by the table's own space, exactly as an events layer is"
+    ),
+)
+class SeriesLayer(ExperimentLayer):
+    """A series layer: a numeric table column over time."""
+
+    id: auto
+    table_dataset: TableDataset = kante.django_field(description="The table this layer draws")
+    value_column: str | None = kante.django_field(description="The numeric column drawn as the value")
+    interpolation: enums.SeriesInterpolation = kante.django_field(description="How consecutive rows are joined")
+    lane_column: str | None = kante.django_field(description="A categorical column giving each distinct value its own line; null draws one")
+    line_width: float | None = kante.django_field(description="The line width, in screen pixels")
+    clim_min: float | None = kante.django_field(description="The bottom of the value range, in the column's unit")
+    clim_max: float | None = kante.django_field(description="The top of the value range, in the column's unit")
+    colormap: enums.ColorMap | None = kante.django_field(description="The colormap the active colour-by is drawn through")
+    active_color_by: int | None = kante.django_field(description="Which entry of `colorBys` is drawn, as an index into it")
+    active_filter_bys: List[int] = kante.django_field(description="Which entries of `filterBys` apply, as indices into it")
+
+    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    def color(self, info: Info) -> scalars.RGBAColor | None:
+        return self.color
+
+    @kante.django_field(description="The table's TIME coordinate column: where each row sits in the table's own space. Derived from the table's declaration, never stored per layer")
+    def time_column(self, info: Info) -> str | None:
+        column = self.table_dataset.columns.filter(role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=enums.AxisTypeChoices.TIME.value).order_by("order").first()
+        return column.name if column is not None else None
+
+    @kante.django_field(field_name="table_color_bys", description="The colourings this layer offers: columns of the table or of tables it references")
+    def color_bys(self, info: Info) -> List[ColorBy]:
+        return _color_bys(self.table_color_bys)
+
+    @kante.django_field(field_name="table_filter_bys", description="The filters this layer offers: columns of the table or of tables it references")
+    def filter_bys(self, info: Info) -> List[FilterBy]:
+        return _filter_bys(self.table_filter_bys)
+
+    @classmethod
+    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+        return getattr(obj, "kind", None) == enums.ExperimentLayerKind.SERIES.value
+
+
+@kante.django_type(
+    models.ExperimentLayer,
+    filters=filters.ExperimentLayerFilter,
+    ordering=order.ExperimentLayerOrder,
+    pagination=True,
+    description=(
+        "Waveforms: per-unit templates -- an array dataset (unit, [c,] w) derived from a spike raster -- drawn per unit in peri-spike time. `w` is timed by a sampling law "
+        "onto a clock whose zero is the spike, so this layer lives in an experiment over that clock. Colour and order come from the raster's units table"
+    ),
+)
+class WaveformLayer(ExperimentLayer):
+    """A waveform layer: per-unit templates in peri-spike time."""
+
+    id: auto
+    lens: Lens = kante.django_field(description="The selection of templates this layer draws")
+    channel_index: int | None = kante.django_field(description="The one channel drawn; null draws every channel")
+    line_width: float | None = kante.django_field(description="The line width, in screen pixels")
+    clim_min: float | None = kante.django_field(description="The bottom of the value range, in the templates' value unit")
+    clim_max: float | None = kante.django_field(description="The top of the value range, in the templates' value unit")
+    colormap: enums.ColorMap | None = kante.django_field(description="The colormap the active colour-by is drawn through")
+    active_color_by: int | None = kante.django_field(description="Which entry of `colorBys` is drawn, as an index into it")
+    active_filter_bys: List[int] = kante.django_field(description="Which entries of `filterBys` apply, as indices into it")
+
+    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    def color(self, info: Info) -> scalars.RGBAColor | None:
+        return self.color
+
+    unit_axis: str | None = kante.django_field(description="The axis enumerating the units: the stated one, or the templates' one INDEX axis -- resolved when the layer was written")
+
+    @kante.django_field(description="The units table the templates' raster names: where colour-bys and filter-bys start. Null when the templates were derived from no raster")
+    def unit_table(self, info: Info) -> Optional[TableDataset]:
+        return ephys_pickers.waveform_root(self.lens.dataset)
+
+    @kante.django_field(description="How much peri-spike time a template spans: its extent along `w` over the sampling law's rate")
+    def duration(self, info: Info) -> quantities.Duration | None:
+        return _lens_duration(self.lens)
+
+    @kante.django_field(field_name="spike_color_bys", description="The colourings this layer offers: columns of the units table or of tables it references")
+    def color_bys(self, info: Info) -> List[ColorBy]:
+        return _color_bys(self.spike_color_bys)
+
+    @kante.django_field(field_name="spike_filter_bys", description="The filters this layer offers: columns of the units table or of tables it references")
+    def filter_bys(self, info: Info) -> List[FilterBy]:
+        return _filter_bys(self.spike_filter_bys)
+
+    @classmethod
+    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+        return getattr(obj, "kind", None) == enums.ExperimentLayerKind.WAVEFORM.value
+
+
+def _coordinate_column_named(table: "models.TableDataset", axis_name: str) -> str | None:
+    """The SPACE coordinate column a point layer reads as ``axis_name``. mikro's ``_coordinate_column_named``.
+
+    By name first (case-insensitive), then by position among the SPACE columns -- the last is x,
+    the one before y, the one before that z -- and only when there are at least two. Name the
+    columns `x` and `y` and the fallback, which can transpose, is never reached.
+    """
+    spatial = [column for column in table.columns.filter(role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=enums.AxisTypeChoices.SPACE.value).order_by("order")]
+    for column in spatial:
+        if column.name.lower() == axis_name:
+            return column.name
+    if len(spatial) < 2:
+        return None
+    position = {"x": -1, "y": -2, "z": -3}[axis_name]
+    return spatial[position].name if len(spatial) >= -position else None
+
+
+@kante.django_type(
+    models.ExperimentLayer,
+    filters=filters.ExperimentLayerFilter,
+    ordering=order.ExperimentLayerOrder,
+    pagination=True,
+    description=(
+        "Points: a table placed in space drawn as a point per row -- a probe's channel map, units at their positions. The table's SPACE coordinate columns place the rows "
+        "(`xColumn`, `yColumn`, `zColumn`, derived from its declaration), so this layer lives in an experiment over a space. mikro's point layer"
+    ),
+)
+class PointLayer(ExperimentLayer):
+    """A point layer: a table placed in space."""
+
+    id: auto
+    table_dataset: TableDataset = kante.django_field(description="The table this layer draws")
+    point_size: float | None = kante.django_field(description="A point's size, in screen pixels")
+    size_column: str | None = kante.django_field(description="A numeric column scaling each point's size")
+    label_column: str | None = kante.django_field(description="A column naming each point")
+    colormap: enums.ColorMap | None = kante.django_field(description="The colormap the active colour-by is drawn through")
+    active_color_by: int | None = kante.django_field(description="Which entry of `colorBys` is drawn, as an index into it")
+    active_filter_bys: List[int] = kante.django_field(description="Which entries of `filterBys` apply, as indices into it")
+
+    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    def color(self, info: Info) -> scalars.RGBAColor | None:
+        return self.color
+
+    @kante.django_field(description="The SPACE coordinate column read as x: the one named `x`, else the last SPACE column")
+    def x_column(self, info: Info) -> str | None:
+        return _coordinate_column_named(self.table_dataset, "x")
+
+    @kante.django_field(description="The SPACE coordinate column read as y: the one named `y`, else the one before the last")
+    def y_column(self, info: Info) -> str | None:
+        return _coordinate_column_named(self.table_dataset, "y")
+
+    @kante.django_field(description="The SPACE coordinate column read as z, if the table has three")
+    def z_column(self, info: Info) -> str | None:
+        return _coordinate_column_named(self.table_dataset, "z")
+
+    @kante.django_field(field_name="table_color_bys", description="The colourings this layer offers: columns of the table or of tables it references")
+    def color_bys(self, info: Info) -> List[ColorBy]:
+        return _color_bys(self.table_color_bys)
+
+    @kante.django_field(field_name="table_filter_bys", description="The filters this layer offers: columns of the table or of tables it references")
+    def filter_bys(self, info: Info) -> List[FilterBy]:
+        return _filter_bys(self.table_filter_bys)
+
+    @classmethod
+    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+        return getattr(obj, "kind", None) == enums.ExperimentLayerKind.POINT.value
+
+
 #: The concrete layer types, for the schema's ``types=``. See the module docstring.
-layer_types: list[type] = [TraceLayer, SpikesLayer, EventsLayer, AnnotationLayer]
+layer_types: list[type] = [TraceLayer, SpikesLayer, EventsLayer, AnnotationLayer, HeatmapLayer, SeriesLayer, WaveformLayer, PointLayer]

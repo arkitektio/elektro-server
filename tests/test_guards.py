@@ -98,7 +98,9 @@ def test_anchor_defers_a_site_spoke_to_its_dataset(authenticated_context):
     ctx = authenticated_context
     dataset = models.ArrayDataset.objects.create(name="soma.v", creator=ctx.request.user, organization=ctx.request.organization)
     anchor = models.CoordinateAnchor.objects.create(dataset=dataset, coordinates={})
-    site = models.RecordingSite.objects.create(anchor=anchor, kind="VOLTAGE", cell="soma", location="0", position=0.5)
+    environment = models.ModEnvironment.objects.create(name="env", organization=ctx.request.organization)
+    neuron_model = models.NeuronModel.objects.create(name="soma", hash="soma", creator=ctx.request.user, environment=environment)
+    site = models.RecordingSite.objects.create(anchor=anchor, model=neuron_model, kind="VOLTAGE", cell="soma", location="0", position=0.5)
     assert guards.resolve_anchor(site) == dataset
 
 

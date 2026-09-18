@@ -34,7 +34,7 @@ from datalayer.types import ZarrStore
 
 if TYPE_CHECKING:
     # Only for the lazy annotations below: each of these modules imports this one back.
-    from core.types import Simulation
+    from core.types import NeuronModel, Simulation
     from core.types.layers import ExperimentLayer
     from core.types.annotation import AnnotationCollection
     from core.types.file_link import FileLink
@@ -330,15 +330,16 @@ class AcquisitionMetadata(OrgScoped):
 @kante.django_type(
     models.RecordingSite,
     pagination=True,
-    description="The site truth, recorded: where on a simulated model the anchored values were recorded (NEURON's cell, section and position along it) and what was recorded. elektro's own spoke; it was the `Recording` row of a simulation",
+    description="The site truth, recorded: a place on a neuron model -- the model it is part of, NEURON's cell, section and position along it in that model -- where the anchored values were recorded, and what was recorded. elektro's own spoke; it was the `Recording` row of a simulation",
 )
 class RecordingSite(OrgScoped):
-    """Where on a model the anchored values were recorded."""
+    """A place on a neuron model where the anchored values were recorded."""
 
     id: auto
     kind: enums.RecordingKind
-    cell: str | None = kante.django_field(description="The id of the cell, as the model config names it")
-    location: str | None = kante.django_field(description="The id of the section, as the model config names it")
+    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(description="The neuron model this site is part of")
+    cell: str | None = kante.django_field(description="The id of the cell, one of the cells the model declares")
+    location: str | None = kante.django_field(description="The id of the section, one of the sections of that cell of the model")
     position: float | None = kante.django_field(description="The normalized position along the section, 0 to 1")
 
     @kante.django_field(description="The stated label, or the site spelled out as 'cell: location(position)'")
@@ -349,15 +350,16 @@ class RecordingSite(OrgScoped):
 @kante.django_type(
     models.StimulusSite,
     pagination=True,
-    description="The site truth, injected: where on a simulated model the anchored values were injected (NEURON's cell, section and position along it) and what was clamped. elektro's own spoke; it was the `Stimulus` row of a simulation",
+    description="The site truth, injected: a place on a neuron model -- the model it is part of, NEURON's cell, section and position along it in that model -- where the anchored values were injected, and what was clamped. elektro's own spoke; it was the `Stimulus` row of a simulation",
 )
 class StimulusSite(OrgScoped):
-    """Where on a model the anchored values were injected."""
+    """A place on a neuron model where the anchored values were injected."""
 
     id: auto
     kind: enums.StimulusKind
-    cell: str | None = kante.django_field(description="The id of the cell, as the model config names it")
-    location: str | None = kante.django_field(description="The id of the section, as the model config names it")
+    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(description="The neuron model this site is part of")
+    cell: str | None = kante.django_field(description="The id of the cell, one of the cells the model declares")
+    location: str | None = kante.django_field(description="The id of the section, one of the sections of that cell of the model")
     position: float | None = kante.django_field(description="The normalized position along the section, 0 to 1")
 
     @kante.django_field(description="The stated label, or the site spelled out as 'cell: location(position)'")

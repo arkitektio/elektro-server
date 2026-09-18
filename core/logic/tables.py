@@ -41,3 +41,20 @@ def columns_for_store(store) -> list[base_models.ParquetColumn]:
     if recorded is None:
         return get_current_datalayer().get_parquet_schema(store)
     return [base_models.ParquetColumn(**column) for column in recorded]
+
+
+#: The DuckDB type names whose values are numbers -- what a series can draw and a point can be
+#: sized by. Matched on the base name, so `DECIMAL(18,3)` is numeric and `VARCHAR` is not.
+NUMERIC_DUCKDB_TYPES = frozenset(
+    {
+        "TINYINT", "SMALLINT", "INTEGER", "INT", "BIGINT", "HUGEINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT",
+        "FLOAT", "FLOAT4", "REAL", "DOUBLE", "FLOAT8", "DECIMAL", "NUMERIC",
+    }
+)  # fmt: skip
+
+
+def is_numeric(dtype: str | None) -> bool:
+    """Whether a column's declared DuckDB type holds numbers."""
+    if not dtype:
+        return False
+    return dtype.upper().split("(")[0].strip() in NUMERIC_DUCKDB_TYPES

@@ -509,6 +509,14 @@ class Mutation:
     create_events_layer = strawberry_django.mutation(resolver=mutations.create_events_layer, description="Draw an event table: a mark per row at its TIME column, or an interval with `stopColumn`")
     update_events_layer = strawberry_django.mutation(resolver=mutations.update_events_layer, description="Restyle an events layer, or point it at another table")
     create_annotation_layer = strawberry_django.mutation(resolver=mutations.create_annotation_layer, description="Draw an annotation collection's marks in an experiment")
+    create_heatmap_layer = strawberry_django.mutation(resolver=mutations.create_heatmap_layer, description="Draw an array dataset as an image, time across and one other axis down: a spectrogram, a depth or CSD plot")
+    update_heatmap_layer = strawberry_django.mutation(resolver=mutations.update_heatmap_layer, description="Restyle a heatmap layer, or point it at another lens")
+    create_series_layer = strawberry_django.mutation(resolver=mutations.create_series_layer, description="Draw a numeric column of a table with a TIME column as a line over time")
+    update_series_layer = strawberry_django.mutation(resolver=mutations.update_series_layer, description="Restyle a series layer")
+    create_waveform_layer = strawberry_django.mutation(resolver=mutations.create_waveform_layer, description="Draw per-unit waveform templates in peri-spike time, coloured by the raster's units table")
+    update_waveform_layer = strawberry_django.mutation(resolver=mutations.update_waveform_layer, description="Restyle a waveform layer")
+    create_point_layer = strawberry_django.mutation(resolver=mutations.create_point_layer, description="Draw a table placed in space -- a channel map, units at their positions -- as a point per row")
+    update_point_layer = strawberry_django.mutation(resolver=mutations.update_point_layer, description="Restyle a point layer")
 
     # --- Annotations ------------------------------------------------------------------
     create_annotation_collection = strawberry_django.mutation(

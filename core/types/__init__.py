@@ -244,6 +244,14 @@ class NeuronModel(OrgScoped):
     simulations: List["Simulation"] = strawberry_django.field()
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
 
+    @strawberry_django.field(description="The recording sites that are part of this model: every place on it some dataset's values were recorded from, in the viewer's organization")
+    def recording_sites(self, info: Info) -> List[Annotated["RecordingSite", strawberry.lazy("core.types.array_dataset")]]:
+        return list(scoping.for_org(models.RecordingSite, info).filter(model=self))
+
+    @strawberry_django.field(description="The stimulus sites that are part of this model: every place on it some dataset's values were injected at, in the viewer's organization")
+    def stimulus_sites(self, info: Info) -> List[Annotated["StimulusSite", strawberry.lazy("core.types.array_dataset")]]:
+        return list(scoping.for_org(models.StimulusSite, info).filter(model=self))
+
     @strawberry_django.field(only=["json_model"])
     def config(self, info: Info) -> "ModelConfig":
         return ModelConfigModel(**self.json_model)
@@ -469,6 +477,10 @@ from core.types.layers import (  # noqa: E402,F401
     SpikesLayer,
     EventsLayer,
     AnnotationLayer,
+    HeatmapLayer,
+    SeriesLayer,
+    WaveformLayer,
+    PointLayer,
     ColorBy,
     FilterBy,
     JoinStep,

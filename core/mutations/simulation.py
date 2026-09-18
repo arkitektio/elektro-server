@@ -13,7 +13,8 @@ exactly as a recording session is built. Which datasets belong to a run is read 
 graph (``Simulation.datasets``), never stored.
 
 What is checked is that the named datasets *can* line up: every one has a TIME axis and the
-same number of samples along it, because one run recorded them all on one sample index.
+same number of samples along it, because one run recorded them all on one sample index -- and
+that every site they carry is part of the model that was run.
 """
 
 import strawberry
@@ -116,6 +117,11 @@ def create_simulation(
         sample_axis = clocks.time_axis(clocks.grid_of(dataset))
         if sample_axis is None:
             raise ValueError(f"Dataset '{dataset.name}' has no TIME axis, so it has no samples for the run's clock to time. A recording or a stimulus is a function of the run's sample index, and that axis is typed TIME.")
+        foreign = sorted(
+            {name for spoke in (models.RecordingSite, models.StimulusSite) for name in spoke.objects.filter(anchor__dataset=dataset).exclude(model=model).values_list("model__name", flat=True)}
+        )
+        if foreign:
+            raise ValueError(f"Dataset '{dataset.name}' carries sites on model {foreign}, but this is a run of model '{model.name}'. A site is part of the model it names, and a run records and injects at sites of the model it ran.")
         resolved.append((dataset, sample_axis.name))
 
     counts = {dataset.name: clocks.sample_count(dataset, axis) for dataset, axis in resolved}

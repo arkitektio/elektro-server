@@ -81,7 +81,8 @@ def create_sampling_law(info: Info, input: CreateSamplingLawInput) -> types.Tran
 class CreateClockOffsetInputModel(BaseModel):
     clock: str
     onto: str
-    offset: int
+    offset: int | None = None
+    drift_ppm: float = 0.0
     validity: enums.PlacementValidity | None = None
     name: str | None = None
 
@@ -89,8 +90,9 @@ class CreateClockOffsetInputModel(BaseModel):
 @kante.pydantic_input(
     CreateClockOffsetInputModel,
     description=(
-        "State where one clock's zero sits on another: a segment within its session, a session or a run within an experiment's world. One edge, shared by everything timed "
-        "on `clock` -- which is why an offset is stated here once and never per layer. A bare offset when the two clocks count in one unit, a one-axis affine when they do not"
+        "State where one clock's zero sits on another, and how fast it ticks against it: a segment within its session, a session or a run within an experiment's "
+        "world, a probe's clock against a DAQ's. One edge, shared by everything timed on `clock` -- which is why an offset is stated here once and never per layer. "
+        "A bare offset when the two clocks count in one unit and do not drift, a one-axis affine otherwise"
     ),
 )
 class CreateClockOffsetInput:
@@ -98,7 +100,17 @@ class CreateClockOffsetInput:
 
     clock: strawberry.ID = strawberry.field(description="The clock being placed")
     onto: strawberry.ID = strawberry.field(description="The clock (or world) it is placed on")
-    offset: quantities.Duration = strawberry.field(description="How far into `onto` the zero of `clock` is, e.g. '50 ms'")
+    offset: quantities.Duration | None = strawberry.field(
+        default=None,
+        description=(
+            "How far into `onto` the zero of `clock` is, e.g. '50 ms'. Omit it when both clocks are anchored to a wall-clock `epoch`: the offset is then their epochs' "
+            "difference -- the nominal sync -- and a later `updateTransformation` refines it"
+        ),
+    )
+    drift_ppm: float = strawberry.field(
+        default=0.0,
+        description="How much faster `clock` ticks than `onto`, in parts per million (a crystal's drift, e.g. 12.5). Written as the factor of the one edge, never as a second edge",
+    )
     validity: enums.PlacementValidity | None = strawberry.field(default=None, description="How far the offset may be trusted. MANUAL by default: someone decided it")
     name: str | None = None
 
@@ -113,6 +125,11 @@ def create_clock_offset(info: Info, input: CreateClockOffsetInput) -> types.Tran
     _assert_clock(onto)
     if clock.pk == onto.pk:
         raise ValueError(f"'{clock.name}' cannot be placed on itself: its zero is its zero.")
+    offset = parsed.offset if parsed.offset is not None else clocks.nominal_offset(clock, onto)
+    if offset is None:
+        raise ValueError(
+            f"State the `offset`: '{clock.name}' and '{onto.name}' are not both anchored to a wall-clock epoch, so nothing says where one's zero sits on the other."
+        )
     existing = clocks.offset_of(clock, onto)
     if existing is not None or models.Transformation.objects.filter(input=clock, output=onto, parent__isnull=True).exists():
         raise ValueError(
@@ -123,7 +140,8 @@ def create_clock_offset(info: Info, input: CreateClockOffsetInput) -> types.Tran
         return clocks.write_offset(
             source=clock,
             target=onto,
-            offset=parsed.offset,
+            offset=offset,
+            drift_ppm=parsed.drift_ppm,
             name=parsed.name or f"{clock.name} -> {onto.name}",
             validity=parsed.validity or enums.PlacementValidity.MANUAL,
             ctx=ctx,

@@ -275,10 +275,10 @@ class Experiment(models.Model):
 class ExperimentLayer(models.Model):
     """One thing drawn in an experiment, and how. mikro's ``Layer``, for time series.
 
-    **Exactly one source**, and the kind says which: a ``lens`` (TRACE -- any array dataset, a
-    recording and a stimulus alike), a ``sparse_dataset`` (SPIKES -- a raster), a
-    ``table_dataset`` (EVENTS -- a table with a TIME column) or an ``annotation_collection``
-    (ANNOTATION). mikro checks that in its mutations only; here a CheckConstraint states it
+    **Exactly one source**, and the kind says which: a ``lens`` (TRACE, HEATMAP, WAVEFORM -- an
+    array dataset drawn as lines, as an image, or as per-unit templates), a ``sparse_dataset``
+    (SPIKES -- a raster), a ``table_dataset`` (EVENTS, SERIES, POINT -- rows drawn as marks, as a
+    line, or as points in space) or an ``annotation_collection`` (ANNOTATION). mikro checks that in its mutations only; here a CheckConstraint states it
     too, because a layer naming two sources would be placed by whichever the reader asked.
 
     **No time column**, as there was none on the views this replaced. Where the data sits is an
@@ -332,12 +332,29 @@ class ExperimentLayer(models.Model):
     spike_color_bys = models.JSONField(default=list, blank=True, help_text="(spikes) The colour pickers over the unit table, each a column-backed colouring; which one is active is `active_color_by`")
     spike_filter_bys = models.JSONField(default=list, blank=True, help_text="(spikes) The filter pickers over the unit table; which apply is `active_filter_bys`")
 
-    # -- events ---------------------------------------------------------------------------------
+    # -- heatmap --------------------------------------------------------------------------------
+    row_axis = models.CharField(max_length=100, null=True, blank=True, help_text="(heatmap) The lens axis drawn down the image; null resolves to its FREQUENCY axis, else CHANNEL, else INDEX")
+    gamma = models.FloatField(null=True, blank=True, help_text="(heatmap) The gamma the colour range is drawn through; null is linear")
+
+    # -- series ---------------------------------------------------------------------------------
+    value_column = models.CharField(max_length=255, null=True, blank=True, help_text="(series) The numeric column drawn as the line's value")
+    interpolation = TextChoicesField(
+        choices_enum=enums.SeriesInterpolationChoices, default=enums.SeriesInterpolationChoices.LINEAR.value, help_text="(series) How consecutive rows are joined"
+    )
+
+    # -- waveform -------------------------------------------------------------------------------
+    unit_axis = models.CharField(max_length=100, null=True, blank=True, help_text="(waveform) The lens axis enumerating the units; null resolves to its INDEX axis")
+
+    # -- point ----------------------------------------------------------------------------------
+    point_size = models.FloatField(null=True, blank=True, help_text="(point) A point's size, in screen pixels")
+    size_column = models.CharField(max_length=255, null=True, blank=True, help_text="(point) A numeric column scaling each point's size")
+
+    # -- events, series and point: a table's rows ----------------------------------------------
     stop_column = models.CharField(max_length=255, null=True, blank=True, help_text="(events) A column whose values end each row's interval, in the TIME column's unit; null draws instants")
     label_column = models.CharField(max_length=255, null=True, blank=True, help_text="(events) A column naming each row, drawn beside its mark")
     lane_column = models.CharField(max_length=255, null=True, blank=True, help_text="(events) A categorical column giving each distinct value its own lane; null draws one lane")
-    event_color_bys = models.JSONField(default=list, blank=True, help_text="(events) The colour pickers over the table and what it references; which one is active is `active_color_by`")
-    event_filter_bys = models.JSONField(default=list, blank=True, help_text="(events) The filter pickers over the table and what it references; which apply is `active_filter_bys`")
+    table_color_bys = models.JSONField(default=list, blank=True, help_text="(events, series, point) The colour pickers over the table and what it references; which one is active is `active_color_by`")
+    table_filter_bys = models.JSONField(default=list, blank=True, help_text="(events, series, point) The filter pickers over the table and what it references; which apply is `active_filter_bys`")
 
     # -- picker state (mikro's rule: one active index per layer, whatever its kind) -------------
     active_color_by = models.PositiveSmallIntegerField(null=True, blank=True, help_text="The index of the colour picker in use; null colours by `color`")
@@ -351,9 +368,15 @@ class ExperimentLayer(models.Model):
             # elektro: mikro enforces "exactly one source" in its mutations only.
             models.CheckConstraint(
                 condition=(
-                    models.Q(kind=enums.ExperimentLayerKindChoices.TRACE.value, lens__isnull=False, sparse_dataset__isnull=True, table_dataset__isnull=True, annotation_collection__isnull=True)
+                    models.Q(
+                        kind__in=[enums.ExperimentLayerKindChoices.TRACE.value, enums.ExperimentLayerKindChoices.HEATMAP.value, enums.ExperimentLayerKindChoices.WAVEFORM.value],
+                        lens__isnull=False, sparse_dataset__isnull=True, table_dataset__isnull=True, annotation_collection__isnull=True,
+                    )
                     | models.Q(kind=enums.ExperimentLayerKindChoices.SPIKES.value, lens__isnull=True, sparse_dataset__isnull=False, table_dataset__isnull=True, annotation_collection__isnull=True)
-                    | models.Q(kind=enums.ExperimentLayerKindChoices.EVENTS.value, lens__isnull=True, sparse_dataset__isnull=True, table_dataset__isnull=False, annotation_collection__isnull=True)
+                    | models.Q(
+                        kind__in=[enums.ExperimentLayerKindChoices.EVENTS.value, enums.ExperimentLayerKindChoices.SERIES.value, enums.ExperimentLayerKindChoices.POINT.value],
+                        lens__isnull=True, sparse_dataset__isnull=True, table_dataset__isnull=False, annotation_collection__isnull=True,
+                    )
                     | models.Q(kind=enums.ExperimentLayerKindChoices.ANNOTATION.value, lens__isnull=True, sparse_dataset__isnull=True, table_dataset__isnull=True, annotation_collection__isnull=False)
                 ),
                 name="experiment_layer_has_the_source_its_kind_names",

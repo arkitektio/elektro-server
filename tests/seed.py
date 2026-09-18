@@ -53,6 +53,10 @@ T_AXES = [
     axis("t", enums.AxisType.TIME),
 ]
 
+#: A neuron model's config with one cell, ``soma``, of one section, ``0``: the model a site's
+#: ``cell: "soma", location: "0"`` is part of. Only the ids a site is checked against.
+SOMA_MODEL = {"cells": [{"id": "soma", "biophysics": {"compartments": []}, "topology": {"sections": [{"id": "0", "length": "20 um"}]}}]}
+
 #: A spike train's times dataset: one value per spike, and a spike number has no metric.
 SPIKE_AXES = [
     axis("spike", enums.AxisType.INDEX),

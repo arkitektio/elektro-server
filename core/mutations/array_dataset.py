@@ -34,6 +34,7 @@ from core.logic import coords as coords_logic
 from core.logic import graph as graph_logic
 from core.guards import enforce_delete
 from core.logic import spaces as spaces_logic
+from core.logic import sites as sites_logic
 from core.mutations.delete import delete_flagging_stores
 from core.scoping import get_for_org
 import logging
@@ -99,6 +100,7 @@ class LabelInput:
 
 
 class SiteInputModel(BaseModel):
+    model: str
     cell: str | None = None
     location: str | None = None
     position: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -113,20 +115,22 @@ class StimulusSiteInputModel(SiteInputModel):
     kind: enums.StimulusKind = enums.StimulusKind.CURRENT
 
 
-@kante.pydantic_input(RecordingSiteInputModel, description="Where on a model the anchored values were RECORDED: NEURON's cell, section and position along it, and what was recorded. elektro's own spoke; it replaces the `Recording` row of a simulation")
+@kante.pydantic_input(RecordingSiteInputModel, description="A place on a neuron model where the anchored values were RECORDED: the model it is part of, NEURON's cell, section and position along it in that model, and what was recorded. elektro's own spoke; it replaces the `Recording` row of a simulation")
 class RecordingSiteInput:
     kind: enums.RecordingKind = strawberry.field(default=enums.RecordingKind.VOLTAGE, description="What was recorded: a voltage, a current, or one named ionic current")
-    cell: str | None = strawberry.field(default=None, description="The id of the cell, as the model config names it")
-    location: str | None = strawberry.field(default=None, description="The id of the section, as the model config names it")
+    model: strawberry.ID = strawberry.field(description="The neuron model this site is part of. `cell` and `location` are checked against its config")
+    cell: str | None = strawberry.field(default=None, description="The id of the cell: one of the cells the model declares")
+    location: str | None = strawberry.field(default=None, description="The id of the section: one of the sections of that cell. Without `cell`, the model's only cell")
     position: float | None = strawberry.field(default=None, description="The normalized position along the section, 0 to 1 (NEURON's section(x))")
     label: str | None = strawberry.field(default=None, description="A display label. Defaults to 'cell: location(position)'")
 
 
-@kante.pydantic_input(StimulusSiteInputModel, description="Where on a model the anchored values were INJECTED: NEURON's cell, section and position along it, and what was clamped. elektro's own spoke; it replaces the `Stimulus` row of a simulation")
+@kante.pydantic_input(StimulusSiteInputModel, description="A place on a neuron model where the anchored values were INJECTED: the model it is part of, NEURON's cell, section and position along it in that model, and what was clamped. elektro's own spoke; it replaces the `Stimulus` row of a simulation")
 class StimulusSiteInput:
     kind: enums.StimulusKind = strawberry.field(default=enums.StimulusKind.CURRENT, description="What was clamped: current or voltage")
-    cell: str | None = strawberry.field(default=None, description="The id of the cell, as the model config names it")
-    location: str | None = strawberry.field(default=None, description="The id of the section, as the model config names it")
+    model: strawberry.ID = strawberry.field(description="The neuron model this site is part of. `cell` and `location` are checked against its config")
+    cell: str | None = strawberry.field(default=None, description="The id of the cell: one of the cells the model declares")
+    location: str | None = strawberry.field(default=None, description="The id of the section: one of the sections of that cell. Without `cell`, the model's only cell")
     position: float | None = strawberry.field(default=None, description="The normalized position along the section, 0 to 1 (NEURON's section(x))")
     label: str | None = strawberry.field(default=None, description="A display label. Defaults to 'cell: location(position)'")
 
@@ -553,12 +557,20 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
             )
 
         if anchor.recording_site:
-            models.RecordingSite.objects.create(anchor=coordinate_anchor, **anchor.recording_site.model_dump(mode="json"))
+            models.RecordingSite.objects.create(anchor=coordinate_anchor, **_site_fields(info, anchor.recording_site))
 
         if anchor.stimulus_site:
-            models.StimulusSite.objects.create(anchor=coordinate_anchor, **anchor.stimulus_site.model_dump(mode="json"))
+            models.StimulusSite.objects.create(anchor=coordinate_anchor, **_site_fields(info, anchor.stimulus_site))
 
     return dataset
+
+
+def _site_fields(info: Info, site: SiteInputModel) -> dict:
+    """A site's row: its neuron model resolved in the caller's organization, and its cell and section checked against that model."""
+    fields = site.model_dump(mode="json")
+    model = get_for_org(models.NeuronModel, info, id=fields.pop("model"))
+    sites_logic.assert_site_on_model(model, cell=site.cell, location=site.location)
+    return {**fields, "model": model}
 
 
 class UpdateArrayDatasetInputModel(BaseModel):

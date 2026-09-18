@@ -179,6 +179,18 @@ class ExperimentLayerKindChoices(TextChoices):
     SPIKES = "spikes", "Spikes (a sparse raster, drawn as a tick per nonzero, a row per unit)"
     EVENTS = "events", "Events (a table with a TIME column, drawn as marks or intervals)"
     ANNOTATION = "annotation", "Annotation (an annotation collection's hand-drawn marks)"
+    HEATMAP = "heatmap", "Heatmap (a lens over an array dataset, drawn as an image: time across, one other axis down)"
+    SERIES = "series", "Series (a numeric column of a table with a TIME column, drawn as a line)"
+    WAVEFORM = "waveform", "Waveform (a lens over per-unit templates, drawn in peri-spike time)"
+    POINT = "point", "Point (a table with SPACE coordinate columns, drawn as a point per row)"
+
+
+class SeriesInterpolationChoices(TextChoices):
+    """How a series layer joins its rows."""
+
+    LINEAR = "linear", "Linear (a straight line between consecutive rows)"
+    STEP = "step", "Step (each value holds until the next row)"
+    POINTS = "points", "Points (a marker per row, unjoined)"
 
 
 class SpikeValueModeChoices(TextChoices):
@@ -852,6 +864,10 @@ class ExperimentLayerKind(str, Enum):
     SPIKES = "spikes"
     EVENTS = "events"
     ANNOTATION = "annotation"
+    HEATMAP = "heatmap"
+    SERIES = "series"
+    WAVEFORM = "waveform"
+    POINT = "point"
 
 
 _describe(
@@ -860,11 +876,35 @@ _describe(
     SPIKES="A sparse dataset with a TIME axis -- a spike raster, units by samples -- drawn as a tick per nonzero and a row per unit. Colour and order come from the table identifying its unit axis.",
     EVENTS="A table dataset with a TIME coordinate column -- TTL edges, trials, stimuli, Neo events and epochs -- drawn as a mark per row, or an interval when a stop column is named.",
     ANNOTATION="An annotation collection: hand-drawn marks, drawn in the space the collection owns.",
+    HEATMAP="A lens over an array dataset drawn as an image -- time across, one other axis down: a spectrogram (t, f), a depth or current-source-density plot (t, c). mikro's intensity layer, over time.",
+    SERIES="A numeric column of a table with a TIME column, drawn as a line: running speed, pupil size, a temperature -- a signal that arrives as rows rather than as an array.",
+    WAVEFORM="A lens over per-unit templates (unit, [c,] w), drawn per unit in peri-spike time: the w axis is timed on a clock whose zero is the spike. Colour and order come from the units table the templates' raster names.",
+    POINT="A table with SPACE coordinate columns drawn as a point per row, in a spatial world: a probe's channel map, units at their positions. mikro's point layer.",
 )
 
 #: The kinds whose data a layer reaches through a lens: mikro's ``LENS_BACKED_KINDS``. Read by
 #: :func:`core.logic.graph.layer_source_system` rather than spelled again.
-LENS_BACKED_KINDS: frozenset[str] = frozenset({ExperimentLayerKind.TRACE.value})
+LENS_BACKED_KINDS: frozenset[str] = frozenset({ExperimentLayerKind.TRACE.value, ExperimentLayerKind.HEATMAP.value, ExperimentLayerKind.WAVEFORM.value})
+
+#: The kinds whose data a layer reaches through a table dataset.
+TABLE_BACKED_KINDS: frozenset[str] = frozenset({ExperimentLayerKind.EVENTS.value, ExperimentLayerKind.SERIES.value, ExperimentLayerKind.POINT.value})
+
+
+@strawberry.enum(description="How a series layer joins its rows")
+class SeriesInterpolation(str, Enum):
+    """How a series layer joins its rows."""
+
+    LINEAR = "linear"
+    STEP = "step"
+    POINTS = "points"
+
+
+_describe(
+    SeriesInterpolation,
+    LINEAR="A straight line between consecutive rows: a sampled quantity.",
+    STEP="Each value holds until the next row: a state that changes at instants (a valve, a reward count).",
+    POINTS="A marker per row, unjoined: measurements that are not a continuum.",
+)
 
 
 @strawberry.enum(description="What a spikes layer reads from a raster's nonzero values")

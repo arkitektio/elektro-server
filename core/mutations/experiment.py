@@ -70,8 +70,12 @@ def create_experiment(info: Info, input: CreateExperimentInput) -> types.Experim
 class ExperimentPolicyInputModel(BaseModel):
     nchildren: int = 32
     include_traces: bool = True
+    include_heatmaps: bool = True
+    include_waveforms: bool = True
     include_spikes: bool = True
     include_events: bool = True
+    include_series: bool = True
+    include_points: bool = True
     include_annotations: bool = True
     skip_unplaceable: bool = False
 
@@ -80,10 +84,14 @@ class ExperimentPolicyInputModel(BaseModel):
 class ExperimentPolicyInput:
     """What a bootstrap stages."""
 
-    nchildren: int = strawberry.field(default=32, description="The most layers to create. Sources are taken in layer order: traces, spikes, events, annotations, each oldest first")
+    nchildren: int = strawberry.field(default=32, description="The most layers to create. Sources are taken in layer order: arrays, rasters, tables, annotations, each oldest first")
     include_traces: bool = strawberry.field(default=True, description="Draw every array dataset with a TIME axis as a TRACE over its whole-dataset lens. Times datasets (a lookup's map) are never drawn")
+    include_heatmaps: bool = strawberry.field(default=True, description="Draw every array dataset with a TIME and a FREQUENCY axis (a spectrogram) as a HEATMAP")
+    include_waveforms: bool = strawberry.field(default=True, description="Draw every array dataset with one INDEX and a TIME axis, derived from a spike raster (templates), as WAVEFORM")
     include_spikes: bool = strawberry.field(default=True, description="Draw every sparse dataset with a TIME axis (a spike raster) as SPIKES")
-    include_events: bool = strawberry.field(default=True, description="Draw every table with a TIME coordinate column as EVENTS")
+    include_events: bool = strawberry.field(default=True, description="Draw every table with a TIME coordinate column as EVENTS -- unless it is a series")
+    include_series: bool = strawberry.field(default=True, description="Draw every table with a TIME column and exactly one numeric, non-time attribute (and no label) as a SERIES")
+    include_points: bool = strawberry.field(default=True, description="Draw every table with two or more SPACE coordinate columns and no TIME column as POINT")
     include_annotations: bool = strawberry.field(default=True, description="Draw every annotation collection as ANNOTATION")
     skip_unplaceable: bool = strawberry.field(default=False, description="Leave out a source with no route to the world instead of refusing the whole experiment")
 
@@ -97,8 +105,8 @@ class CreateExperimentFromCoordinateSystemInputModel(BaseModel):
 @kante.pydantic_input(
     CreateExperimentFromCoordinateSystemInputModel,
     description=(
-        "Stage what is already laid out on a coordinate system as an experiment over it: a layer for every trace, spike raster, event table and annotation collection that reaches "
-        "it -- through a sampling law, a time lookup, or a chain of clock offsets. CS-first: time the data on a clock, then point this at the clock. Authors no edges. "
+        "Stage what is already laid out on a coordinate system as an experiment over it: a layer for every trace, spectrogram, waveform template, spike raster, event or series "
+        "table, point table and annotation collection that reaches it -- through a sampling law, a time lookup, a chain of clock offsets, or a registration into a space. CS-first: time the data on a clock, then point this at the clock. Authors no edges. "
         "mikro's createSceneFromCoordinateSystem"
     ),
 )

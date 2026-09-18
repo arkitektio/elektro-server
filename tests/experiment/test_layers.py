@@ -166,7 +166,7 @@ async def test_deleting_a_layer_deletes_nothing_it_drew(aexecute, authenticated_
 async def test_a_raster_a_picker_names_cannot_be_deleted(aexecute, authenticated_context):
     """The PROTECT half for JSON: a picker entry naming a matrix by id has no foreign key to cascade. Written through the ORM, the way only a future SPARSE colouring could."""
     experiment, _, lens, raster = await _staged(authenticated_context)
-    await sync_to_async(models.ExperimentLayer.objects.create)(experiment=experiment, kind="trace", lens=lens, event_color_bys=[{"kind": "SPARSE", "dataset": str(raster.pk)}])
+    await sync_to_async(models.ExperimentLayer.objects.create)(experiment=experiment, kind="trace", lens=lens, table_color_bys=[{"kind": "SPARSE", "dataset": str(raster.pk)}])
     res = await aexecute("mutation ($input: DeleteSparseDatasetInput!) { deleteSparseDataset(input: $input) }", {"input": {"id": str(raster.pk)}})
     assert res.errors and "colour by a slice of it" in str(res.errors[0]) and "experiment 'E'" in str(res.errors[0])
     assert await models.SparseDataset.objects.filter(pk=raster.pk).aexists()

@@ -46,6 +46,28 @@ def spike_root(dataset: "models.SparseDataset") -> "models.TableDataset | None":
     return reference.references if reference is not None else None
 
 
+def raster_parent(dataset: "models.ArrayDataset") -> "models.SparseDataset | None":
+    """The spike raster an array dataset was derived from, when its primary parent is one.
+
+    Waveform templates ``(unit, c, w)`` are computed from a sorting, and say so with a
+    ``derivedFrom`` naming the raster's space -- UNMAPPABLE, since a template sample is no
+    position of the raster. That edge is what ties a template's ``unit`` to the raster's units,
+    and so to the units table the pickers colour by.
+    """
+    from core.logic import graph as graph_logic
+
+    edges = graph_logic.derivation_edges(dataset)
+    if not edges or edges[0].output_id is None:
+        return None
+    return models.SparseDataset.objects.filter(coordinate_system_id=edges[0].output_id).first()
+
+
+def waveform_root(dataset: "models.ArrayDataset") -> "models.TableDataset | None":
+    """The units table a waveform layer's pickers start at: its raster's, or None when it was derived from no raster."""
+    raster = raster_parent(dataset)
+    return spike_root(raster) if raster is not None else None
+
+
 def reachable_tables(root: "models.TableDataset | None") -> dict[str, list[tuple[str, str]]]:
     """Every table reachable from ``root`` along ``Column.references``, with the path to it.
 

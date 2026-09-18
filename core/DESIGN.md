@@ -170,11 +170,32 @@ after `DATALAYER_STORE_GRACE_DAYS`, re-checking for referrers first (`core/logic
 |---|---|
 | `Scene` over a `world` | `Experiment` over a `world` |
 | `Layer`, one table discriminated by `kind`, exactly one source | `ExperimentLayer`, one table discriminated by `kind`, exactly one source |
-| image / intensity / label … over a `Lens` | `TRACE` over a `Lens` (any array dataset: a recording, a stimulus, any signal) |
-| point / track over a `TableDataset` | `EVENTS` over a `TableDataset` with a TIME column |
+| image / label … over a `Lens` | `TRACE` over a `Lens` (any array dataset: a recording, a stimulus, any signal) |
+| intensity over a `Lens` | `HEATMAP` over a `Lens`: time across, one other axis down -- a spectrogram `(t, f)`, a depth / CSD plot `(t, c)` |
+| *(none)* | `WAVEFORM` over a `Lens` of per-unit templates `(unit, [c,] w)`, in peri-spike time |
+| point over a `TableDataset` | `POINT` over a `TableDataset` with SPACE coordinate columns (a channel map), in a spatial world |
+| track over a `TableDataset` | `EVENTS` over a `TableDataset` with a TIME column; `SERIES` when one numeric column of it is the point |
 | *(no sparse layer: a matrix only colours)* | `SPIKES` over a `SparseDataset` with a TIME axis |
 | annotation over an `AnnotationCollection` | `ANNOTATION` over an `AnnotationCollection` |
-| `createScene`, `createSceneFromCoordinateSystem`, `createXxxLayer` / `updateXxxLayer`, `createLayer` / `updateLayer` / `deleteLayer` | `createExperiment`, `createExperimentFromCoordinateSystem`, `create{Trace,Spikes,Events,Annotation}Layer` / `update{Trace,Spikes,Events}Layer`, `createLayer` / `updateLayer` / `deleteLayer` |
+| `createScene`, `createSceneFromCoordinateSystem`, `createXxxLayer` / `updateXxxLayer`, `createLayer` / `updateLayer` / `deleteLayer` | `createExperiment`, `createExperimentFromCoordinateSystem`, `create{Trace,Heatmap,Waveform,Spikes,Events,Series,Point,Annotation}Layer` / `update…Layer`, `createLayer` / `updateLayer` / `deleteLayer` |
+
+**A world is a timeline or a place.** An experiment composes over a space with a TIME axis (a
+session's clock, a run's, a peri-spike clock) or a SPACE axis (a probe's space, where a channel
+map is drawn as points). Each kind still checks what it draws: a trace needs a TIME axis, a point
+layer a table with SPACE columns and no TIME column; whether it lands in *this* world is the
+reachability gate's question, as always.
+
+**Waveforms live in peri-spike time.** Templates are an array dataset `(unit, c, w)` derived from
+the raster (UNMAPPABLE); `w` is a TIME axis with a sampling law onto a **peri-spike clock** whose
+zero is the spike (`createSamplingLaw(rate: "30 kHz", tStart: "-1 ms")`). That clock is not the
+session's -- nothing relates them, and nothing should -- so a waveform layer is drawn in an
+experiment over the peri-spike clock. Its units are the raster's: the templates' derivation edge
+leads to the raster, and the raster's axis reference to the units table its pickers start at.
+
+**Units in space** keep the units table keyed by its one INDEX `unit_id` (the raster's axis
+reference needs exactly one), so the units table is not itself placed. A separate positions table
+-- `x`, `y` as SPACE axes, `unit_id` an ID column referencing the units table -- is registered into
+the probe's space and drawn as points, coloured through the reference.
 
 A layer carries **view state only**: compositing (`blending`, `opacity`, `visible`, `order`,
 `name`) and its kind's render settings (a trace's channel and value range; a raster's tick
@@ -225,6 +246,13 @@ clocks needs the `clock` named).
 `StimulusSite` spoke on the dataset's own anchor (`{}` for the dataset, `{c: i}` per channel),
 beside the rig state, written by `createArrayDataset` -- a site is a fact of the measurement,
 not of the run, and the data layer does not point at the interpretation layer.
+A site is **part of a neuron model**: it names its `NeuronModel` (`model`, required) and the place
+in it -- a cell of the model's config, a section of that cell (`location`), a position along
+it -- and `cell` / `location` are checked against the model's `json_model` on write
+(`core/logic/sites.py`; a section alone is read on a one-cell model's only cell). The model is
+not the run: it is what was run, so the spoke points at it and still not at a `Simulation`.
+`createSimulation` refuses a dataset carrying a site on another model than the run's, and
+`NeuronModel.recordingSites` / `.stimulusSites` read the sites back from the model's side.
 `createSimulation(datasets, sampling | timeDataset)` writes the clock and one timing edge per
 named dataset; with no datasets it mints the clock alone, and datasets are timed on it later,
 one `createSamplingLaw` at a time. `Simulation.datasets` / `.recordings` / `.stimuli` are read
@@ -485,14 +513,28 @@ Each of these is deliberate, and each is marked where it happens in the code.
     `createExperimentFromCoordinateSystem` seeds from the loose reachable set (divergences 1
     and 2) rather than mikro's one-hop scan, so a raster timed on a segment clock chained
     into a session clock is staged over the session.
+20. **Four more layer kinds.** HEATMAP is mikro's intensity layer with a *row axis* instead of
+    render axes (no `resolve_render_axes`: a time series has no x/y to derive), refusing a lens
+    with a second non-time axis of more than one position. SERIES and WAVEFORM have no mikro
+    counterpart. POINT is mikro's point layer, its x/y columns derived by the same
+    `_coordinate_column_named` rule. The events layer's picker columns are the kind-neutral
+    `table_color_bys` / `table_filter_bys`, shared by EVENTS, SERIES and POINT (the waveform
+    layer shares the spike pickers). Bootstrap defaults a trace's and a heatmap's range from the
+    dataset-wide `ValueHistogram` (mikro's `_value_windows`, where mikro applies it to channels).
+21. **A world may be a place.** mikro's scenes already compose over SPACE; here the TIME-only
+    requirement of the first pass is relaxed to TIME *or* SPACE.
 
-One thing was ported **verbatim although it looks wrong**: `_assert_epochs_agree` refuses
-*every* edge between two clocks anchored to different instants — `TRANSLATION` included —
-while its own error message says "state the offset as a TRANSLATION". In electrophysiology
-two anchored clocks related by an offset is the ordinary synchronisation problem (a probe's
-clock against a DAQ's). The rule is unchanged here so the two copies stay comparable; the
-consequence is that an experiment's world has no epoch by default, and that two anchored
-clocks cannot currently be synchronised by an edge. Fix it in mikro first.
+**Clock synchronisation, fixed in mikro and here together.** `_assert_epochs_agree` used to
+refuse *every* edge between two clocks anchored to different instants -- the TRANSLATION its own
+message recommended included -- so a probe's clock could not be synchronised to a DAQ's. It now
+refuses only an edge that states **no offset** (IDENTITY, SCALE, MAP_AXIS, a scale-only
+BY_DIMENSION), which would assert that the two zeros coincide when the epochs say they do not;
+a TRANSLATION, an AFFINE or a BY_DIMENSION carrying either is accepted, and a wrapper child's
+edit is left to its wrapper. The two copies are identical again. `createClockOffset` writes the
+sync: its `offset` defaults to the epochs' difference (the nominal sync, refined later with
+`updateTransformation`), and `driftPpm` becomes the edge's factor -- one AFFINE edge, never a
+SCALE beside a TRANSLATION. `clocks.drift_of` reads it back. Epochs are still never *read* by a
+composer: the edge states the offset, the epochs only default it.
 
 ## What the API looks like
 
@@ -575,7 +617,11 @@ Deploying this requires resetting the elektro database; stores whose rows are dr
 orphaned objects in S3. The datalayer app gained two ordinary migrations
 (`0002_datalayerstore_orphaned_at`, `0003_sparsestore_parquetstore_columns`), and the core
 migration was regenerated once more for layers, tables, sparse datasets and site spokes --
-another reset. `tests/test_architecture.py` checks that the models and the
+another reset. The layer kinds of the third pass (heatmap, series, waveform, point) are an
+ordinary `core/0002` -- the picker columns renamed, not dropped -- so a database on the second
+pass migrates without one. `core/0003` makes a site's `model` a required foreign key with no
+default and no backfill: a database holding site rows cannot apply it, and is reset (the lab
+was) rather than handed a guessed model. `tests/test_architecture.py` checks that the models and the
 migration agree, and that the migration actually runs on an empty Postgres.
 
 ## Breaking changes for API clients
@@ -611,6 +657,18 @@ migration agree, and that the migration actually runs on an empty Postgres.
   `createSamplingLaw`, `createClockOffset`; `TABLE_DATASET` / `SPARSE_DATASET` file-link
   containers; `TABLE_DATASET` derivation source; `Resident` and `InViewSource` gain
   `TableDataset` and `SparseDataset`. The enums `ColorMap` and `Blending` are back (mikro's).
+
+**The third pass** (more layer kinds, clock sync) is additive: `create/update{Heatmap,Series,Waveform,Point}Layer`,
+their types, `ExperimentLayerKind` gains HEATMAP / SERIES / WAVEFORM / POINT, `ExperimentPolicyInput`
+gains `includeHeatmaps` / `includeWaveforms` / `includeSeries` / `includePoints`, and
+`createClockOffset` gains `driftPpm` with `offset` now optional between anchored clocks. A world
+may be a SPACE-only system. An edge between two differently anchored clocks that states an offset
+is now accepted (it was refused).
+
+**The fourth pass** (sites are part of a model) breaks one input: `RecordingSiteInput` and
+`StimulusSiteInput` require `model: ID!`, and a `cell` / `location` the model does not declare
+is refused. `RecordingSite.model` / `StimulusSite.model` and `NeuronModel.recordingSites` /
+`.stimulusSites` are new.
 
 **The first pass** (time columns → edges):
 
@@ -662,12 +720,17 @@ migration agree, and that the migration actually runs on an empty Postgres.
   `location` / `position` stay descriptive, and a units table's depth is an attribute column,
   not a coordinate -- a probe space would make it one. A collection is one line in
   `graph.CONTAINERS` with `is_collection=True`; the dormant collection machinery is untouched.
-- **Waveforms.** Per-unit templates are an array dataset `(unit, c, w)` derived from the raster
-  (UNMAPPABLE); its `w` axis is not lowered to a peri-spike clock, and per-*spike* waveforms
-  are not modelled -- a raster enumerates no spikes an array axis could be keyed by.
+- **Per-spike waveforms.** Templates are drawn in peri-spike time (WAVEFORM); per-*spike*
+  waveforms are not modelled -- a raster enumerates no spikes an array axis could be keyed by.
 - **Sparse colourings.** mikro colours a label layer by one slice of a matrix (`kind: SPARSE`);
   here pickers are COLUMN-only, so a unit cannot yet be coloured by, say, its firing rate in a
   window. `pickers.assert_sparse_dataset_not_in_a_picker` already guards the JSON for it.
+- **Morphology.** Neither mikro's network collections nor `NeuronModel`'s pt3d sections are in the
+  graph, so simulation sites have no place in space yet.
+- **TRACK layers.** Time-varying positions (behaviour tracking: x, y over t) are a table with TIME
+  *and* SPACE columns, which no kind draws yet -- POINT refuses a TIME column, SERIES draws one value.
+- **Sync from TTL pairs.** `createClockOffset` takes an offset and a drift; fitting them from two
+  tables of matched sync pulses is left to the client.
 - **Server-side windows over spikes and events.** A spikes or events layer shows its whole
   dataset; the viewer windows it. A raster's CSC layout makes a window one contiguous read
   for a client that asks.

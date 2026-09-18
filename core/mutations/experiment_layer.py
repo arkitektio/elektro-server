@@ -533,7 +533,7 @@ class _EventSettings(_PickerSettings):
 
 
 def _event_values(parsed: _EventSettings, table: "models.TableDataset", layer: "models.ExperimentLayer | None") -> dict:
-    values = _picker_values(parsed, table, layer, "event")
+    values = _picker_values(parsed, table, layer, "table")
     for key, what in (("stop_column", "stopColumn"), ("label_column", "labelColumn"), ("lane_column", "laneColumn")):
         experiment_logic.assert_column(table, getattr(parsed, key), what)
         if getattr(parsed, key) is not None:
@@ -664,3 +664,451 @@ def create_annotation_layer(info: Info, input: CreateAnnotationLayerInput) -> ty
     with transaction.atomic():
         return experiment_logic.create_layer(experiment, kind=_KIND.ANNOTATION.value, source=collection, **_compositing(parsed))
 
+
+
+# --- heatmap ------------------------------------------------------------------------------------
+
+
+def _clim_range(clim_min: float | None, clim_max: float | None) -> None:
+    if clim_min is not None and clim_max is not None and clim_min > clim_max:
+        raise ValueError(f"A value range runs from `climMin` to `climMax`, but {clim_min} > {clim_max}.")
+
+
+def _continuous(colormap: "enums.ColorMap | None", kind: str) -> None:
+    if colormap is not None and colormap in enums.QUALITATIVE_COLORMAPS:
+        raise ValueError(f"A {kind} draws a measured value through its colormap, so it takes a continuous one, not the qualitative '{colormap.value}'.")
+
+
+class _HeatmapSettings(_Compositing):
+    row_axis: str | None = None
+    colormap: enums.ColorMap | None = None
+    clim_min: float | None = None
+    clim_max: float | None = None
+    gamma: float | None = Field(default=None, gt=0)
+
+
+def _heatmap_values(parsed: _HeatmapSettings, lens: "models.Lens", layer: "models.ExperimentLayer | None") -> dict:
+    """The heatmap settings a caller stated, checked against the lens."""
+    _continuous(parsed.colormap, "heatmap")
+    clim_min = parsed.clim_min if parsed.clim_min is not None else getattr(layer, "clim_min", None)
+    clim_max = parsed.clim_max if parsed.clim_max is not None else getattr(layer, "clim_max", None)
+    _clim_range(clim_min, clim_max)
+    values = {"row_axis": experiment_logic.resolve_row_axis(lens, parsed.row_axis or getattr(layer, "row_axis", None))}
+    for key in ("clim_min", "clim_max", "gamma"):
+        if getattr(parsed, key) is not None:
+            values[key] = getattr(parsed, key)
+    if parsed.colormap is not None:
+        values["colormap"] = parsed.colormap.value
+    return values
+
+
+class CreateHeatmapLayerInputModel(_HeatmapSettings):
+    experiment: str
+    lens: str | None = None
+    dataset: str | None = None
+    window: WindowInputModel | None = None
+    clock: str | None = None
+
+    @model_validator(mode="after")
+    def _one_selection(self) -> "CreateHeatmapLayerInputModel":
+        if (self.lens is None) == (self.dataset is None):
+            raise ValueError("A heatmap layer draws one selection: name an existing `lens`, or a `dataset` (optionally with a `window`) to have one cut for you -- exactly one of the two.")
+        if self.lens is not None and (self.window is not None or self.clock is not None):
+            raise ValueError("`window` and `clock` cut a lens out of `dataset`; an existing `lens` is already cut.")
+        return self
+
+
+@kante.pydantic_input(
+    CreateHeatmapLayerInputModel,
+    description=(
+        "Draw an array dataset as an image, time across and one other axis down: a spectrogram (t, f), a depth or current-source-density plot (t, c). Every other axis of the "
+        "lens must be fixed to one position. mikro's intensity layer, over time"
+    ),
+)
+class CreateHeatmapLayerInput:
+    experiment: strawberry.ID
+    lens: strawberry.ID | None = strawberry.field(default=None, description="An existing lens to draw. Exactly one of `lens` and `dataset`")
+    dataset: strawberry.ID | None = strawberry.field(default=None, description="An array dataset to draw, through its whole-dataset lens or the one `window` cuts. Exactly one of `lens` and `dataset`")
+    window: WindowInput | None = strawberry.field(default=None, description="Draw only a stretch of time, given on the dataset's own clock. Lowered to a sliced lens by inverting the sampling law")
+    clock: strawberry.ID | None = strawberry.field(default=None, description="The clock `window` is given on, when the dataset is timed on more than one")
+    row_axis: str | None = strawberry.field(default=None, description="The axis drawn down the image. Omit for the dataset's FREQUENCY axis, else CHANNEL, else INDEX")
+    colormap: enums.ColorMap | None = strawberry.field(default=None, description="A continuous colormap the values are drawn through")
+    clim_min: float | None = strawberry.field(default=None, description="The value at the bottom of the colormap, in the dataset's value unit")
+    clim_max: float | None = strawberry.field(default=None, description="The value at the top of the colormap, in the dataset's value unit")
+    gamma: float | None = strawberry.field(default=None, description="The gamma the colour range is drawn through, e.g. 0.5 to lift a spectrogram's quiet bands")
+    name: str | None = None
+    blending: enums.Blending | None = None
+    opacity: float | None = None
+    visible: bool | None = None
+    order: int | None = strawberry.field(default=None, description="The position top to bottom. Omit to append")
+
+
+def _selected_lens(info: Info, ctx: CreationContext, parsed) -> "models.Lens":  # noqa: ANN001 - a create model with lens / dataset / window / clock
+    """The lens a create input names, cuts out of a window, or reuses whole."""
+    if parsed.lens is not None:
+        return get_for_org(models.Lens, info, id=parsed.lens)
+    dataset = get_for_org(models.ArrayDataset, info, id=parsed.dataset)
+    window = getattr(parsed, "window", None)
+    if window is None or (window.start is None and window.stop is None):
+        return experiment_logic.whole_lens(dataset, ctx)
+    return _window_lens(dataset, window, getattr(parsed, "clock", None), info, ctx)
+
+
+def create_heatmap_layer(info: Info, input: CreateHeatmapLayerInput) -> types.HeatmapLayer:
+    """Draw an array dataset as an image."""
+    parsed = input.to_pydantic()
+    ctx = CreationContext.from_info(info)
+    experiment = get_for_org(models.Experiment, info, id=parsed.experiment)
+    with transaction.atomic():
+        lens = _selected_lens(info, ctx, parsed)
+        experiment_logic.assert_kind(_KIND.HEATMAP.value, lens)
+        return experiment_logic.create_layer(experiment, kind=_KIND.HEATMAP.value, source=lens, **_compositing(parsed), **_heatmap_values(parsed, lens, None))
+
+
+class UpdateHeatmapLayerInputModel(_HeatmapSettings):
+    id: str
+    lens: str | None = None
+
+
+@kante.pydantic_input(UpdateHeatmapLayerInputModel, description="Restyle a heatmap layer, or point it at another lens. Only the supplied fields change")
+class UpdateHeatmapLayerInput:
+    id: strawberry.ID
+    lens: strawberry.ID | None = None
+    row_axis: str | None = None
+    colormap: enums.ColorMap | None = None
+    clim_min: float | None = None
+    clim_max: float | None = None
+    gamma: float | None = None
+    name: str | None = None
+    blending: enums.Blending | None = None
+    opacity: float | None = None
+    visible: bool | None = None
+    order: int | None = None
+
+
+def update_heatmap_layer(info: Info, input: UpdateHeatmapLayerInput) -> types.HeatmapLayer:
+    """Restyle or rebind a heatmap layer."""
+    parsed = input.to_pydantic()
+    layer = _get_layer(info, parsed.id, _KIND.HEATMAP.value)
+    values = dict(_compositing(parsed))
+    lens = layer.lens
+    if parsed.lens is not None:
+        lens = get_for_org(models.Lens, info, id=parsed.lens)
+        experiment_logic.assert_kind(_KIND.HEATMAP.value, lens)
+        experiment_logic.assert_reaches(layer.experiment.world, lens)
+        values["lens"] = lens
+    values.update(_heatmap_values(parsed, lens, layer))
+    return _apply(layer, values)
+
+
+# --- waveform -----------------------------------------------------------------------------------
+
+
+class _WaveformSettings(_PickerSettings):
+    unit_axis: str | None = None
+    channel_index: int | None = Field(default=None, ge=0)
+    line_width: float | None = Field(default=None, gt=0)
+    clim_min: float | None = None
+    clim_max: float | None = None
+
+
+def _waveform_values(parsed: _WaveformSettings, lens: "models.Lens", layer: "models.ExperimentLayer | None") -> dict:
+    values = _picker_values(parsed, ephys_pickers.waveform_root(lens.dataset), layer, "spike")
+    values["unit_axis"] = experiment_logic.resolve_unit_axis(lens, parsed.unit_axis or getattr(layer, "unit_axis", None))
+    _assert_channel(lens, parsed.channel_index)
+    _clim_range(parsed.clim_min, parsed.clim_max)
+    for key in ("channel_index", "line_width", "clim_min", "clim_max"):
+        if getattr(parsed, key) is not None:
+            values[key] = getattr(parsed, key)
+    return values
+
+
+class CreateWaveformLayerInputModel(_WaveformSettings):
+    experiment: str
+    lens: str | None = None
+    dataset: str | None = None
+
+    @model_validator(mode="after")
+    def _one_selection(self) -> "CreateWaveformLayerInputModel":
+        if (self.lens is None) == (self.dataset is None):
+            raise ValueError("A waveform layer draws one selection: name an existing `lens`, or a `dataset` to draw whole -- exactly one of the two.")
+        return self
+
+
+@strawberry.input(
+    description=(
+        "Draw per-unit waveform templates -- an array dataset (unit, [c,] w) derived from a spike raster -- in peri-spike time: `w` is timed by a sampling law onto a clock "
+        "whose zero is the spike, so the layer belongs in an experiment over that clock. Colour and order come from the raster's units table"
+    )
+)
+class CreateWaveformLayerInput:
+    experiment: strawberry.ID
+    lens: strawberry.ID | None = strawberry.field(default=None, description="An existing lens over the templates. Exactly one of `lens` and `dataset`")
+    dataset: strawberry.ID | None = strawberry.field(default=None, description="The templates, drawn whole. Exactly one of `lens` and `dataset`")
+    unit_axis: str | None = strawberry.field(default=None, description="The axis enumerating the units. Omit for the dataset's one INDEX axis")
+    channel_index: int | None = strawberry.field(default=None, description="Draw only this channel of the CHANNEL axis. Omit to draw every channel")
+    color: list[int] | None = strawberry.field(default=None, description="The base colour as RGBA, 0-255")
+    colormap: enums.ColorMap | None = None
+    line_width: float | None = strawberry.field(default=None, description="The line width, in screen pixels")
+    clim_min: float | None = strawberry.field(default=None, description="The bottom of the value range, in the templates' value unit")
+    clim_max: float | None = strawberry.field(default=None, description="The top of the value range, in the templates' value unit")
+    color_bys: list[ColorByInput] | None = strawberry.field(default=None, description=_COLOR_BYS)
+    filter_bys: list[FilterByInput] | None = strawberry.field(default=None, description=_FILTER_BYS)
+    active_color_by: int | None = None
+    active_filter_bys: list[int] | None = None
+    name: str | None = None
+    blending: enums.Blending | None = None
+    opacity: float | None = None
+    visible: bool | None = None
+    order: int | None = strawberry.field(default=None, description="The position top to bottom. Omit to append")
+
+    def to_pydantic(self) -> CreateWaveformLayerInputModel:
+        return CreateWaveformLayerInputModel(**{**_plain(self, CreateWaveformLayerInputModel), **_pickers_of(self)})
+
+
+def create_waveform_layer(info: Info, input: CreateWaveformLayerInput) -> types.WaveformLayer:
+    """Draw per-unit waveform templates."""
+    parsed = input.to_pydantic()
+    ctx = CreationContext.from_info(info)
+    experiment = get_for_org(models.Experiment, info, id=parsed.experiment)
+    with transaction.atomic():
+        lens = _selected_lens(info, ctx, parsed)
+        experiment_logic.assert_kind(_KIND.WAVEFORM.value, lens)
+        return experiment_logic.create_layer(experiment, kind=_KIND.WAVEFORM.value, source=lens, **_compositing(parsed), **_waveform_values(parsed, lens, None))
+
+
+class UpdateWaveformLayerInputModel(_WaveformSettings):
+    id: str
+
+
+@strawberry.input(description="Restyle a waveform layer. Only the supplied fields change; a picker is replaced whole")
+class UpdateWaveformLayerInput:
+    id: strawberry.ID
+    unit_axis: str | None = None
+    channel_index: int | None = None
+    color: list[int] | None = None
+    colormap: enums.ColorMap | None = None
+    line_width: float | None = None
+    clim_min: float | None = None
+    clim_max: float | None = None
+    color_bys: list[ColorByInput] | None = strawberry.field(default=None, description=_COLOR_BYS)
+    filter_bys: list[FilterByInput] | None = strawberry.field(default=None, description=_FILTER_BYS)
+    active_color_by: int | None = None
+    active_filter_bys: list[int] | None = None
+    name: str | None = None
+    blending: enums.Blending | None = None
+    opacity: float | None = None
+    visible: bool | None = None
+    order: int | None = None
+
+    def to_pydantic(self) -> UpdateWaveformLayerInputModel:
+        return UpdateWaveformLayerInputModel(**{**_plain(self, UpdateWaveformLayerInputModel), **_pickers_of(self)})
+
+
+def update_waveform_layer(info: Info, input: UpdateWaveformLayerInput) -> types.WaveformLayer:
+    """Restyle a waveform layer."""
+    parsed = input.to_pydantic()
+    layer = _get_layer(info, parsed.id, _KIND.WAVEFORM.value)
+    return _apply(layer, {**_compositing(parsed), **_waveform_values(parsed, layer.lens, layer)})
+
+
+# --- series -------------------------------------------------------------------------------------
+
+
+class _SeriesSettings(_PickerSettings):
+    value_column: str | None = None
+    interpolation: enums.SeriesInterpolation | None = None
+    lane_column: str | None = None
+    line_width: float | None = Field(default=None, gt=0)
+    clim_min: float | None = None
+    clim_max: float | None = None
+
+
+def _series_values(parsed: _SeriesSettings, table: "models.TableDataset", layer: "models.ExperimentLayer | None") -> dict:
+    values = _picker_values(parsed, table, layer, "table")
+    experiment_logic.assert_column(table, parsed.lane_column, "laneColumn")
+    _clim_range(parsed.clim_min, parsed.clim_max)
+    for key in ("value_column", "lane_column", "line_width", "clim_min", "clim_max"):
+        if getattr(parsed, key) is not None:
+            values[key] = getattr(parsed, key)
+    if parsed.interpolation is not None:
+        values["interpolation"] = parsed.interpolation.value
+    if layer is not None and parsed.value_column is not None:
+        # A create resolves and checks it in `create_layer`; an update has to say it here.
+        experiment_logic.assert_numeric_column(table, parsed.value_column, "valueColumn")
+        start = experiment_logic.time_column(table)
+        if start is not None and parsed.value_column == start.name:
+            raise ValueError(f"`valueColumn` is '{parsed.value_column}', the table's TIME column: a series draws a value *against* time, not time against itself.")
+    return values
+
+
+class CreateSeriesLayerInputModel(_SeriesSettings):
+    experiment: str
+    table_dataset: str
+
+
+@strawberry.input(description="Draw one numeric column of a table with a TIME column as a line over time: running speed, pupil size, a temperature -- a signal that arrives as rows")
+class CreateSeriesLayerInput:
+    experiment: strawberry.ID
+    table_dataset: strawberry.ID = strawberry.field(description="The table to draw. It needs a TIME coordinate column, and its space must reach the world")
+    value_column: str | None = strawberry.field(default=None, description="The numeric column drawn as the value. Omit when the table has exactly one numeric, non-time attribute")
+    interpolation: enums.SeriesInterpolation | None = strawberry.field(default=None, description="How consecutive rows are joined. LINEAR by default")
+    lane_column: str | None = strawberry.field(default=None, description="A categorical column giving each distinct value its own line (per subject, per wheel)")
+    color: list[int] | None = strawberry.field(default=None, description="The base colour as RGBA, 0-255")
+    colormap: enums.ColorMap | None = None
+    line_width: float | None = strawberry.field(default=None, description="The line width, in screen pixels")
+    clim_min: float | None = strawberry.field(default=None, description="The bottom of the value range, in the column's unit")
+    clim_max: float | None = strawberry.field(default=None, description="The top of the value range, in the column's unit")
+    color_bys: list[ColorByInput] | None = strawberry.field(default=None, description=_COLOR_BYS)
+    filter_bys: list[FilterByInput] | None = strawberry.field(default=None, description=_FILTER_BYS)
+    active_color_by: int | None = None
+    active_filter_bys: list[int] | None = None
+    name: str | None = None
+    blending: enums.Blending | None = None
+    opacity: float | None = None
+    visible: bool | None = None
+    order: int | None = strawberry.field(default=None, description="The position top to bottom. Omit to append")
+
+    def to_pydantic(self) -> CreateSeriesLayerInputModel:
+        return CreateSeriesLayerInputModel(**{**_plain(self, CreateSeriesLayerInputModel), **_pickers_of(self)})
+
+
+def create_series_layer(info: Info, input: CreateSeriesLayerInput) -> types.SeriesLayer:
+    """Draw a numeric table column over time."""
+    parsed = input.to_pydantic()
+    experiment = get_for_org(models.Experiment, info, id=parsed.experiment)
+    table = get_for_org(models.TableDataset, info, id=parsed.table_dataset)
+    with transaction.atomic():
+        experiment_logic.assert_kind(_KIND.SERIES.value, table)
+        return experiment_logic.create_layer(experiment, kind=_KIND.SERIES.value, source=table, **_compositing(parsed), **_series_values(parsed, table, None))
+
+
+class UpdateSeriesLayerInputModel(_SeriesSettings):
+    id: str
+
+
+@strawberry.input(description="Restyle a series layer. Only the supplied fields change; a picker is replaced whole")
+class UpdateSeriesLayerInput:
+    id: strawberry.ID
+    value_column: str | None = None
+    interpolation: enums.SeriesInterpolation | None = None
+    lane_column: str | None = None
+    color: list[int] | None = None
+    colormap: enums.ColorMap | None = None
+    line_width: float | None = None
+    clim_min: float | None = None
+    clim_max: float | None = None
+    color_bys: list[ColorByInput] | None = strawberry.field(default=None, description=_COLOR_BYS)
+    filter_bys: list[FilterByInput] | None = strawberry.field(default=None, description=_FILTER_BYS)
+    active_color_by: int | None = None
+    active_filter_bys: list[int] | None = None
+    name: str | None = None
+    blending: enums.Blending | None = None
+    opacity: float | None = None
+    visible: bool | None = None
+    order: int | None = None
+
+    def to_pydantic(self) -> UpdateSeriesLayerInputModel:
+        return UpdateSeriesLayerInputModel(**{**_plain(self, UpdateSeriesLayerInputModel), **_pickers_of(self)})
+
+
+def update_series_layer(info: Info, input: UpdateSeriesLayerInput) -> types.SeriesLayer:
+    """Restyle a series layer."""
+    parsed = input.to_pydantic()
+    layer = _get_layer(info, parsed.id, _KIND.SERIES.value)
+    return _apply(layer, {**_compositing(parsed), **_series_values(parsed, layer.table_dataset, layer)})
+
+
+# --- point --------------------------------------------------------------------------------------
+
+
+class _PointSettings(_PickerSettings):
+    point_size: float | None = Field(default=None, gt=0)
+    size_column: str | None = None
+    label_column: str | None = None
+
+
+def _point_values(parsed: _PointSettings, table: "models.TableDataset", layer: "models.ExperimentLayer | None") -> dict:
+    values = _picker_values(parsed, table, layer, "table")
+    experiment_logic.assert_numeric_column(table, parsed.size_column, "sizeColumn")
+    experiment_logic.assert_column(table, parsed.label_column, "labelColumn")
+    for key in ("point_size", "size_column", "label_column"):
+        if getattr(parsed, key) is not None:
+            values[key] = getattr(parsed, key)
+    return values
+
+
+class CreatePointLayerInputModel(_PointSettings):
+    experiment: str
+    table_dataset: str
+
+
+@strawberry.input(
+    description=(
+        "Draw a table placed in space as a point per row: a probe's channel map, units at their positions. The table's SPACE coordinate columns place the rows, so the "
+        "experiment is one over a space -- a probe's -- rather than a clock. mikro's point layer"
+    )
+)
+class CreatePointLayerInput:
+    experiment: strawberry.ID
+    table_dataset: strawberry.ID = strawberry.field(description="The table to draw: at least two SPACE coordinate columns and no TIME column; its space must reach the world")
+    point_size: float | None = strawberry.field(default=None, description="A point's size, in screen pixels")
+    size_column: str | None = strawberry.field(default=None, description="A numeric column scaling each point's size")
+    label_column: str | None = strawberry.field(default=None, description="A column naming each point (a channel id, a unit label)")
+    color: list[int] | None = strawberry.field(default=None, description="The base colour as RGBA, 0-255")
+    colormap: enums.ColorMap | None = None
+    color_bys: list[ColorByInput] | None = strawberry.field(default=None, description=_COLOR_BYS)
+    filter_bys: list[FilterByInput] | None = strawberry.field(default=None, description=_FILTER_BYS)
+    active_color_by: int | None = None
+    active_filter_bys: list[int] | None = None
+    name: str | None = None
+    blending: enums.Blending | None = None
+    opacity: float | None = None
+    visible: bool | None = None
+    order: int | None = strawberry.field(default=None, description="The position top to bottom. Omit to append")
+
+    def to_pydantic(self) -> CreatePointLayerInputModel:
+        return CreatePointLayerInputModel(**{**_plain(self, CreatePointLayerInputModel), **_pickers_of(self)})
+
+
+def create_point_layer(info: Info, input: CreatePointLayerInput) -> types.PointLayer:
+    """Draw a table placed in space."""
+    parsed = input.to_pydantic()
+    experiment = get_for_org(models.Experiment, info, id=parsed.experiment)
+    table = get_for_org(models.TableDataset, info, id=parsed.table_dataset)
+    with transaction.atomic():
+        experiment_logic.assert_kind(_KIND.POINT.value, table)
+        return experiment_logic.create_layer(experiment, kind=_KIND.POINT.value, source=table, **_compositing(parsed), **_point_values(parsed, table, None))
+
+
+class UpdatePointLayerInputModel(_PointSettings):
+    id: str
+
+
+@strawberry.input(description="Restyle a point layer. Only the supplied fields change; a picker is replaced whole")
+class UpdatePointLayerInput:
+    id: strawberry.ID
+    point_size: float | None = None
+    size_column: str | None = None
+    label_column: str | None = None
+    color: list[int] | None = None
+    colormap: enums.ColorMap | None = None
+    color_bys: list[ColorByInput] | None = strawberry.field(default=None, description=_COLOR_BYS)
+    filter_bys: list[FilterByInput] | None = strawberry.field(default=None, description=_FILTER_BYS)
+    active_color_by: int | None = None
+    active_filter_bys: list[int] | None = None
+    name: str | None = None
+    blending: enums.Blending | None = None
+    opacity: float | None = None
+    visible: bool | None = None
+    order: int | None = None
+
+    def to_pydantic(self) -> UpdatePointLayerInputModel:
+        return UpdatePointLayerInputModel(**{**_plain(self, UpdatePointLayerInputModel), **_pickers_of(self)})
+
+
+def update_point_layer(info: Info, input: UpdatePointLayerInput) -> types.PointLayer:
+    """Restyle a point layer."""
+    parsed = input.to_pydantic()
+    layer = _get_layer(info, parsed.id, _KIND.POINT.value)
+    return _apply(layer, {**_compositing(parsed), **_point_values(parsed, layer.table_dataset, layer)})

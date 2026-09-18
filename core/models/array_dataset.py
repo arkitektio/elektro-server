@@ -360,10 +360,13 @@ class ValueUnit(models.Model):
 
 
 class SiteBase(models.Model):
-    """Where on a model a stimulus was injected or a recording was taken. elektro's own spoke.
+    """A place on a :class:`NeuronModel` where a stimulus was injected or a recording was taken. elektro's own spoke.
 
-    NEURON's addressing: a cell, a section of it (``location``) and a normalized position along
-    that section, 0 to 1. It is not a position in any coordinate system -- no morphology lives
+    A site is part of a neuron model: it names the model (``model``, required) and addresses a
+    place *in* it the way NEURON does -- a cell of the model's config, a section of that cell
+    (``location``) and a normalized position along that section, 0 to 1. ``cell`` and
+    ``location`` are ids the model's ``json_model`` declares, checked on write
+    (`core.logic.sites`). It is not a position in any coordinate system -- no morphology lives
     in the graph -- so these stay descriptive fields.
 
     It used to be the ``Recording`` and ``Stimulus`` *rows* of a simulation, each naming a
@@ -374,8 +377,8 @@ class SiteBase(models.Model):
     ``{"c": 1}`` for one channel of a multi-site recording.
     """
 
-    cell = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the cell, as the model config names it")
-    location = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the section, as the model config names it")
+    cell = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the cell, one of the cells the site's neuron model declares")
+    location = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the section, one of the sections of that cell of the site's neuron model")
     position = models.FloatField(null=True, blank=True, help_text="The normalized position along the section, 0 to 1 (NEURON's section(x))")
     label = models.CharField(max_length=1000, null=True, blank=True, help_text="A display label. Defaults to 'cell: location(position)'")
 
@@ -389,9 +392,17 @@ class SiteBase(models.Model):
 
 
 class RecordingSite(SiteBase):
-    """1:1 Spoke (Site Truth): the values here were *recorded* from this site."""
+    """1:1 Spoke (Site Truth): the values here were *recorded* from this site of a neuron model."""
 
     anchor = models.OneToOneField(CoordinateAnchor, related_name="recording_site", on_delete=models.CASCADE)
+    # After ``anchor``: the org path follows the first required FK, and a site's organization
+    # is its dataset's, not its model's.
+    model = models.ForeignKey(
+        "core.NeuronModel",
+        on_delete=models.CASCADE,
+        related_name="recording_sites",
+        help_text="The neuron model this site is part of: the model whose cell, section and position it names",
+    )
     kind = TextChoicesField(
         choices_enum=enums.RecordingKindChoices,
         default=enums.RecordingKindChoices.VOLTAGE.value,
@@ -400,9 +411,17 @@ class RecordingSite(SiteBase):
 
 
 class StimulusSite(SiteBase):
-    """1:1 Spoke (Site Truth): the values here were *injected* at this site."""
+    """1:1 Spoke (Site Truth): the values here were *injected* at this site of a neuron model."""
 
     anchor = models.OneToOneField(CoordinateAnchor, related_name="stimulus_site", on_delete=models.CASCADE)
+    # After ``anchor``: the org path follows the first required FK, and a site's organization
+    # is its dataset's, not its model's.
+    model = models.ForeignKey(
+        "core.NeuronModel",
+        on_delete=models.CASCADE,
+        related_name="stimulus_sites",
+        help_text="The neuron model this site is part of: the model whose cell, section and position it names",
+    )
     kind = TextChoicesField(
         choices_enum=enums.StimulusKindChoices,
         default=enums.StimulusKindChoices.CURRENT.value,

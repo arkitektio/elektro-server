@@ -238,5 +238,5 @@ def test_the_layer_kinds_and_their_sources_agree() -> None:
     from elektro_server.schema import schema
 
     sdl = str(schema)
-    for concrete in ("TraceLayer", "SpikesLayer", "EventsLayer", "AnnotationLayer"):
+    for concrete in ("TraceLayer", "SpikesLayer", "EventsLayer", "AnnotationLayer", "HeatmapLayer", "SeriesLayer", "WaveformLayer", "PointLayer"):
         assert f"type {concrete} implements ExperimentLayer" in sdl, f"{concrete} is not registered in the schema's `types=`"

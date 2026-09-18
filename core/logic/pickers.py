@@ -5,7 +5,9 @@ vendored delete mutations read the same (``deleteTableDataset`` guards with
 :func:`assert_table_not_in_a_picker`, ``deleteSparseDataset`` with
 :func:`assert_sparse_dataset_not_in_a_picker`). What differs is *where* the pickers sit: mikro
 keeps them on its ``Layer`` (mesh, point, network and label pickers); here they are the
-``spike_*`` and ``event_*`` columns of :class:`core.models.ExperimentLayer`.
+``spike_*`` columns (spikes and waveform layers, over a units table) and the ``table_*``
+columns (events, series and point layers, over their own table) of
+:class:`core.models.ExperimentLayer`.
 
 **Why a table cannot simply be deleted out from under a picker.** A picker entry names its table
 by id, in JSON, so there is no foreign key and nothing cascades. Delete the table and the entry
@@ -34,8 +36,8 @@ if TYPE_CHECKING:
 _PICKER_COLUMNS = (
     "spike_color_bys",
     "spike_filter_bys",
-    "event_color_bys",
-    "event_filter_bys",
+    "table_color_bys",
+    "table_filter_bys",
 )
 
 

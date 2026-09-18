@@ -17,7 +17,7 @@ an AFFINE edge reads AFFINE even when its numbers happen to be a rotation, becau
 separating those needs an SVD. Overstating the damage is safe; understating it is not.
 
 The path-aggregate half keeps mikro's (z, y, x) fixtures, where "anisotropic" means something;
-the experiments are built through the ORM (``_helpers.add_view``), because `createExperiment`
+the experiments are built through the ORM (``_helpers.add_layer``), because `createExperiment`
 lays out simulations and these tests are about an arbitrary dataset in an arbitrary world.
 """
 
@@ -28,7 +28,7 @@ from kante.context import HttpContext
 from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
-from tests.coords._helpers import add_view, counted, create_experiment
+from tests.coords._helpers import add_layer, counted, create_experiment
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -41,7 +41,7 @@ SPATIAL_AXES = seed.ZYX_AXES
 VIEW_INVARIANCE = """
 query ViewInvariance($id: ID!) {
   experiment(id: $id) {
-    recordingViews { id placement placementInvariance placementValidity pathToWorld { transformation { id } } }
+    layers { id placement placementInvariance placementValidity pathToWorld { transformation { id } } }
   }
 }
 """
@@ -49,7 +49,7 @@ query ViewInvariance($id: ID!) {
 PATH_TO_WORLD = """
 query PathToWorld($id: ID!) {
   experiment(id: $id) {
-    recordingViews { id placementInvariance pathToWorld { inverted transformation { id kind invariance } } }
+    layers { id placementInvariance pathToWorld { inverted transformation { id kind invariance } } }
   }
 }
 """
@@ -81,7 +81,7 @@ async def _classify(ctx: HttpContext, kind: str, params: dict | None = None, **k
 async def _view(aexecute, experiment_id: int | str, query: str = VIEW_INVARIANCE) -> dict:  # noqa: ANN001 - the conftest fixture
     result = await aexecute(query, {"id": str(experiment_id)})
     assert not result.errors, result.errors
-    (view,) = result.data["experiment"]["recordingViews"]
+    (view,) = result.data["experiment"]["layers"]
     return view
 
 
@@ -200,7 +200,7 @@ async def test_an_identity_registration_places_a_layer_isometrically(aexecute, a
     lens = await seed.create_lens(ctx, dataset)
     experiment = await create_experiment(ctx, "Rigid experiment")
     await seed.register_into_world(ctx, experiment.world, dataset)
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     assert (await _view(aexecute, experiment.pk))["placementInvariance"] == "ISOMETRY"
 
@@ -222,7 +222,7 @@ async def test_the_weakest_edge_on_the_path_decides(aexecute, authenticated_cont
     calibration = await seed.create_physical_space(ctx, dataset, axes=seed.ZYX_WORLD_AXES, scale=[0.5, 0.325, 0.325])
     sliced = await seed.create_lens(ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}])
     experiment = await create_experiment(ctx, "Physical", world=calibration)
-    await add_view(ctx, experiment, sliced)
+    await add_layer(ctx, experiment, sliced)
 
     view = await _view(aexecute, experiment.pk)
     assert len(view["pathToWorld"]) == 2, f"the minimum below asserts nothing over a one-edge path: {view['pathToWorld']}"
@@ -236,7 +236,7 @@ async def test_an_isotropic_calibration_keeps_the_layer_similar(aexecute, authen
     calibration = await seed.create_physical_space(ctx, dataset, axes=seed.ZYX_WORLD_AXES, scale=[0.325, 0.325, 0.325])
     lens = await seed.create_lens(ctx, dataset)
     experiment = await create_experiment(ctx, "Physical", world=calibration)
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     assert (await _view(aexecute, experiment.pk))["placementInvariance"] == "SIMILARITY", "a scalar length in world units is well defined from here up"
 
@@ -255,7 +255,7 @@ async def test_an_unplaced_layer_reads_none_and_says_why_elsewhere(aexecute, aut
     # Registered, viewed, then un-registered: an unplaced view is reached by deleting the
     # claim that placed it -- which is what un-registering *is*.
     edge = await seed.register_into_world(ctx, experiment.world, dataset)
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
     await sync_to_async(edge.delete)()
 
     view = await _view(aexecute, experiment.pk)
@@ -285,7 +285,7 @@ async def test_an_inverted_step_does_not_change_the_class(aexecute, authenticate
         )
 
     await sync_to_async(author_reverse_edge)()
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     view = await _view(aexecute, experiment.pk, PATH_TO_WORLD)
     assert any(step["inverted"] for step in view["pathToWorld"]), "the edge points against the walk"
@@ -308,10 +308,10 @@ async def test_placement_invariance_costs_no_query_beyond_placement_validity(aex
     lens = await seed.create_lens(ctx, dataset)
     experiment = await create_experiment(ctx, "Counted experiment")
     await seed.register_into_world(ctx, experiment.world, dataset)
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
-    validity_only = "query Q($id: ID!) { experiment(id: $id) { recordingViews { id placementValidity } } }"
-    both = "query Q($id: ID!) { experiment(id: $id) { recordingViews { id placementValidity placementInvariance } } }"
+    validity_only = "query Q($id: ID!) { experiment(id: $id) { layers { id placementValidity } } }"
+    both = "query Q($id: ID!) { experiment(id: $id) { layers { id placementValidity placementInvariance } } }"
 
     # `counted` warms each document once first: in mikro the layer mutation above had already
     # paid the process' one-off costs (content types, auth), and here nothing has.
@@ -333,6 +333,6 @@ async def test_the_invariance_is_derived_not_stored():
     transformation = sdl[sdl.find("interface Transformation ") : sdl.find("\n}", sdl.find("interface Transformation "))]
     assert "invariance: TransformInvariance" in transformation, "the per-edge class lives on the edge"
 
-    view = sdl[sdl.find("interface ExperimentView ") : sdl.find("\n}", sdl.find("interface ExperimentView "))]
+    view = sdl[sdl.find("interface ExperimentLayer ") : sdl.find("\n}", sdl.find("interface ExperimentLayer "))]
     assert "placementInvariance(" in view and "): TransformInvariance!" in view, "the path aggregate lives on the view, under its own name and taking the coordinate to answer at"
     assert "\n  invariance" not in view, "the bare word belongs to the edge, not the view"

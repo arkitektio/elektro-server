@@ -76,7 +76,7 @@ async def test_the_kinds_are_electrophysiologys_and_the_roi_is_gone():
     assert [line.strip() for line in kinds.splitlines() if line.strip().isupper()] == ["EVENT", "EVENTS", "EPOCH", "LINE", "PATH", "POLYGON"]
     for gone in ("type ROI", "RoiKind", "createRoi", "updateRoi", "deleteRoi", "pinRoi", "rois"):
         assert gone not in sdl, f"'{gone}' survived the removal of the ROI"
-    assert "union Resident = ArrayDataset | DataArray | Lens | AnnotationCollection" in sdl
+    assert "union Resident = ArrayDataset | DataArray | Lens | TableDataset | AnnotationCollection | SparseDataset" in sdl
 
 
 # --- drawn over a dataset: marks in samples ---------------------------------------------------
@@ -164,10 +164,11 @@ EXPERIMENT_ANNOTATIONS = """
 query ($id: ID!) {
   experiment(id: $id) {
     annotationCollection { id name coordinateSystem { axes { name type unit } } annotations { name } }
-    annotationViews {
+    layers {
+      kind
       order
       visible
-      collection { name }
+      ... on AnnotationLayer { annotationCollection { name } }
       placement
       placementValidity
       placementInvariance
@@ -180,13 +181,24 @@ query ($id: ID!) {
 """
 
 
+async def _experiment_with_a_trace(aexecute, chain, name: str) -> dict:  # noqa: ANN001
+    """An experiment over a minted world, the run's clock placed on it at zero, and a trace of its recording."""
+    created = await aexecute("mutation ($input: CreateExperimentInput!) { createExperiment(input: $input) { id world { id } } }", {"input": {"name": name}})
+    assert not created.errors, created.errors
+    experiment = created.data["createExperiment"]
+    placed = await aexecute(
+        "mutation ($input: CreateClockOffsetInput!) { createClockOffset(input: $input) { id } }",
+        {"input": {"clock": str(chain.clock.pk), "onto": experiment["world"]["id"], "offset": "0 s"}},
+    )
+    assert not placed.errors, placed.errors
+    traced = await aexecute("mutation ($input: CreateTraceLayerInput!) { createTraceLayer(input: $input) { id } }", {"input": {"experiment": experiment["id"], "dataset": str(chain.recording.pk)}})
+    assert not traced.errors, traced.errors
+    return experiment
+
+
 async def test_drawing_on_an_experiment_mints_its_collection_once(aexecute, make_simulation_chain):
     chain = await make_simulation_chain()
-    created = await aexecute(
-        "mutation ($input: CreateExperimentInput!) { createExperiment(input: $input) { id } }",
-        {"input": {"name": "Paired pulse", "recordingViews": [{"recording": str(chain.recording.id), "offset": "0 s"}]}},
-    )
-    experiment_id = created.data["createExperiment"]["id"]
+    experiment_id = (await _experiment_with_a_trace(aexecute, chain, "Paired pulse"))["id"]
 
     first = await aexecute(CREATE_ANNOTATION, {"input": {"experiment": experiment_id, "kind": "EPOCH", "name": "baseline", "vectors": [[0.0], [0.01]]}})
     assert not first.errors, first.errors
@@ -202,8 +214,8 @@ async def test_drawing_on_an_experiment_mints_its_collection_once(aexecute, make
     assert experiment["annotationCollection"]["coordinateSystem"]["axes"] == [{"name": "t", "type": "TIME", "unit": None}], "the world's axes, copied; the identity edge is what makes the numbers seconds"
     assert sorted(a["name"] for a in experiment["annotationCollection"]["annotations"]) == ["baseline", "pulse 1"]
 
-    (view,) = experiment["annotationViews"]
-    assert (view["collection"]["name"], view["visible"], view["order"]) == ("Paired pulse/annotations", True, 1), "after the recording view"
+    (view,) = [layer for layer in experiment["layers"] if layer["kind"] == "ANNOTATION"]
+    assert (view["annotationCollection"]["name"], view["visible"], view["order"]) == ("Paired pulse/annotations", True, 1), "after the trace layer"
     assert (view["placement"], view["placementValidity"], view["placementInvariance"]) == ("PLACED", "VALIDATED", "ISOMETRY"), "an identity between two spaces with the same axes is exact"
     assert view["pathToWorld"] == [{"inverted": False, "transformation": {"kind": "BY_DIMENSION", "validity": "VALIDATED"}}]
     assert view["asAffine"]["matrix"][0] == approx([1.0, 0.0])
@@ -215,11 +227,7 @@ async def test_drawing_on_an_experiment_mints_its_collection_once(aexecute, make
 async def test_deleting_the_experiment_keeps_what_was_drawn_on_it(aexecute, make_simulation_chain):
     """An annotation belongs to a collection, never to an experiment: the space it is drawn in has not gone anywhere."""
     chain = await make_simulation_chain()
-    created = await aexecute(
-        "mutation ($input: CreateExperimentInput!) { createExperiment(input: $input) { id world { id } } }",
-        {"input": {"name": "Short lived", "recordingViews": [{"recording": str(chain.recording.id), "offset": "0 s"}]}},
-    )
-    experiment = created.data["createExperiment"]
+    experiment = await _experiment_with_a_trace(aexecute, chain, "Short lived")
     drawn = await aexecute(CREATE_ANNOTATION, {"input": {"experiment": experiment["id"], "kind": "EVENT", "name": "kept", "vectors": [[0.002]]}})
     assert not drawn.errors, drawn.errors
 

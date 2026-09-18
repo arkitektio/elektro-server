@@ -12,19 +12,22 @@ axis carrying a 1x2 affine -- never a SCALE edge beside a TRANSLATION edge: two 
 between the same two spaces are *rivals* the path search chooses between, not a
 composition. A ``BY_DIMENSION`` even for a one-axis dataset, so a ``(t)`` and a ``(t, c)``
 dataset read identically, and because it is the honest statement for the second: the law
-says nothing about ``c``, where a rank-changing AFFINE would say "times zero". It replaces
-``AnalogSignal.sampling_rate``, ``.t_start`` and the redundant ``.time_dataset`` -- which was
-a second copy of the same fact, free to disagree with the first.
+says nothing about ``c``, where a rank-changing AFFINE would say "times zero". A spike
+raster's ``(unit, t)`` grid is timed by the same law over its ``t`` axis -- it is sampled
+exactly as the recording it was sorted from.
 
-**The time lookup** (:func:`write_time_lookup`): an irregularly sampled signal and a spike
-train have no law, only a list of instants. That is a ``FIELD``: a map given by the values
-of an array. For an irregular signal the array is a separate times dataset, alone in its own
-system (rule R3); for a spike train the dataset's values *are* the times, so the field is the
-input itself. A FIELD carries no numbers, so it cannot convert: the times dataset's
+**The time lookup** (:func:`write_time_lookup`): an irregularly sampled signal has no law,
+only a list of instants. That is a ``FIELD``: a map given by the values of an array -- a
+separate times dataset, alone in its own system (rule R3), or the dataset itself when its
+values *are* the times. A FIELD carries no numbers, so it cannot convert: the times dataset's
 ``value_unit`` must already be the clock's unit.
 
 **The offset** (:func:`write_offset`): where one clock sits on another -- a segment within
-its session, a recording within an experiment. A ``TRANSLATION`` when the two clocks share
+its session, a session or a run within an experiment's world.
+
+These are the whole of what a *session* is now. There is no ``Block``: a session is a clock
+whose ``epoch`` is when the recording started, a segment is a clock with an offset onto it,
+and a signal is a dataset with one of the edges above onto one of them. A ``TRANSLATION`` when the two clocks share
 a unit and a one-axis ``AFFINE`` when they do not, because a TRANSLATION states no factor
 and the graph refuses a number-free edge between a millisecond axis and a second one.
 
@@ -110,8 +113,8 @@ def write_sampling_law(
     sample_axis = time_axis(grid)
     if sample_axis is None:
         raise ValueError(
-            f"'{grid.name}' has no TIME axis, so there is nothing for a sampling law to act on. The sample axis of a regularly sampled dataset is typed TIME; "
-            "an INDEX axis has no metric, which is why a spike train reaches time through a lookup instead."
+            f"'{grid.name}' has no TIME axis, so there is nothing for a sampling law to act on. The sample axis of a regularly sampled dataset -- or of a spike raster -- "
+            "is typed TIME; an INDEX axis has no metric, so it can only reach time through a lookup."
         )
     if sampling_rate <= 0:
         raise ValueError("A sampling rate is positive: a zero or negative rate maps every sample onto one instant, or runs time backwards.")
@@ -232,23 +235,27 @@ class TimedOnce:
     """Refuses a second timing edge between one sample grid and one clock.
 
     Two edges between the same two spaces are *rivals* the path search chooses between, not
-    a composition -- so a dataset named by two signals of one segment (or of two segments
-    sharing the session clock) would have two answers to "when was sample 0", and the search
-    would pick one. Checked against the database as well as this request, because the
-    dataset may already be timed against a clock some other interpretation made.
+    a composition -- so a dataset timed twice onto one clock would have two answers to "when
+    was sample 0", and the search would pick one. Checked against the database as well as
+    this request, because the grid may already be timed against the clock by an earlier call.
     """
 
     def __init__(self) -> None:
         self._seen: set[tuple[int, int]] = set()
 
-    def claim(self, dataset: "models.ArrayDataset", clock: "models.CoordinateSystem", label: str) -> None:
-        key = (grid_of(dataset).pk, clock.pk)
+    def claim_grid(self, grid: "models.CoordinateSystem", clock: "models.CoordinateSystem", label: str) -> None:
+        """Claim the one timing of ``grid`` on ``clock``, whatever lives in the grid."""
+        key = (grid.pk, clock.pk)
         if key in self._seen or models.Transformation.objects.filter(input_id=key[0], output_id=key[1], parent__isnull=True).exists():
             raise ValueError(
-                f"'{label}' names dataset '{dataset.name}', which is already timed against the clock '{clock.name}'. One dataset has one timing on one clock: "
-                "a second edge between the same two spaces would be a rival answer, not a second signal. Give the segment its own clock (`timebase: OWN`), or name a lens' dataset instead."
+                f"'{label}' is already timed against the clock '{clock.name}'. One grid has one timing on one clock: a second edge between the same two spaces "
+                "would be a rival answer, not a second statement. Correct the existing edge (`updateTransformation`), or time it against a clock of its own."
             )
         self._seen.add(key)
+
+    def claim(self, dataset: "models.ArrayDataset", clock: "models.CoordinateSystem", label: str) -> None:
+        """Claim the one timing of a dataset's sample grid on ``clock``."""
+        self.claim_grid(grid_of(dataset), clock, f"{label}' ('{dataset.name}")
 
 
 def sample_count(dataset: "models.ArrayDataset", axis_name: str) -> int:
@@ -318,3 +325,50 @@ def times_dataset_of(grid: "models.CoordinateSystem | None", clock: "models.Coor
     if edge is None:
         return None
     return next(iter(edge.effective_field.datasets.all()[:1]), None)
+
+
+def grids_timed_on(clock: "models.CoordinateSystem | None") -> "list[models.CoordinateSystem]":
+    """The spaces with a timing edge directly onto ``clock``, in edge order.
+
+    A timing edge is any top-level edge landing on the clock whose input something *lives*
+    in -- a sampling law or a time lookup out of a sample grid, or out of a spike raster's
+    space. An offset from another clock lands here too, and is left out: nothing lives in a
+    clock. The reading ``Simulation.datasets`` and the experiment bootstrap share.
+    """
+    if clock is None:
+        return []
+    uninhabited = {f"input__{lookup}": value for lookup, value in graph_logic._UNINHABITED.items()}
+    edges = models.Transformation.objects.filter(output=clock, parent__isnull=True).exclude(**uninhabited).select_related("input").order_by("pk")
+    seen: dict[int, "models.CoordinateSystem"] = {}
+    for edge in edges:
+        seen.setdefault(edge.input_id, edge.input)
+    return list(seen.values())
+
+
+def datasets_timed_on(clock: "models.CoordinateSystem | None") -> "list[models.ArrayDataset]":
+    """The array datasets whose sample grid has a timing edge directly onto ``clock``."""
+    grids = [grid.pk for grid in grids_timed_on(clock)]
+    if not grids:
+        return []
+    by_grid = {dataset.coordinate_system_id: dataset for dataset in models.ArrayDataset.objects.filter(coordinate_system_id__in=grids)}
+    return [by_grid[pk] for pk in grids if pk in by_grid]
+
+
+def timing_clocks_of(grid: "models.CoordinateSystem | None") -> "list[models.CoordinateSystem]":
+    """The clocks ``grid`` has a timing edge directly onto: a sampling law or a time lookup.
+
+    Usually one. More than one when the same data is timed on two clocks -- a raster sampled on
+    the probe's clock and on the DAQ's -- which is legal and is why callers that need *the*
+    clock take an explicit one when this has several.
+    """
+    if grid is None:
+        return []
+    edges = (
+        models.Transformation.objects.filter(input=grid, parent__isnull=True, output__axes__type=enums.AxisTypeChoices.TIME.value, output__axes__unit__isnull=False)
+        .select_related("output")
+        .order_by("pk")
+    )
+    seen: dict[int, "models.CoordinateSystem"] = {}
+    for edge in edges:
+        seen.setdefault(edge.output_id, edge.output)
+    return list(seen.values())

@@ -1,7 +1,8 @@
 """Where a container gets filed, and who is allowed to say.
 
-**Vendored from mikro** (``mikro/core/logic/folder.py``); the containers are two here (an
-array dataset, an annotation collection) where mikro has four.
+**Vendored from mikro** (``mikro/core/logic/folder.py``); the containers are an array dataset,
+a table dataset, an annotation collection and a sparse dataset (mikro has a mesh collection
+where this has a sparse dataset).
 
 
 Two rules, and the second is why this module is more than a lookup:
@@ -43,21 +44,22 @@ from core.logic import graph as graph_logic
 from core.scoping import get_for_org
 from kante.types import Info
 
-#: Anything fileable that can also be derived: the two containers. A `File` and a `Block`
-#: are fileable but have no lineage, so nothing here ever sees one.
-Container = models.ArrayDataset | models.AnnotationCollection
+#: Anything fileable that can also be derived: the four containers. A `File` is fileable but
+#: has no lineage, so nothing here ever sees one.
+Container = models.ArrayDataset | models.TableDataset | models.AnnotationCollection | models.SparseDataset
 
 #: The models a `derivedFrom` entry can name, by its source kind. `LENS` is absent on
 #: purpose: a lens is a selection over a dataset, not a filed thing, so a child derived
 #: from one is filed with the lens' *dataset*.
 _SOURCE_MODELS: dict[str, type] = {
     "DATASET": models.ArrayDataset,
+    "TABLE_DATASET": models.TableDataset,
     "ANNOTATION_COLLECTION": models.AnnotationCollection,
 }
 
 #: The container keys that name something fileable. `container_map` also returns
 #: `("system", pk)` for a space owned by nothing, which has no folder to inherit.
-_FILEABLE_KEYS = frozenset({"dataset", "annotationcollection"})
+_FILEABLE_KEYS = frozenset({"dataset", "tabledataset", "annotationcollection", "sparsedataset"})
 
 _DERIVED_REFUSAL = "{label} was computed from {parent}, so it is filed with it and cannot be filed on its own. Derived data follows its primary parent's folder: move {parent} instead, and everything derived from it moves with it"
 

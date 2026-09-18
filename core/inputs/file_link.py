@@ -85,6 +85,22 @@ class DatasetExportOfInputModel(ExportOfInputBase):
     CONTAINER_FIELD: ClassVar[str] = "dataset"
 
 
+class TableDatasetExportOfInputModel(ExportOfInputBase):
+    """Written from a table dataset."""
+
+    kind: Literal[enums.FileLinkContainerKind.TABLE_DATASET] = enums.FileLinkContainerKind.TABLE_DATASET
+    table_dataset: str
+    CONTAINER_FIELD: ClassVar[str] = "table_dataset"
+
+
+class SparseDatasetExportOfInputModel(ExportOfInputBase):
+    """Written from a sparse dataset."""
+
+    kind: Literal[enums.FileLinkContainerKind.SPARSE_DATASET] = enums.FileLinkContainerKind.SPARSE_DATASET
+    sparse_dataset: str
+    CONTAINER_FIELD: ClassVar[str] = "sparse_dataset"
+
+
 class AnnotationCollectionExportOfInputModel(ExportOfInputBase):
     """Written from an annotation collection."""
 
@@ -96,17 +112,19 @@ class AnnotationCollectionExportOfInputModel(ExportOfInputBase):
 #: Every container kind, keyed by discriminator value.
 EXPORT_OF_MEMBERS: dict[str, type[BaseModel]] = {
     enums.FileLinkContainerKind.DATASET.value: DatasetExportOfInputModel,
+    enums.FileLinkContainerKind.TABLE_DATASET.value: TableDatasetExportOfInputModel,
     enums.FileLinkContainerKind.ANNOTATION_COLLECTION.value: AnnotationCollectionExportOfInputModel,
+    enums.FileLinkContainerKind.SPARSE_DATASET.value: SparseDatasetExportOfInputModel,
 }
 
 #: The union the pydantic side carries, so a resolver never sees the flat wire shape.
 ExportOfSpec = Annotated[
-    DatasetExportOfInputModel | AnnotationCollectionExportOfInputModel,
+    DatasetExportOfInputModel | TableDatasetExportOfInputModel | AnnotationCollectionExportOfInputModel | SparseDatasetExportOfInputModel,
     Field(discriminator="kind"),
 ]
 
 #: The wire fields carrying a container id, one per member.
-_EXPORT_OF_CONTAINER_FIELDS = ("dataset", "annotation_collection")
+_EXPORT_OF_CONTAINER_FIELDS = ("dataset", "table_dataset", "annotation_collection", "sparse_dataset")
 
 
 @prose_errors
@@ -125,7 +143,9 @@ class ExportOfInput:
 
     kind: enums.FileLinkContainerKind = strawberry.field(description="Which sort of thing the container is. It fixes which id field below is read; any other is rejected")
     dataset: strawberry.ID | None = strawberry.field(default=None, description="(DATASET) The array dataset this file was written from")
+    table_dataset: strawberry.ID | None = strawberry.field(default=None, description="(TABLE_DATASET) The table dataset this file was written from")
     annotation_collection: strawberry.ID | None = strawberry.field(default=None, description="(ANNOTATION_COLLECTION) The annotation collection this file was written from")
+    sparse_dataset: strawberry.ID | None = strawberry.field(default=None, description="(SPARSE_DATASET) The sparse dataset this file was written from")
     series_identifier: str | None = strawberry.field(default=None, description=_SERIES_DESCRIPTION)
     value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
 
@@ -155,6 +175,26 @@ class DatasetExportOfInput:
     value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
 
 
+@_export_of_member(TableDatasetExportOfInputModel, enums.FileLinkContainerKind.TABLE_DATASET, "The fields a TABLE_DATASET export link reads")
+class TableDatasetExportOfInput:
+    """The TABLE_DATASET member of the export container union."""
+
+    kind: enums.FileLinkContainerKind = strawberry.field(description="The discriminator: which member of ExportOfInput this is")
+    table_dataset: strawberry.ID = strawberry.field(description="The table dataset this file was written from")
+    series_identifier: str | None = strawberry.field(default=None, description=_SERIES_DESCRIPTION)
+    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+
+
+@_export_of_member(SparseDatasetExportOfInputModel, enums.FileLinkContainerKind.SPARSE_DATASET, "The fields a SPARSE_DATASET export link reads")
+class SparseDatasetExportOfInput:
+    """The SPARSE_DATASET member of the export container union."""
+
+    kind: enums.FileLinkContainerKind = strawberry.field(description="The discriminator: which member of ExportOfInput this is")
+    sparse_dataset: strawberry.ID = strawberry.field(description="The sparse dataset this file was written from")
+    series_identifier: str | None = strawberry.field(default=None, description=_SERIES_DESCRIPTION)
+    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+
+
 @_export_of_member(AnnotationCollectionExportOfInputModel, enums.FileLinkContainerKind.ANNOTATION_COLLECTION, "The fields an ANNOTATION_COLLECTION export link reads")
 class AnnotationCollectionExportOfInput:
     """The ANNOTATION_COLLECTION member of the export container union."""
@@ -169,5 +209,7 @@ class AnnotationCollectionExportOfInput:
 #: erases it from the SDL silently -- they are referenced by no field.
 file_link_union_types: list[type] = [
     DatasetExportOfInput,
+    TableDatasetExportOfInput,
     AnnotationCollectionExportOfInput,
+    SparseDatasetExportOfInput,
 ]

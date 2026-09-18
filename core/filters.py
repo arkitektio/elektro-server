@@ -76,7 +76,7 @@ class ProvenanceFilterMixin:
     (reverse relation ``provenance_entries``). Traversing that one-to-many
     history relation joins one row per matching entry, so every method ends in
     ``.distinct()`` to keep an instance from being returned once per match (same
-    pattern as :meth:`BlockFilter.filter_groups`).
+    pattern the experiment filters use).
 
     Only apply this mixin to a filter whose model has ``provenance_entries`` —
     otherwise these lookups raise ``FieldError`` at query time.
@@ -217,38 +217,6 @@ class ExperimentFilter(
         return queryset.filter(world_id=self.world)
 
 
-@strawberry.input
-class ExperimentViewFilterMixin:
-    """The filters both kinds of experiment view share."""
-
-    experiment: strawberry.ID | None = None
-    visible: bool | None = None
-
-    def filter_experiment(self, queryset, info):
-        if self.experiment is None:
-            return queryset
-        return queryset.filter(experiment_id=self.experiment)
-
-    def filter_visible(self, queryset, info):
-        if self.visible is None:
-            return queryset
-        return queryset.filter(visible=self.visible)
-
-
-@strawberry_django.filter_type(models.ExperimentRecordingView)
-class ExperimentRecordingViewFilter(IDFilterMixin, SearchFilterMixin, ExperimentViewFilterMixin):
-    SEARCH_FIELDS = ["label"]
-    id: auto
-    label: Optional[FilterLookup[str]]
-
-
-@strawberry_django.filter_type(models.ExperimentStimulusView)
-class ExperimentStimulusViewFilter(IDFilterMixin, SearchFilterMixin, ExperimentViewFilterMixin):
-    SEARCH_FIELDS = ["label"]
-    id: auto
-    label: Optional[FilterLookup[str]]
-
-
 @strawberry_django.filter_type(models.ModelCollection)
 class ModelCollectionFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin, CreatorFilterMixin):
     SEARCH_FIELDS = ["name", "description"]
@@ -280,38 +248,6 @@ class SimulationFilter(
     name: Optional[FilterLookup[str]]
 
 
-@strawberry.input
-class SiteFilterMixin:
-    """The filters a recording and a stimulus share: which run, and which cell of the model."""
-
-    simulation: strawberry.ID | None = None
-    cell: str | None = None
-
-    def filter_simulation(self, queryset, info):
-        if self.simulation is None:
-            return queryset
-        return queryset.filter(simulation_id=self.simulation)
-
-    def filter_cell(self, queryset, info):
-        if self.cell is None:
-            return queryset
-        return queryset.filter(cell=self.cell)
-
-
-@strawberry_django.filter_type(models.Recording)
-class RecordingFilter(IDFilterMixin, SearchFilterMixin, SiteFilterMixin):
-    SEARCH_FIELDS = ["label", "cell", "location"]
-    id: auto
-    kind: auto
-
-
-@strawberry_django.filter_type(models.Stimulus)
-class StimulusFilter(IDFilterMixin, SearchFilterMixin, SiteFilterMixin):
-    SEARCH_FIELDS = ["label", "cell", "location"]
-    id: auto
-    kind: auto
-
-
 @strawberry_django.filter_type(models.NeuronModel)
 class NeuronModelFilter(
     IDFilterMixin,
@@ -320,115 +256,6 @@ class NeuronModelFilter(
     CreatorFilterMixin,
     ProvenanceFilterMixin,
 ):
-    SEARCH_FIELDS = ["name", "description"]
-    id: auto
-    name: Optional[FilterLookup[str]]
-
-
-@strawberry_django.filter_type(models.Block)
-class BlockFilter(
-    IDFilterMixin,
-    SearchFilterMixin,
-    CreatedAtFilterMixin,
-    CreatorFilterMixin,
-    ProvenanceFilterMixin,
-):
-    SEARCH_FIELDS = ["name", "description"]
-    id: auto
-    name: Optional[FilterLookup[str]]
-    folder: strawberry.ID | None = None
-    groups: list[strawberry.ID] | None = None
-    recorded_before: datetime.datetime | None = None
-    recorded_after: datetime.datetime | None = None
-
-    def filter_folder(self, queryset, info):
-        if self.folder is None:
-            return queryset
-        return queryset.filter(folder_id=self.folder)
-
-    def filter_groups(self, queryset, info):
-        if self.groups is None:
-            return queryset
-        return queryset.filter(groups__id__in=self.groups).distinct()
-
-    # When a session was recorded is its clock's epoch: there is no column on the block.
-    def filter_recorded_before(self, queryset, info):
-        if self.recorded_before is None:
-            return queryset
-        return queryset.filter(clock__epoch__lt=self.recorded_before)
-
-    def filter_recorded_after(self, queryset, info):
-        if self.recorded_after is None:
-            return queryset
-        return queryset.filter(clock__epoch__gt=self.recorded_after)
-
-
-@strawberry_django.filter_type(models.BlockSegment)
-class BlockSegmentFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin):
-    SEARCH_FIELDS = ["name", "description"]
-    id: auto
-    name: Optional[FilterLookup[str]]
-    block: strawberry.ID | None = None
-
-    def filter_block(self, queryset, info):
-        if self.block is None:
-            return queryset
-        return queryset.filter(block_id=self.block)
-
-
-@strawberry_django.filter_type(models.BlockGroup)
-class BlockGroupFilter(IDFilterMixin, SearchFilterMixin):
-    SEARCH_FIELDS = ["name", "description"]
-    id: auto
-    name: Optional[FilterLookup[str]]
-    block: strawberry.ID | None = None
-
-    def filter_block(self, queryset, info):
-        if self.block is None:
-            return queryset
-        return queryset.filter(block_id=self.block)
-
-
-@strawberry.input
-class SignalFilterMixin:
-    """The filters every signal kind shares: which segment, which block, which dataset."""
-
-    segment: strawberry.ID | None = None
-    block: strawberry.ID | None = None
-    dataset: strawberry.ID | None = None
-
-    def filter_segment(self, queryset, info):
-        if self.segment is None:
-            return queryset
-        return queryset.filter(segment_id=self.segment)
-
-    def filter_block(self, queryset, info):
-        if self.block is None:
-            return queryset
-        return queryset.filter(segment__block_id=self.block)
-
-    def filter_dataset(self, queryset, info):
-        if self.dataset is None:
-            return queryset
-        return queryset.filter(dataset_id=self.dataset)
-
-
-@strawberry_django.filter_type(models.AnalogSignal)
-class AnalogSignalFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin, SignalFilterMixin):
-    SEARCH_FIELDS = ["name", "description"]
-    id: auto
-    name: Optional[FilterLookup[str]]
-
-
-@strawberry_django.filter_type(models.IrregularlySampledSignal)
-class IrregularlySampledSignalFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin, SignalFilterMixin):
-    SEARCH_FIELDS = ["name", "description"]
-    id: auto
-    name: Optional[FilterLookup[str]]
-
-
-@strawberry_django.filter_type(models.SpikeTrain)
-class SpikeTrainFilter(IDFilterMixin, SearchFilterMixin, ProvenanceFilterMixin, SignalFilterMixin):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
     name: Optional[FilterLookup[str]]
@@ -489,61 +316,10 @@ class ExperimentOrder:
     created_at: auto
 
 
-@strawberry_django.order_type(models.ExperimentRecordingView)
-class ExperimentRecordingViewOrder:
-    id: auto
-
-
-@strawberry_django.order_type(models.ExperimentStimulusView)
-class ExperimentStimulusViewOrder:
-    id: auto
-
-
-@strawberry_django.order_type(models.Recording)
-class RecordingOrder:
-    id: auto
-
-
-@strawberry_django.order_type(models.Block)
-class BlockOrder:
-    id: auto
-    created_at: auto
-
-
-@strawberry_django.order_type(models.BlockSegment)
-class BlockSegmentOrder:
-    id: auto
-
-
-@strawberry_django.order_type(models.BlockGroup)
-class BlockGroupOrder:
-    id: auto
-
-
-@strawberry_django.order_type(models.Stimulus)
-class StimulusOrder:
-    id: auto
-
-
 @strawberry_django.order_type(models.NeuronModel)
 class NeuronModelOrder:
     id: auto
     created_at: auto
-
-
-@strawberry_django.order_type(models.AnalogSignal)
-class AnalogSignalOrder:
-    id: auto
-
-
-@strawberry_django.order_type(models.SpikeTrain)
-class SpikeTrainOrder:
-    id: auto
-
-
-@strawberry_django.order_type(models.IrregularlySampledSignal)
-class IrregularlySampledSignalOrder:
-    id: auto
 
 
 @strawberry_django.order_type(models.ModEnvironment)
@@ -814,19 +590,6 @@ class AnnotationFilter(IdsFilterMixin, NameSearchFilterMixin):
             return Q()
         self._require_frame("containsPoint")
         return Q(**{f"{prefix}bbox_cube__contains_point": value})
-
-
-@strawberry_django.filter_type(models.ExperimentAnnotationView)
-class ExperimentAnnotationViewFilter(IDFilterMixin, SearchFilterMixin, ExperimentViewFilterMixin):
-    SEARCH_FIELDS = ["label"]
-    id: auto
-    label: Optional[FilterLookup[str]]
-
-
-@strawberry_django.order_type(models.ExperimentAnnotationView)
-class ExperimentAnnotationViewOrder:
-    order: auto
-    id: auto
 
 
 # --- The data layer (vendored from mikro's core/filters.py) -------------------------------------
@@ -1454,3 +1217,130 @@ def _annotate_axis_type_count(queryset: QuerySet, prefix: str, types: set[str]) 
     alias = f"_{prefix.replace('__', '_')}matched_axis_types__{'_'.join(sorted(types))}"
     expression = Count(f"{axes}__type", filter=Q(**{f"{axes}__type__in": list(types)}), distinct=True)
     return _annotate_once(queryset, alias, expression), alias
+
+
+# --- Sparse and table datasets (vendored from mikro's core/filters.py) ---------------------------
+# elektro: every resolver states what `null` means (USE_DEPRECATED_FILTERS lets an explicit null
+# reach it), and `placeableIn` takes a PlaceableFilter like every other `placeableIn` here.
+
+
+@kante.filter_type(models.SparseDataset)
+class SparseDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    description: Optional[FilterLookup[str]]
+
+    @kante.filter_field(description="Filter by the folder this sparse dataset is filed in")
+    def folder(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+        """Match sparse datasets filed in the folder with this ID."""
+        return Q() if value is None else Q(**{f"{prefix}folder_id": value})
+
+    @kante.filter_field(description="Filter to datasets holding a layout indexed on this axis -- the ones that can answer about it in one contiguous read rather than by scanning")
+    def indexes_axis(self, info: Info, value: str | None, prefix: str) -> Q:
+        """Match sparse datasets whose stored layouts index an axis of this name."""
+        return Q() if value is None else Q(**{f"{prefix}coordinate_system__axes__name": value})
+
+    @kante.filter_field(description="Filter by whether the matrix has a TIME axis -- a spike raster, placed on a clock by a sampling law -- or only enumerations. elektro's own")
+    def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
+        """Match sparse datasets with (true) or without (false) a TIME axis."""
+        if value is None:
+            return Q()
+        # A subquery rather than a join across `axes`, which would repeat a row per TIME axis.
+        timed = models.Axis.objects.filter(type=enums.AxisTypeChoices.TIME.value).values("coordinate_system_id")
+        has_time = Q(**{f"{prefix}coordinate_system_id__in": timed})
+        return has_time if value else ~has_time
+
+    @kante.filter_field(description="Filter to sparse datasets placeable into a coordinate system across steps that compose into one affine map -- a raster's sampling law onto a clock is one")
+    def placeable_in(self, info: Info, value: PlaceableFilter | None, prefix: str) -> Q:
+        if value is None:
+            return Q()
+        space = _placeable_destination(info, value.space)
+        if space is None:
+            return Q(pk__in=[])
+        placeable = graph_logic.placeable_system_ids_in(space, derived_only=bool(value.derived_only))
+        return Q(**{f"{prefix}coordinate_system_id__in": placeable})
+
+
+@kante.filter_type(models.TableDataset)
+class TableDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+    id: auto
+    name: Optional[FilterLookup[str]]
+    description: Optional[FilterLookup[str]]
+
+    @kante.filter_field(description="Filter by the folder this table dataset is filed in")
+    def folder(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+        """Match table datasets filed in the folder with this ID."""
+        return Q() if value is None else Q(**{f"{prefix}folder_id": value})
+
+    @kante.filter_field(description="Filter by a list of folder IDs")
+    def folders(self, info: Info, value: list[strawberry.ID] | None, prefix: str) -> Q:
+        """Match table datasets filed in any of the given folders."""
+        return Q() if value is None else Q(**{f"{prefix}folder_id__in": value})
+
+    @kante.filter_field(description="Filter by the dataset the table was computed from, following its derivation edge")
+    def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+        return Q() if value is None else Q(**{f"{prefix}coordinate_system__in": _systems_derived_from_dataset(value)})
+
+    @kante.filter_field(description="Filter to tables that declare a column of this role, e.g. LABEL")
+    def has_column_role(self, info: Info, value: enums.ColumnRole | None, prefix: str) -> Q:
+        return Q() if value is None else Q(**{f"{prefix}columns__role": value.value})
+
+    @kante.filter_field(description="Filter by whether the table has a TIME coordinate column -- an event or epoch list, placeable on a clock -- or none (a unit table, a measurement table). elektro's own")
+    def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
+        if value is None:
+            return Q()
+        # A subquery rather than a join across `axes`, which would repeat a row per TIME axis.
+        timed = models.Axis.objects.filter(type=enums.AxisTypeChoices.TIME.value).values("coordinate_system_id")
+        has_time = Q(**{f"{prefix}coordinate_system_id__in": timed})
+        return has_time if value else ~has_time
+
+    @kante.filter_field(description="Filter to table datasets placeable into this coordinate system: those whose own coordinate system reaches it across steps that compose into one affine map, walking the transformation edges")
+    def placeable_in(self, info: Info, value: PlaceableFilter | None, prefix: str) -> Q:
+        if value is None:
+            return Q()
+        space = _placeable_destination(info, value.space)
+        if space is None:
+            return Q(pk__in=[])
+        return Q(**{f"{prefix}id__in": graph_logic.placeable_table_dataset_ids(space)})
+
+
+def _systems_derived_from_dataset(dataset_id: strawberry.ID):
+    """The collection systems whose derivation edge lands in this dataset.
+
+    A subquery rather than a join: `Transformation.input`/`output` are declared
+    `related_name="+"`, so there is no reverse accessor to filter across, and a collection
+    keeps no dataset column of its own -- the edge is the only place that fact lives.
+    """
+    return models.Transformation.objects.filter(
+        parent__isnull=True,
+        input__isnull=False,
+    ).filter(
+        Q(output__datasets__id=dataset_id) | Q(output__lenses__dataset_id=dataset_id) | Q(output__data_arrays__dataset_id=dataset_id)
+    ).values("input_id")
+
+
+# --- Experiment layers (elektro's counterpart of mikro's LayerFilter) -----------------------------
+
+
+@kante.filter_type(models.ExperimentLayer)
+class ExperimentLayerFilter(IdsFilterMixin):
+    """The layers of an experiment. mikro's LayerFilter, for time series."""
+
+    id: auto
+    name: Optional[FilterLookup[str]]
+
+    @kante.filter_field(description="Filter to the layers of this experiment")
+    def experiment(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+        return Q() if value is None else Q(**{f"{prefix}experiment_id": value})
+
+    @kante.filter_field(description="Filter by how the layer draws: TRACE, SPIKES, EVENTS or ANNOTATION")
+    def kind(self, info: Info, value: enums.ExperimentLayerKind | None, prefix: str) -> Q:
+        return Q() if value is None else Q(**{f"{prefix}kind": value.value})
+
+    @kante.filter_field(description="Filter by whether the layer is shown")
+    def visible(self, info: Info, value: bool | None, prefix: str) -> Q:
+        return Q() if value is None else Q(**{f"{prefix}visible": value})
+
+    @kante.filter_field(description="Filter to the layers drawing this array dataset, through any of its lenses")
+    def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+        return Q() if value is None else Q(**{f"{prefix}lens__dataset_id": value})

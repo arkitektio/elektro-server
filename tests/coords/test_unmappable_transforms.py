@@ -15,7 +15,7 @@ returns it and `derivedFrom` still reports it, because "why can this not be plac
 question the client is entitled to an answer to.
 
 Every test below that pins a gate is written so that removing the gate makes it fail. The
-views go in through the ORM (``_helpers.add_view``), as they do in mikro: the query-time
+views go in through the ORM (``_helpers.add_layer``), as they do in mikro: the query-time
 behaviour of an unplaced view is what is pinned, and no creating mutation would admit one.
 """
 
@@ -25,7 +25,7 @@ from asgiref.sync import sync_to_async
 from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
-from tests.coords._helpers import add_view, create_experiment, derive, derived_dataset
+from tests.coords._helpers import add_layer, create_experiment, derive, derived_dataset
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -39,7 +39,7 @@ mutation Register($input: CreateTransformationInput!) {
 PLACEMENT = """
 query Placement($id: ID!) {
   experiment(id: $id) {
-    recordingViews { id placement pathToWorld { transformation { id kind } } }
+    layers { id placement pathToWorld { transformation { id kind } } }
     world { registrations { id kind name } }
   }
 }
@@ -81,7 +81,7 @@ async def _experiment_with_registered_source(aexecute, ctx, source: models.Array
 async def _views(aexecute, experiment: models.Experiment) -> list[dict]:  # noqa: ANN001
     result = await aexecute(PLACEMENT, {"id": str(experiment.pk)})
     assert not result.errors, result.errors
-    return result.data["experiment"]["recordingViews"]
+    return result.data["experiment"]["layers"]
 
 
 async def test_an_unmappable_edge_is_not_a_way_to_world(aexecute, zarr_store, authenticated_context):
@@ -99,7 +99,7 @@ async def test_an_unmappable_edge_is_not_a_way_to_world(aexecute, zarr_store, au
 
     derived = await derive(aexecute, zarr_store, "Features", lens=source_lens, axes=seed.SIMPLE_AXES, shape=[3, 64, 64], transform={"kind": "UNMAPPABLE", "reason": "feature extraction over the sample axis"})
     dataset = await derived_dataset(derived)
-    await add_view(ctx, experiment, await seed.create_lens(ctx, dataset))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, dataset))
 
     (view,) = await _views(aexecute, experiment)
     assert view["pathToWorld"] is None, "the source is placed, but nothing relates this data to the source -- so it is not placed"
@@ -130,7 +130,7 @@ async def test_an_unmappable_edge_in_a_scene_is_still_not_a_way_to_world(aexecut
         {"input": {"input": str(dataset.coordinate_system_id), "output": str(experiment.world_id), "transform": {"kind": "UNMAPPABLE", "reason": "nothing about this data is anywhere"}}},
     )
     assert not registered.errors, registered.errors
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     (view,) = await _views(aexecute, experiment)
     assert view["pathToWorld"] is None, "an edge that maps nothing is not a route, wherever it is filed"
@@ -314,17 +314,17 @@ async def test_placement_distinguishes_a_gap_from_an_impossibility(aexecute, zar
     experiment = await _experiment_with_registered_source(aexecute, ctx, source)
 
     # PLACED: registered, and the walk finds it.
-    await add_view(ctx, experiment, source_lens)
+    await add_layer(ctx, experiment, source_lens)
 
     # UNMAPPABLE: related to the placed data, and by an edge that maps nothing.
     derived = await derive(aexecute, zarr_store, "Features", lens=source_lens, axes=seed.SIMPLE_AXES, shape=[3, 64, 64], transform={"kind": "UNMAPPABLE"})
     dataset = await derived_dataset(derived)
-    await add_view(ctx, experiment, await seed.create_lens(ctx, dataset))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, dataset))
 
     # UNREGISTERED: a perfectly placeable dataset that nobody has placed. It shares no axis
     # name with the world, so no registration exists and none can be assumed.
     stranger = await seed.create_dataset(ctx, "Stranger", [seed.axis("object", enums.AxisType.INDEX)], [12])
-    await add_view(ctx, experiment, await seed.create_lens(ctx, stranger))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, stranger))
 
     states = [view["placement"] for view in await _views(aexecute, experiment)]
     assert states == ["PLACED", "UNMAPPABLE", "UNREGISTERED"], states
@@ -365,7 +365,7 @@ async def test_a_fusion_with_one_unmappable_parent_is_a_gap_not_an_impossibility
 
     # An experiment over a world nothing in this lineage is registered into.
     experiment = await create_experiment(ctx, "Empty world")
-    await add_view(ctx, experiment, await seed.create_lens(ctx, dataset))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, dataset))
 
     assert [view["placement"] for view in await _views(aexecute, experiment)] == ["UNREGISTERED"], "the intact parent is a route, so the registration is merely missing"
 

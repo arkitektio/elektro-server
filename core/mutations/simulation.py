@@ -1,13 +1,19 @@
-"""Creating a simulation: one run of a neuron model, its recordings and stimuli, and the clock it ran on.
+"""Creating a simulation: one run of a neuron model, and the clock it ran on.
 
-**The interpretation layer**, like :mod:`core.mutations.block`. A run holds no data: its
-recordings and stimuli *name* array datasets that already exist, and ``createSimulation``
-writes what it means for them to be one run -- a clock, a site row per dataset, and **one
-timing edge per dataset**, all onto that one clock. That they line up is a fact about those
-edges; nothing shares a sample grid (every dataset owns its own, as in mikro).
+**The interpretation layer**, and the thinnest part of it. A run holds no data and no rows per
+dataset: what was recorded where, and what was injected where, are ``RecordingSite`` and
+``StimulusSite`` spokes on the datasets' own anchors, said when the data was created. What
+``createSimulation`` writes is what only a run can say -- the model, the integrator's ``dt`` and
+``duration``, a clock -- and, for the datasets it is handed, **one timing edge per dataset**
+onto that clock. That they line up is a fact about those edges; nothing shares a sample grid.
 
-What is checked is that they *can* line up: every dataset has a TIME axis and the same
-number of samples along it, because one run recorded them all on one sample index.
+CS-first: with no ``datasets`` it only mints the run's clock, and the datasets are timed
+against it later, one ``createSamplingLaw`` (or FIELD ``createTransformation``) at a time --
+exactly as a recording session is built. Which datasets belong to a run is read back from the
+graph (``Simulation.datasets``), never stored.
+
+What is checked is that the named datasets *can* line up: every one has a TIME axis and the
+same number of samples along it, because one run recorded them all on one sample index.
 """
 
 import strawberry
@@ -24,48 +30,6 @@ from core.guards import enforce_delete
 from core.logic import clocks
 from core.logic import spaces as spaces_logic
 from core.scoping import get_for_org
-
-
-class RecordingInputModel(BaseModel):
-    dataset: str
-    kind: enums.RecordingKind
-    cell: str | None = None
-    location: str | None = None
-    position: float | None = None
-    label: str | None = None
-
-
-@kante.pydantic_input(RecordingInputModel, description="What was recorded from the model at one site")
-class RecordingInput:
-    """A recording of a simulation."""
-
-    dataset: strawberry.ID = strawberry.field(description="The recorded samples: an existing array dataset with a TIME axis, one value per sample of the run. What its values measure is its own `valueUnit`")
-    kind: enums.RecordingKind
-    cell: strawberry.ID | None = strawberry.field(default=None, description="The id of the cell, as the model config names it")
-    location: strawberry.ID | None = strawberry.field(default=None, description="The id of the section, as the model config names it")
-    position: float | None = strawberry.field(default=None, description="The normalized position along the section, 0 to 1")
-    label: str | None = None
-
-
-class StimulusInputModel(BaseModel):
-    dataset: str
-    kind: enums.StimulusKind
-    cell: str | None = None
-    location: str | None = None
-    position: float | None = None
-    label: str | None = None
-
-
-@kante.pydantic_input(StimulusInputModel, description="What was injected into the model at one site")
-class StimulusInput:
-    """A stimulus of a simulation."""
-
-    dataset: strawberry.ID = strawberry.field(description="The injected samples: an existing array dataset with a TIME axis, one value per sample of the run. What its values measure is its own `valueUnit`")
-    kind: enums.StimulusKind
-    cell: strawberry.ID | None = strawberry.field(default=None, description="The id of the cell, as the model config names it")
-    location: strawberry.ID | None = strawberry.field(default=None, description="The id of the section, as the model config names it")
-    position: float | None = strawberry.field(default=None, description="The normalized position along the section, 0 to 1")
-    label: str | None = None
 
 
 class SamplingInputModel(BaseModel):
@@ -85,8 +49,7 @@ class CreateSimulationInputModel(BaseModel):
     name: str
     description: str | None = None
     model: str
-    recordings: list[RecordingInputModel]
-    stimuli: list[StimulusInputModel]
+    datasets: list[str] = []
     time_dataset: str | None = None
     sampling: SamplingInputModel | None = None
     time_unit: str = "millisecond"
@@ -95,31 +58,43 @@ class CreateSimulationInputModel(BaseModel):
 
     @model_validator(mode="after")
     def _one_way_of_timing(self) -> "CreateSimulationInputModel":
+        if not self.datasets:
+            if self.time_dataset is not None or self.sampling is not None:
+                raise ValueError("`sampling` and `timeDataset` say how the run's `datasets` are timed, but no datasets were named. Name them, or leave both out and time them later with `createSamplingLaw`.")
+            return self
         if (self.time_dataset is None) == (self.sampling is None):
             raise ValueError(
                 "A run's samples are timed in exactly one way: pass `sampling` when it recorded at a fixed interval, or `timeDataset` when it did not (a variable time step). "
-                "Both would be two statements of one fact, free to disagree; neither leaves the recordings with no time at all."
+                "Both would be two statements of one fact, free to disagree; neither leaves the datasets with no time at all."
             )
         return self
 
 
-@kante.pydantic_input(CreateSimulationInputModel, description="One run of a neuron model: what was injected, what was recorded, and how its samples are timed. It names array datasets that already exist; it creates no data")
+@kante.pydantic_input(
+    CreateSimulationInputModel,
+    description=(
+        "One run of a neuron model: the model, the integrator's parameters, and a clock. Optionally, the array datasets it produced and how their samples are timed on that clock. "
+        "What was recorded or injected where is not stated here: it is a `recordingSite` / `stimulusSite` on each dataset's anchors, said at `createArrayDataset`"
+    ),
+)
 class CreateSimulationInput:
     """Input for creating a simulation."""
 
     name: str
     description: str | None = None
     model: strawberry.ID = strawberry.field(description="The neuron model that was run")
-    recordings: list[RecordingInput]
-    stimuli: list[StimulusInput]
+    datasets: list[strawberry.ID] = strawberry.field(
+        default_factory=list,
+        description="The array datasets the run produced -- recordings and stimuli alike -- to time on its clock now. Each needs a TIME axis, and all the same number of samples. Leave empty to only mint the clock",
+    )
     time_dataset: strawberry.ID | None = strawberry.field(
         default=None,
         description=(
             "(variable time step) The instant each sample was recorded at: an existing one-dimensional array dataset, one value per sample, whose dataset-wide `valueUnit` is `timeUnit`. "
-            "Written as a time lookup per recording and stimulus -- a FIELD edge whose map is the values of this array -- so it must live alone in its coordinate system. Exactly one of `timeDataset` and `sampling`"
+            "Written as a time lookup per dataset -- a FIELD edge whose map is the values of this array -- so it must live alone in its coordinate system. Exactly one of `timeDataset` and `sampling` when `datasets` is given"
         ),
     )
-    sampling: SamplingInput | None = strawberry.field(default=None, description="(fixed interval) The sampling law of the run. Written as one edge per recording and stimulus, all onto the run's clock. Exactly one of `timeDataset` and `sampling`")
+    sampling: SamplingInput | None = strawberry.field(default=None, description="(fixed interval) The sampling law of the run. Written as one edge per dataset, all onto the run's clock. Exactly one of `timeDataset` and `sampling` when `datasets` is given")
     time_unit: quantities.Unit = strawberry.field(default="millisecond", description="The unit the simulation's clock counts in, and so the unit the values of `timeDataset` must be in. Defaults to 'millisecond', NEURON's unit of time")
     duration: quantities.Duration = strawberry.field(description="How long the model was run for (NEURON's tstop)")
     dt: quantities.Duration | None = strawberry.field(default=None, description="The integration time step (NEURON's dt). An integrator parameter, not the sampling period")
@@ -129,31 +104,27 @@ def create_simulation(
     info: Info,
     input: CreateSimulationInput,
 ) -> types.Simulation:
-    """Create a simulation, its clock, a site row per dataset, and the edge that times each one."""
+    """Create a simulation, its clock, and the edge that times each named dataset on it."""
     parsed = input.to_pydantic()
     model = get_for_org(models.NeuronModel, info, id=parsed.model)
     ctx = CreationContext.from_info(info)
 
-    sites = [(models.Recording, site) for site in parsed.recordings] + [(models.Stimulus, site) for site in parsed.stimuli]
-    if not sites:
-        raise ValueError("A simulation with no recordings and no stimuli has no samples, and so nothing to put on its clock.")
-
     # Everything is resolved and checked before anything is written.
     resolved = []
-    for site_model, site in sites:
-        dataset = get_for_org(models.ArrayDataset, info, id=site.dataset)
+    for identifier in dict.fromkeys(parsed.datasets):
+        dataset = get_for_org(models.ArrayDataset, info, id=identifier)
         sample_axis = clocks.time_axis(clocks.grid_of(dataset))
         if sample_axis is None:
             raise ValueError(f"Dataset '{dataset.name}' has no TIME axis, so it has no samples for the run's clock to time. A recording or a stimulus is a function of the run's sample index, and that axis is typed TIME.")
-        resolved.append((site_model, site, dataset, sample_axis.name))
+        resolved.append((dataset, sample_axis.name))
 
-    counts = {dataset.name: clocks.sample_count(dataset, axis) for _, _, dataset, axis in resolved}
+    counts = {dataset.name: clocks.sample_count(dataset, axis) for dataset, axis in resolved}
     if len(set(counts.values())) > 1:
         raise ValueError(f"One run records every site on one sample index, so its datasets have the same number of samples, but these differ: {counts}.")
 
     times = get_for_org(models.ArrayDataset, info, id=parsed.time_dataset) if parsed.time_dataset else None
     if times is not None:
-        _, _, first, first_axis = resolved[0]
+        first, first_axis = resolved[0]
         clocks.assert_times_match(parsed.name, first, first_axis, times)
 
     timed = clocks.TimedOnce()
@@ -169,9 +140,8 @@ def create_simulation(
             creator=ctx.user,
         )
 
-        for site_model, site, dataset, sample_axis in resolved:
+        for dataset, sample_axis in resolved:
             timed.claim(dataset, clock, parsed.name)
-            site_model.objects.create(dataset=dataset, simulation=simulation, kind=site.kind, cell=site.cell, location=site.location, position=site.position, label=site.label)
             if parsed.sampling is not None:
                 clocks.write_sampling_law(grid=clocks.grid_of(dataset), clock=clock, sampling_rate=parsed.sampling.rate, t_start=parsed.sampling.t_start, name=f"{dataset.name}: sampling law", ctx=ctx)
             else:
@@ -194,8 +164,7 @@ class DeleteSimulationInput:
 def delete_simulation(info: Info, input: DeleteSimulationInput) -> strawberry.ID:
     """Delete a run: the interpretation, and nothing it interprets.
 
-    The recordings and stimuli go with the run -- and with them every experiment view of
-    them -- while the datasets they named stay, times dataset included: ``createSimulation``
+    The datasets it timed stay, times dataset and site spokes included: ``createSimulation``
     made none of them. What goes is the run's clock, once nothing is laid out on it, which
     takes every timing edge onto it and every offset edge out of it into an experiment's
     world along. The worlds themselves are never touched.

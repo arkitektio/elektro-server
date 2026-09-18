@@ -1,7 +1,7 @@
 """Mutations for annotations: the drawn, editable marks on a dataset, a clock or a timeline.
 
 Vendored from mikro's ``core/mutations/annotation.py``; "scene" became "experiment" and the
-layer it mints is an :class:`~core.models.ExperimentAnnotationView`.
+layer it mints is an ANNOTATION :class:`~core.models.ExperimentLayer`.
 
 ``createAnnotation`` takes either a collection or an experiment, exactly one. The
 experiment path is the sugar that makes marking a timeline feel direct: the first shape
@@ -99,7 +99,7 @@ class CreateAnnotationInput:
 
 
 def _mint_experiment_collection(experiment: "models.Experiment", ctx: CreationContext) -> "models.AnnotationCollection":
-    """The experiment's default drawing surface: collection + system + registration + view, atomically.
+    """The experiment's default drawing surface: collection + system + registration + layer, atomically.
 
     The world's axes are copied onto the collection's own system, which is exactly the
     claim the identity registration then makes -- so the edge is exact by construction
@@ -140,8 +140,14 @@ def _mint_experiment_collection(experiment: "models.Experiment", ctx: CreationCo
     # answer stays independent of the order.
     graph_logic.record_bbox_frame(collection, system)
 
-    order = experiment.recording_views.count() + experiment.stimulus_views.count() + experiment.annotation_views.count()
-    models.ExperimentAnnotationView.objects.create(experiment=experiment, collection=collection, visible=True, order=order)
+    models.ExperimentLayer.objects.create(
+        experiment=experiment,
+        kind=enums.ExperimentLayerKindChoices.ANNOTATION.value,
+        annotation_collection=collection,
+        name=collection.name,
+        visible=True,
+        order=experiment.layers.count(),
+    )
     return collection
 
 

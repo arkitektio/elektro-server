@@ -1,7 +1,7 @@
 """The two organisational types: a raw `File`, and the `Folder` things are filed in.
 
 **Vendored from mikro** (``mikro/core/types/folder.py``). A folder here files array
-datasets, annotation collections, files and recording sessions (blocks); both types mix in
+datasets, table datasets, sparse datasets, annotation collections and files; both types mix in
 ``OrgScoped``, as every type of this service does.
 """
 
@@ -21,9 +21,10 @@ from datalayer.types import BigFileStore
 
 if TYPE_CHECKING:
     # Runtime imports here would cycle: each of these modules imports this one back.
-    from core.types import Block
     from core.types.annotation import AnnotationCollection
     from core.types.array_dataset import ArrayDataset
+    from core.types.sparse_dataset import SparseDataset
+    from core.types.table_dataset import TableDataset
     from core.types.file_link import FileLink
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,6 @@ class File(OrgScoped):
     size: float | None = kante.django_field(description="The size of the file in bytes")
     content_type: str | None = kante.django_field(description="The content type of the file")
     folder: Optional["Folder"] = kante.django_field(description="The folder this file is filed in")
-    blocks: List[Annotated["Block", strawberry.lazy("core.types")]] = kante.django_field(description="The recording sessions read from this file")
 
 
 @kante.django_type(
@@ -82,11 +82,12 @@ class File(OrgScoped):
 class Folder(OrgScoped):
     id: auto
     files: List["File"]
-    # The two containers `FileLink` calls "a thing holding data", and the recording sessions
-    # that interpret them. Being in a folder says nothing about where any of them sit in time.
+    # The four containers `FileLink` calls "a thing holding data". Being in a folder says
+    # nothing about where any of them sit in time.
     array_datasets: List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]] = kante.django_field(description="The array datasets filed in this folder")
+    table_datasets: List[Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")]] = kante.django_field(description="The table datasets (event lists, unit tables) filed in this folder")
+    sparse_datasets: List[Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")]] = kante.django_field(description="The sparse datasets (spike rasters) filed in this folder")
     annotation_collections: List[Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")]] = kante.django_field(description="The annotation collections filed in this folder")
-    blocks: List[Annotated["Block", strawberry.lazy("core.types")]] = kante.django_field(description="The recording sessions filed in this folder")
     parent: Optional["Folder"]
     children: List["Folder"]
     description: str | None

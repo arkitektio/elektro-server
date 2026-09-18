@@ -359,6 +359,57 @@ class ValueUnit(models.Model):
     unit = models.CharField(max_length=64, help_text="The unit of the values, as a pint unit validated on write; 'a.u.' for arbitrary units")
 
 
+class SiteBase(models.Model):
+    """Where on a model a stimulus was injected or a recording was taken. elektro's own spoke.
+
+    NEURON's addressing: a cell, a section of it (``location``) and a normalized position along
+    that section, 0 to 1. It is not a position in any coordinate system -- no morphology lives
+    in the graph -- so these stay descriptive fields.
+
+    It used to be the ``Recording`` and ``Stimulus`` *rows* of a simulation, each naming a
+    dataset. A site is a fact of the measurement -- where the electrode was -- not of the run,
+    so it lives with the data, beside the rig state, and a dataset carries it whichever run (or
+    none) it is timed against. Which run that is, is a fact of the graph: the dataset's grid is
+    timed onto the run's clock. Anchored at ``{}`` it speaks for the whole dataset, at
+    ``{"c": 1}`` for one channel of a multi-site recording.
+    """
+
+    cell = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the cell, as the model config names it")
+    location = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the section, as the model config names it")
+    position = models.FloatField(null=True, blank=True, help_text="The normalized position along the section, 0 to 1 (NEURON's section(x))")
+    label = models.CharField(max_length=1000, null=True, blank=True, help_text="A display label. Defaults to 'cell: location(position)'")
+
+    class Meta:
+        abstract = True
+
+    @property
+    def display_label(self) -> str:
+        """The stated label, or the site spelled out."""
+        return self.label or f"{self.cell}: {self.location}({self.position})"
+
+
+class RecordingSite(SiteBase):
+    """1:1 Spoke (Site Truth): the values here were *recorded* from this site."""
+
+    anchor = models.OneToOneField(CoordinateAnchor, related_name="recording_site", on_delete=models.CASCADE)
+    kind = TextChoicesField(
+        choices_enum=enums.RecordingKindChoices,
+        default=enums.RecordingKindChoices.VOLTAGE.value,
+        help_text="What was recorded: a voltage, a current, or one named ionic current",
+    )
+
+
+class StimulusSite(SiteBase):
+    """1:1 Spoke (Site Truth): the values here were *injected* at this site."""
+
+    anchor = models.OneToOneField(CoordinateAnchor, related_name="stimulus_site", on_delete=models.CASCADE)
+    kind = TextChoicesField(
+        choices_enum=enums.StimulusKindChoices,
+        default=enums.StimulusKindChoices.CURRENT.value,
+        help_text="What was clamped: current or voltage",
+    )
+
+
 
 class Lens(models.Model):
     """A selection over a dataset. Nothing else.

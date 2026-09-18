@@ -29,9 +29,9 @@ class ChildrenOrder:
     direction: ChildrenOrderDirection
 
 
-#: Everything that can sit in a folder: sub-folders, raw files, the two containers, and the
-#: recording sessions that interpret them. Named explicitly -- an anonymous union takes its
-#: SDL name from its members concatenated, which for five members is unusable.
+#: Everything that can sit in a folder: sub-folders, raw files, and the four containers. Named
+#: explicitly -- an anonymous union takes its SDL name from its members concatenated, which for
+#: six members is unusable.
 #:
 #: Vendored from mikro (``mikro/core/queries/children.py``).
 FolderChild = Annotated[
@@ -39,10 +39,11 @@ FolderChild = Annotated[
         types.Folder,
         types.File,
         types.ArrayDataset,
+        types.TableDataset,
+        types.SparseDataset,
         types.AnnotationCollection,
-        types.Block,
     ],
-    strawberry.union("FolderChild", description="Anything filed in a folder: a sub-folder, a file, an array dataset, an annotation collection, or a recording session"),
+    strawberry.union("FolderChild", description="Anything filed in a folder: a sub-folder, a file, an array dataset, a table dataset, a sparse dataset, or an annotation collection"),
 ]
 
 
@@ -52,8 +53,9 @@ _CHILD_SOURCES = [
     ("children", "name", "description"),
     ("files", "name", None),
     ("array_datasets", "name", "description"),
+    ("table_datasets", "name", "description"),
+    ("sparse_datasets", "name", "description"),
     ("annotation_collections", "name", "description"),
-    ("blocks", "name", "description"),
 ]
 
 

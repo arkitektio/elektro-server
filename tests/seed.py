@@ -10,6 +10,8 @@ through an object store -- to get a well-formed dataset: a level carries its ``s
 itself, which is all the graph ever reads of it, so no store is needed at all.
 """
 
+import uuid
+
 from asgiref.sync import sync_to_async
 from kante.context import HttpContext
 
@@ -27,6 +29,7 @@ from core.logic import coordinate_system as coordinate_system_logic
 from core.logic import graph as graph_logic
 from core.logic import coords as coords_logic
 from core.models import ArrayDataset, CoordinateAnchor, CoordinateSystem, DataArray, File, Folder, Lens, ValueUnit
+from datalayer.models import SparseStore, sparse_layout_path
 
 
 def axis(name: str, type_: enums.AxisType) -> AxisInputModel:
@@ -268,3 +271,304 @@ async def register_into_world(ctx: HttpContext, world: CoordinateSystem, dataset
     """Register a dataset's sample grid (or an explicit system) into a world."""
     source = system if system is not None else await sync_to_async(lambda: dataset.coordinate_system)()
     return await sync_to_async(_register_into_world_sync)(ctx, world, source)
+
+
+# --- tables and sparse matrices -----------------------------------------------------------------
+#
+# The ORM mirror of `createTableDataset` / `createSparseDataset`, for tests about the graph, the
+# layers and the folder tree rather than about the bytes: a store row with no object behind it,
+# the dataset in a space of its own, the declared columns (or the matrix's axes) as its axes.
+
+#: A spike raster's axes: one INDEX axis enumerating the units, one TIME axis of samples.
+RASTER_AXES = [
+    axis("unit", enums.AxisType.INDEX),
+    axis("t", enums.AxisType.TIME),
+]
+
+
+def _seed_table_dataset_sync(ctx: HttpContext, name: str, columns: list[dict], folder: Folder | None) -> "TableDataset":
+    from core.models import Column, TableDataset
+    from datalayer.models import ParquetStore
+
+    store = ParquetStore.objects.create(organization=ctx.request.organization, key=f"seed-{name}", bucket="parquet", populated=True)
+    system = CoordinateSystem.objects.create(name=f"{name}/table", creator=ctx.request.user, organization=ctx.request.organization)
+    table = TableDataset.objects.create(name=name, store=store, coordinate_system=system, folder=folder, creator=ctx.request.user, organization=ctx.request.organization)
+    axis_columns = []
+    for index, column in enumerate(columns):
+        axis_type = column.get("axis_type")
+        Column.objects.create(
+            table=table,
+            order=index,
+            name=column["name"],
+            dtype=column.get("dtype", "DOUBLE"),
+            role=enums.ColumnRoleChoices.COORDINATE.value if axis_type else column.get("role", enums.ColumnRoleChoices.ATTRIBUTE.value),
+            axis_type=axis_type.value if axis_type else None,
+            unit=column.get("unit"),
+            references=column.get("references"),
+        )
+        if axis_type:
+            axis_columns.append(column)
+    if axis_columns:
+        graph_logic.create_table_axes(
+            system,
+            [
+                type("Col", (), {"name": c["name"], "axis_type": c["axis_type"], "unit": c.get("unit"), "long_name": None, "description": None})()
+                for c in axis_columns
+            ],
+        )
+    else:
+        graph_logic.create_pixel_axes(system, [axis("object", enums.AxisType.INDEX)])
+    return table
+
+
+async def create_table_dataset(ctx: HttpContext, name: str = "Events", columns: list[dict] | None = None, folder: Folder | None = None) -> "TableDataset":
+    """A table dataset, ORM-built. Defaults to an event table: a TIME column in seconds and a label.
+
+    ``columns`` are dicts with ``name`` and optionally ``axis_type`` (an ``enums.AxisType``, which
+    makes the column an axis), ``role``, ``unit``, ``dtype`` and ``references`` (a table).
+    """
+    columns = columns if columns is not None else [
+        {"name": "t", "axis_type": enums.AxisType.TIME, "unit": "second"},
+        {"name": "label", "role": enums.ColumnRoleChoices.LABEL.value, "dtype": "VARCHAR"},
+    ]
+    return await sync_to_async(_seed_table_dataset_sync)(ctx, name, columns, folder)
+
+
+def _seed_sparse_dataset_sync(ctx: HttpContext, name: str, axes: list, shape: list[int], units: "TableDataset | None", folder: Folder | None) -> "SparseDataset":
+    from core.models import SparseArray, SparseAxisReference, SparseDataset
+    from datalayer.models import SparseStore
+
+    store = SparseStore.objects.create(organization=ctx.request.organization, key=f"seed-{name}", bucket="zarr", populated=True, spec="1", shape=shape, layouts=[{"path": "layouts/axis0", "encoding": "csr_matrix", "indexed_axis": 0, "index_order": [1], "nnz": 0, "dtype": "float32"}])
+    system = CoordinateSystem.objects.create(name=f"{name}/sparse", creator=ctx.request.user, organization=ctx.request.organization)
+    dataset = SparseDataset.objects.create(name=name, coordinate_system=system, folder=folder, creator=ctx.request.user, organization=ctx.request.organization)
+    graph_logic.create_pixel_axes(system, axes)
+    SparseArray.objects.create(dataset=dataset, store=store, path="layouts/axis0", indexed_axis=0)
+    if units is not None:
+        SparseAxisReference.objects.create(dataset=dataset, axis=axes[0].name, references=units)
+    return dataset
+
+
+async def create_sparse_dataset(ctx: HttpContext, name: str = "Raster", axes: list | None = None, shape: list[int] | None = None, units: "TableDataset | None" = None, folder: Folder | None = None) -> "SparseDataset":
+    """A sparse dataset, ORM-built. Defaults to a spike raster: (unit, t), 8 units by 30 000 samples."""
+    return await sync_to_async(_seed_sparse_dataset_sync)(ctx, name, axes or RASTER_AXES, shape or [8, 30000], units, folder)
+
+
+def _seed_clock_sync(ctx: HttpContext, name: str, unit: str, epoch) -> CoordinateSystem:  # noqa: ANN001 - datetime | None
+    from core.logic import clocks
+
+    return clocks.create_clock(name=name, unit=unit, epoch=epoch, ctx=_creation(ctx))
+
+
+async def create_clock(ctx: HttpContext, name: str = "clock", unit: str = "second", epoch=None) -> CoordinateSystem:  # noqa: ANN001
+    """A clock: one TIME axis in ``unit``, optionally anchored to a wall-clock epoch. A session's clock."""
+    return await sync_to_async(_seed_clock_sync)(ctx, name, unit, epoch)
+
+
+def _sampling_law_sync(ctx: HttpContext, grid: CoordinateSystem, clock: CoordinateSystem, rate: str, t_start: str):
+    from kanne_server import scalars as quantities
+
+    from core.logic import clocks
+
+    rate_value = quantities.SCALAR_MAP[quantities.Frequency].parse_value(rate)
+    start_value = quantities.SCALAR_MAP[quantities.Duration].parse_value(t_start)
+    return clocks.write_sampling_law(grid=grid, clock=clock, sampling_rate=rate_value, t_start=start_value, ctx=_creation(ctx))
+
+
+async def time_on(ctx: HttpContext, grid: CoordinateSystem, clock: CoordinateSystem, rate: str = "30 kHz", t_start: str = "0 s"):  # noqa: ANN201
+    """Time a grid's samples on a clock with a sampling law."""
+    return await sync_to_async(_sampling_law_sync)(ctx, grid, clock, rate, t_start)
+
+
+def _offset_sync(ctx: HttpContext, source: CoordinateSystem, target: CoordinateSystem, offset: str):
+    from kanne_server import scalars as quantities
+
+    from core.logic import clocks
+
+    return clocks.write_offset(source=source, target=target, offset=quantities.SCALAR_MAP[quantities.Duration].parse_value(offset), ctx=_creation(ctx))
+
+
+async def offset_onto(ctx: HttpContext, source: CoordinateSystem, target: CoordinateSystem, offset: str = "0 s"):  # noqa: ANN201
+    """Place one clock (or an event table's space) on another with an offset edge."""
+    return await sync_to_async(_offset_sync)(ctx, source, target, offset)
+
+
+# --- vendored from mikro's tests/seed.py: stores and declarations for createTableDataset / createSparseDataset
+
+
+def _seed_parquet_store_sync(ctx: HttpContext, *, key: str, columns: list[tuple[str, str]] | None = None, populated: bool = True):
+    """A parquet store carrying what `fill_info` would have read off the file.
+
+    The same move `_seed_fabriks_store_sync` makes, and now necessary for the same reason: since
+    `ParquetStore.fill_info` DESCRIBEs the object, a store left unpopulated makes
+    `createTableDataset` reach for an S3 no unit test has. Before that it read nothing, so an
+    unfinished store cost nothing and every test here left one behind.
+
+    `columns=None` records a finished store whose schema was not worth stating -- which is most
+    tests, because they are about placement and edges rather than about the file. Pass the pairs
+    when the test is about the schema itself.
+    """
+    from datalayer.models import ParquetStore
+
+    return ParquetStore.objects.create(
+        path=f"s3://parquet/{key}",
+        bucket="parquet",
+        key=key,
+        organization=ctx.request.organization,
+        populated=populated,
+        columns=[{"name": name, "type": dtype, "nullable": True} for name, dtype in columns] if columns is not None else None,
+    )
+
+
+async def create_parquet_store(ctx: HttpContext, *, key: str, columns: list[tuple[str, str]] | None = None, populated: bool = True):
+    """A finished parquet store, ready to be registered as a table dataset."""
+    return await sync_to_async(_seed_parquet_store_sync)(ctx, key=key, columns=columns, populated=populated)
+
+
+def index_axis(columns: list[dict]) -> str:
+    """The single INDEX coordinate column -- the one a keying source lands on.
+
+    A source keys by supplying ids, and an id is looked up in an enumeration, so the axis it
+    produces is the INDEX one. Derived rather than named at each call site: it is a fact about
+    the column declaration, and the tests that migrated off `keyedBy` were all naming it by
+    hand from the same three fixtures.
+    """
+    index = [c["name"] for c in columns if c.get("role") == "COORDINATE" and c.get("axisType") == "INDEX"]
+    if len(index) != 1:
+        raise AssertionError(f"expected exactly one INDEX coordinate column, got {index}")
+    return index[0]
+
+
+def flat_columns(
+    columns: list[dict],
+    *,
+    identified_by: dict[str, list] | None = None,
+    keyed_by: list | None = None,
+) -> list[dict]:
+    """The one `columns` list `createTableDataset` takes, from a fixture's column dicts.
+
+    The fixtures were already flat -- one dict per column with a per-column ``axisType`` --
+    and the old helpers existed only to SPLIT them into the two wire lists the API used to
+    want. The wire is flat now too (axis-ness is `axisType` on the column, identification is
+    `identifiedBy`, the old `references` field is a TABLE identification), so this is nearly
+    the identity: the legacy ``role: COORDINATE`` marker becomes the bare ``axisType``, and a
+    legacy ``references`` becomes ``identifiedBy: [{kind: TABLE}]``.
+
+    ``identified_by`` names sources per column; ``keyed_by`` is the shorthand for the common
+    case, putting them on the single INDEX axis. Columns named in neither get no
+    ``identifiedBy``, which is legal and ordinary (a localization table's `x` axis is
+    identified by nothing).
+    """
+    sources = dict(identified_by or {})
+    if keyed_by:
+        # The convenience the migration off `keyedBy` needed: put these sources on the axis a
+        # keying source produces, which is the INDEX one.
+        sources.setdefault(index_axis(columns), keyed_by)
+
+    declared = []
+    for column in columns:
+        entry: dict = {"name": column["name"], "dtype": column.get("dtype", "DOUBLE")}
+        if column.get("role") == "COORDINATE":
+            # COORDINATE is not a role the wire may claim: it follows from `axisType`.
+            entry["axisType"] = column["axisType"]
+        elif column.get("role") is not None:
+            entry["role"] = column["role"]
+        for key in ("unit", "longName", "description"):
+            if column.get(key) is not None:
+                entry[key] = column[key]
+        identifications = list(sources.get(column["name"], []))
+        if column.get("references") is not None:
+            # The retired field, spelled the one remaining way.
+            identifications.append({"kind": "TABLE", "table": column["references"]})
+        if identifications:
+            entry["identifiedBy"] = identifications
+        declared.append(entry)
+    return declared
+
+
+def split_declaration(columns: list[dict]) -> tuple[list[tuple[str, str]], list[dict]]:
+    """The store's schema and the wire's column list, from one fixture constant.
+
+    Named for the split it used to perform into `axes` + `columns`; what survives of the
+    split is the one real division left -- the file's own account (``store_columns``, what
+    ``fill_info`` records) versus the declaration checked against it.
+
+    Returns:
+        ``(store_columns, columns)`` -- the store's `[(name, duckdb type)]` in file order,
+        and the flat `ColumnInput` dicts in the same order.
+    """
+    store_columns = [(column["name"], column.get("dtype", "DOUBLE")) for column in columns]
+    return store_columns, flat_columns(columns)
+
+
+async def table_input(
+    ctx: HttpContext,
+    name: str,
+    columns: list[dict],
+    *,
+    identified_by: dict[str, list] | None = None,
+    keyed_by: list | None = None,
+    **extra: object,
+) -> dict:
+    """Everything `createTableDataset` needs, from one fixture-shaped column list.
+
+    The mutation reads a column's name and type off the **file** and takes only what the file
+    cannot say, so a test's one constant becomes two things: the store's own schema and the
+    flat declaration. This also creates the store carrying that schema, which is load-bearing
+    -- `columns_for_store` reads it on every create, and a store without it makes the create
+    reach for an S3 no unit test has.
+    """
+    store_columns = [(column["name"], column.get("dtype", "DOUBLE")) for column in columns]
+    # Unique, because two tables of the same name in one test are ordinary and the store path
+    # is unique-constrained.
+    store = await create_parquet_store(ctx, key=f"{name.replace(' ', '-')}-{uuid.uuid4().hex[:8]}", columns=store_columns)
+    return {
+        "name": name,
+        "data": str(store.pk),
+        "columns": flat_columns(columns, identified_by=identified_by, keyed_by=keyed_by),
+        **extra,
+    }
+
+
+def split_payload(columns: list[dict], *, identified_by: dict[str, list] | None = None, keyed_by: list | None = None) -> dict:
+    """The `columns` half of a create payload, for a test that builds its store itself.
+
+    :func:`table_input` is the whole payload and creates the store; this is the same shape for
+    the call sites that already have a store in hand. The store still has to carry the file's
+    schema -- see :func:`create_parquet_store` -- or the create has nothing to infer from.
+    """
+    return {"columns": flat_columns(columns, identified_by=identified_by, keyed_by=keyed_by)}
+
+
+def sparse_layout(axis: int, rank: int = 2, nnz: int = 96) -> dict:
+    """One entry of a sparse store's `layouts`, as `finishSparseUpload` would have recorded it."""
+    return {
+        "path": sparse_layout_path(axis),
+        "encoding": ("csr_matrix" if axis == 0 else "csc_matrix") if rank == 2 else "csr_matrix",
+        "encoding_version": "0.1.0",
+        "indexed_axis": axis,
+        "index_order": [other for other in range(rank) if other != axis],
+        "nnz": nnz,
+        "dtype": "float32",
+        "chunks": {"data": 32768, "indices": 32768, "indptr": 32768},
+        "range_readable": False,
+    }
+
+
+async def create_sparse_store(ctx: HttpContext, key: str, *, axes: tuple[int, ...] = (0,), shape: list[int]) -> SparseStore:
+    """A finished sparse store holding a layout per axis in ``axes``, built directly.
+
+    **One matrix is one upload**, so a store is a whole matrix in one or more layouts rather than
+    one layout apiece. `fill_info` reads the prefix off S3; setting the fields here says the same
+    thing more plainly, and what is on trial is what a mutation does with a store's declared facts.
+    """
+    extents = list(shape)
+    return await sync_to_async(SparseStore.objects.create)(
+        path=f"s3://zarr/{key}",
+        bucket="zarr",
+        key=key,
+        organization=ctx.request.organization,
+        populated=True,
+        spec="1",
+        shape=extents,
+        layouts=[sparse_layout(axis, rank=len(extents)) for axis in axes],
+    )

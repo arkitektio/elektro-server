@@ -15,6 +15,10 @@ RGBAColor = NewType("RGBAColor", list)
 FileLike = NewType("FileLike", str)
 StructureString = NewType("StructureString", str)
 ParquetLike = NewType("ParquetLike", str)
+# One sparse matrix as one uploaded prefix: a zarr *group* holding `data`, `indices` and
+# `indptr`. Distinct from `ArrayLike`, which names a single array -- a group has three shapes,
+# three dtypes and three chunkings, and `get_zarr_metadata` refuses anything but an array.
+SporadikLike = NewType("SporadikLike", str)
 Matrix = NewType("Matrix", object)
 FourByFourMatrix = NewType("FourByFourMatrix", object)
 FiveDVector = NewType("FiveDVector", list)
@@ -59,6 +63,12 @@ SCALAR_MAP: dict[object, ScalarDefinition] = {
         name="ParquetLike",
         description="The `ParquetLike` scalar type represents a reference to a parquet"
         " objected stored previously created by the user on a datalayer",
+        serialize=_identity,
+        parse_value=_identity,
+    ),
+    SporadikLike: strawberry.scalar(
+        name="SporadikLike",
+        description="A reference to an uploaded **sporadik store**: one prefix holding one child per axis made contiguous, under `layouts/axis{k}`, each an anndata-spelled sparse group of `data`, `indices` and `indptr`. Named for the wire format. Request it with `requestSparseUpload`, write the layouts, land the `sporadik` block last, then `finishSparseUpload` -- which reads that block and refuses a prefix without one, because zarr fills a missing chunk rather than failing and a torn upload is otherwise indistinguishable from a finished one. A dataset registered this way declares no encoding, no shape and no chunking: the server reads them from the artifact, so they cannot be stated wrong",
         serialize=_identity,
         parse_value=_identity,
     ),

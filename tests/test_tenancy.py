@@ -30,12 +30,12 @@ def _theirs(other):
     level = dataset.data_arrays.get(level=1)
     file = models.File.objects.create(name="their file", folder=folder, creator=user, organization=organization, membership=other.request.membership)
     link = models.FileLink.objects.create(file=file, dataset=dataset, direction="SOURCE", creator=user, organization=organization)
-    clock = clocks.create_clock(name="their clock", ctx=ctx)
-    block = models.Block.objects.create(name="their block", organization=organization, creator=user, clock=clock)
-    segment = models.BlockSegment.objects.create(block=block, clock=clock)
-    signal = models.AnalogSignal.objects.create(segment=segment, dataset=dataset, name="their signal")
     world = clocks.create_clock(name="their world", ctx=ctx)
     experiment = models.Experiment.objects.create(name="their experiment", organization=organization, creator=user, world=world)
+    lens_for_layer = models.Lens.objects.create(dataset=dataset, coordinate_system=dataset.coordinate_system)
+    layer = models.ExperimentLayer.objects.create(experiment=experiment, kind="trace", lens=lens_for_layer)
+    table = seed._seed_table_dataset_sync(other, "their events", [{"name": "t", "axis_type": seed.enums.AxisType.TIME, "unit": "second"}], folder)
+    raster = seed._seed_sparse_dataset_sync(other, "their spikes", seed.RASTER_AXES, [4, 100], None, folder)
     collection = models.AnnotationCollection.objects.create(name="their marks", organization=organization, creator=user, coordinate_system=clocks.create_clock(name="their drawing space", ctx=ctx))
     annotation = models.Annotation.objects.create(collection=collection, name="their event", kind="event", vectors=[[1.0]], creator=user)
     lens = models.Lens.objects.create(dataset=dataset, coordinate_system=dataset.coordinate_system)
@@ -45,9 +45,9 @@ def _theirs(other):
         "unlinkFile": ("UnlinkFileInput", link),
         "deleteArrayDataset": ("DeleteArrayDatasetInput", dataset),
         "deleteDataArray": ("DeleteDataArrayInput", level),
-        "deleteBlock": ("DeleteBlockInput", block),
-        "deleteBlockSegment": ("DeleteInput", segment),
-        "deleteAnalogSignal": ("DeleteInput", signal),
+        "deleteLayer": ("DeleteInput", layer),
+        "deleteTableDataset": ("DeleteTableDatasetInput", table),
+        "deleteSparseDataset": ("DeleteSparseDatasetInput", raster),
         "deleteExperiment": ("DeleteInput", experiment),
         "deleteAnnotation": ("DeleteAnnotationInput", annotation),
         "deleteAnnotationCollection": ("DeleteAnnotationCollectionInput", collection),
@@ -70,7 +70,7 @@ async def test_an_admin_of_one_organization_cannot_delete_another_organizations_
 async def test_the_owning_organization_can_still_delete_them(aexecute, other_org_context):
     """The scoping must not have made deletes impossible: the creator deletes their own rows."""
     rows = await _theirs(other_org_context)
-    for mutation in ("deleteAnnotation", "deleteLens", "deleteAnalogSignal"):
+    for mutation in ("deleteAnnotation", "deleteLayer", "deleteLens", "deleteTableDataset", "deleteSparseDataset"):
         input_type, row = rows[mutation]
         document = "mutation ($input: %s!) { %s(input: $input) }" % (input_type, mutation)
         res = await aexecute(document, {"input": {"id": str(row.pk)}}, context=other_org_context)

@@ -23,7 +23,7 @@ from core import enums, models
 from core.logic import graph as graph_logic
 from core.logic import scene_graph, space_graph
 from tests import seed
-from tests.coords._helpers import QueryCounter, add_view, counted, create_experiment
+from tests.coords._helpers import QueryCounter, add_layer, counted, create_experiment
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -41,12 +41,11 @@ EXPERIMENT_PLACEMENTS = """
 query ExperimentPlacements {
   experiments {
     id
-    recordingViews { %s }
-    stimulusViews { %s }
+    layers { %s }
     world { placedSystems { id residents { __typename } } }
   }
 }
-""" % (_VIEW_PLACEMENT, _VIEW_PLACEMENT)
+""" % _VIEW_PLACEMENT
 
 SPACE_PLACED = """
 query SpacePlaced { coordinateSystems { id placedSystems { id } } }
@@ -68,15 +67,14 @@ async def _seed_experiment(ctx, *, view_count: int) -> models.Experiment:  # noq
 
     Two datasets, not one: a single-dataset experiment would not catch an adjacency that is
     rebuilt per dataset, and both datasets' edges have to stay in their own adjacency for
-    the BFS to keep returning the path it returns today. Views alternate between the two
-    view tables, because `layers_of` reads both and either could be the one that re-fetches.
+    the BFS to keep returning the path it returns today.
     """
     datasets = [await seed.create_array_dataset(ctx, f"Placed{index}") for index in range(2)]
     lenses = [await seed.create_lens(ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}]) for dataset in datasets]
     experiment = await create_experiment(ctx, "Composition")
 
     for index in range(view_count):
-        await add_view(ctx, experiment, lenses[index % len(lenses)], stimulus=bool(index % 2))
+        await add_layer(ctx, experiment, lenses[index % len(lenses)])
 
     # Authoring the edge into the world is the placement (one truth per space):
     # nothing to add to any experiment.
@@ -93,7 +91,7 @@ async def _seed_experiment(ctx, *, view_count: int) -> models.Experiment:  # noq
 
 def _view_count(data: dict) -> int:
     (experiment,) = data["experiments"]
-    return len(experiment["recordingViews"]) + len(experiment["stimulusViews"])
+    return len(experiment["layers"])
 
 
 async def test_scene_placements_are_flat_in_layer_count(aexecute, authenticated_context):
@@ -107,7 +105,7 @@ async def test_scene_placements_are_flat_in_layer_count(aexecute, authenticated_
 
     assert _view_count(small_data) == 3
     assert _view_count(large_data) == 7
-    every_view = [*large_data["experiments"][0]["recordingViews"], *large_data["experiments"][0]["stimulusViews"]]
+    every_view = large_data["experiments"][0]["layers"]
     assert all(view["placement"] == "PLACED" and view["asAffine"] for view in every_view), "every placement field is actually exercised"
     assert large_queries == small_queries, f"the placement query count grows with the views: {small_queries} for 3 views, {large_queries} for 7"
 
@@ -181,6 +179,14 @@ CREATE_EXPERIMENT = """
 mutation ($input: CreateExperimentInput!) { createExperiment(input: $input) { id } }
 """
 
+CREATE_CLOCK_OFFSET = """
+mutation ($input: CreateClockOffsetInput!) { createClockOffset(input: $input) { id } }
+"""
+
+CREATE_TRACE_LAYER = """
+mutation ($input: CreateTraceLayerInput!) { createTraceLayer(input: $input) { id } }
+"""
+
 
 async def test_creating_a_layer_is_flat_in_scene_size(aexecute, authenticated_context, make_simulation_chain):
     """Laying out one more recording costs the same over a world of 7 runs as over a world of 3.
@@ -189,22 +195,29 @@ async def test_creating_a_layer_is_flat_in_scene_size(aexecute, authenticated_co
     must fetch a universe whose size depends on the dataset and the world, not on how much is
     already laid out there -- or assembling a timeline gets slower with every run already on it.
 
-    mikro measures `createIntensityLayer` against the layers already in a scene. A view here
-    is created with its experiment, so what grows is the *world*: `already` other simulations,
-    each with its clock laid into the shared timeline by an earlier experiment.
+    mikro measures `createIntensityLayer` against the layers already in a scene; so does this,
+    with `already` other runs, each with its clock laid into the shared timeline and a trace
+    layer of it in the experiment.
     """
 
     async def measure(already: int) -> int:
         world = await seed.create_world(authenticated_context, f"Timeline{already}")
+        created = await aexecute(CREATE_EXPERIMENT, {"input": {"name": f"Timeline{already}", "coordinateSystem": str(world.pk)}})
+        assert not created.errors, created.errors
+        experiment = created.data["createExperiment"]["id"]
         for index in range(already):
             earlier = await make_simulation_chain(name=f"earlier{already}-{index}")
-            laid = await aexecute(CREATE_EXPERIMENT, {"input": {"name": f"Earlier{already}-{index}", "world": str(world.pk), "recordingViews": [{"recording": str(earlier.recording.id), "offset": f"{index} s"}]}})
+            placed = await aexecute(CREATE_CLOCK_OFFSET, {"input": {"clock": str(earlier.clock.pk), "onto": str(world.pk), "offset": f"{index} s"}})
+            assert not placed.errors, placed.errors
+            laid = await aexecute(CREATE_TRACE_LAYER, {"input": {"experiment": experiment, "dataset": str(earlier.recording.pk)}})
             assert not laid.errors, laid.errors
 
         incoming = await make_simulation_chain(name=f"incoming{already}")
-        variables = {"input": {"name": f"Incoming{already}", "world": str(world.pk), "recordingViews": [{"recording": str(incoming.recording.id), "offset": "100 s"}]}}
+        placed = await aexecute(CREATE_CLOCK_OFFSET, {"input": {"clock": str(incoming.clock.pk), "onto": str(world.pk), "offset": "100 s"}})
+        assert not placed.errors, placed.errors
+        variables = {"input": {"experiment": experiment, "dataset": str(incoming.recording.pk)}}
         with QueryCounter() as counter:
-            result = await aexecute(CREATE_EXPERIMENT, variables)
+            result = await aexecute(CREATE_TRACE_LAYER, variables)
         assert not result.errors, result.errors
         return len(counter)
 
@@ -213,4 +226,4 @@ async def test_creating_a_layer_is_flat_in_scene_size(aexecute, authenticated_co
 
     small_queries = await measure(3)
     large_queries = await measure(7)
-    assert large_queries == small_queries, f"creating a view costs more over a fuller world: {small_queries} queries at 3 runs, {large_queries} at 7"
+    assert large_queries == small_queries, f"creating a layer costs more over a fuller world: {small_queries} queries at 3 runs, {large_queries} at 7"

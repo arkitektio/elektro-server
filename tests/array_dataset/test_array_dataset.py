@@ -3,8 +3,8 @@
 ``createArrayDataset`` is mikro's, input and all, and it is the one way data enters this
 service: the dataset, its sample grid, a data array per pyramid level with the edge placing
 it, the derivation edges, and the anchors pinning metadata to its coordinates. What a
-dataset *means* is said afterwards, by ``createBlock`` or ``createSimulation`` naming it by
-id (``tests/block``, ``tests/simulation``).
+dataset *means* is said afterwards: when its samples were taken by an edge onto a clock
+(``createSamplingLaw``), and how it is drawn by an experiment layer naming it by id.
 
 mikro's own tests of this mutation are ported beside this file; what is here is the ephys
 reading of it -- a (t, c) recording, a value unit, channel labels, the rig, a decimated level.
@@ -233,18 +233,24 @@ async def test_a_level_can_be_deleted_but_level_zero_is_the_dataset(aexecute, cr
     assert await CoordinateSystem.objects.filter(pk=base.coordinate_system_id).aexists()
 
 
-async def test_deleting_a_dataset_deletes_what_interprets_it(aexecute, create_array_dataset):
-    """The reverse of deleteBlock: an interpretation of data that no longer exists is an interpretation of nothing."""
-    from core.models import AnalogSignal, Block
+async def test_deleting_a_dataset_deletes_what_draws_it(aexecute, create_array_dataset, authenticated_context):
+    """A layer of data that no longer exists is a layer of nothing: it goes with its lens. The experiment stays."""
+    from core.models import Experiment, ExperimentLayer
+
+    from tests import seed
 
     dataset = await create_array_dataset("v", [1000])
-    block = await aexecute("mutation ($input: CreateBlockInput!) { createBlock(input: $input) { id } }", {"input": {"name": "B", "segments": [{"analogSignals": [{"dataset": dataset["id"], "samplingRate": "1 kHz"}]}]}})
-    assert not block.errors, block.errors
+    clock = await seed.create_clock(authenticated_context, "session")
+    grid = await CoordinateSystem.objects.aget(datasets__id=dataset["id"])
+    await seed.time_on(authenticated_context, grid, clock, rate="1 kHz")
+    staged = await aexecute("mutation ($input: CreateExperimentFromCoordinateSystemInput!) { createExperimentFromCoordinateSystem(input: $input) { id layers { kind } } }", {"input": {"coordinateSystem": str(clock.pk), "name": "E"}})
+    assert not staged.errors, staged.errors
+    assert staged.data["createExperimentFromCoordinateSystem"]["layers"] == [{"kind": "TRACE"}]
 
     res = await aexecute(DELETE, {"input": {"id": dataset["id"]}})
     assert not res.errors, res.errors
-    assert await AnalogSignal.objects.acount() == 0
-    assert await Block.objects.filter(name="B").aexists(), "the session stays: it is still a session, now with one signal fewer"
+    assert await ExperimentLayer.objects.acount() == 0
+    assert await Experiment.objects.filter(name="E").aexists(), "the experiment stays: it still composes over its clock, now with one layer fewer"
 
 
 # --- negatives ------------------------------------------------------------------------------------

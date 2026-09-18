@@ -135,6 +135,8 @@ def test_the_vendored_graph_names_no_model_this_service_does_not_have() -> None:
         "core/logic/coords.py", "core/logic/graph.py", "core/logic/edge_universe.py", "core/logic/space_graph.py", "core/logic/scene_graph.py",
         "core/logic/coordinate_system.py", "core/inputs/coords.py", "core/types/coords.py", "core/mutations/coordinate_system.py", "core/mutations/transformation.py",
         "core/mutations/annotation.py", "core/mutations/annotation_collection.py", "core/queries/annotations.py",
+        "core/logic/identification.py", "core/logic/tables.py", "core/logic/pickers.py", "core/inputs/identification.py", "core/inputs/sparse.py",
+        "core/mutations/sparse_dataset.py", "core/mutations/table_dataset.py", "core/types/sparse_dataset.py", "core/types/table_dataset.py",
     ]  # fmt: skip
     dangling = []
     for relative in vendored:
@@ -163,7 +165,11 @@ from django.db import connection
 
 call_command("migrate", interactive=False, verbosity=0)
 tables = set(connection.introspection.table_names())
-for table in ("core_coordinatesystem", "core_axis", "core_transformation", "core_lens", "core_historicaltransformation", "core_filelink", "core_annotation", "core_annotationcollection"):
+for table in (
+    "core_coordinatesystem", "core_axis", "core_transformation", "core_lens", "core_historicaltransformation", "core_filelink", "core_annotation", "core_annotationcollection",
+    "core_tabledataset", "core_column", "core_sparsedataset", "core_sparsearray", "core_sparseaxisreference", "core_experimentlayer", "core_recordingsite", "core_stimulussite",
+    "datalayer_sparsestore",
+):  # fmt: skip
     assert table in tables, f"{table} was not created by the migrations"
 print("migrated", len(tables), "tables")
 '''
@@ -195,3 +201,42 @@ def test_the_migrations_actually_run(backend_stack) -> None:  # noqa: ANN001 - t
     finally:
         with psycopg.connect(dbname="testdb", user="test", password="test", host="localhost", port=5555, autocommit=True) as connection:
             connection.execute("DROP DATABASE IF EXISTS migrate_check WITH (FORCE)")
+
+
+def test_every_picker_column_is_guarded() -> None:
+    """The delete guards cover every JSON column a picker is stored in.
+
+    Ported from mikro. A picker entry names its table (or matrix) by id inside JSON, so nothing
+    cascades: a table deleted out from under a picker strands the entry as a join nothing can
+    execute, surfacing at render time. `core.logic.pickers` refuses such a delete, but only for
+    the columns it lists -- so the list is derived from the model here, and the next layer
+    kind's picker fails this the moment it exists.
+    """
+    from django.db import models as django_models
+
+    from core import models
+    from core.logic.pickers import _PICKER_COLUMNS
+
+    stored = sorted(
+        field.name
+        for field in models.ExperimentLayer._meta.get_fields()
+        if isinstance(field, django_models.JSONField) and (field.name.endswith("_color_bys") or field.name.endswith("_filter_bys"))
+        # `active_filter_bys` shares the suffix but stores indices into a picker, not entries.
+        and field.name != "active_filter_bys"
+    )
+    assert stored == sorted(_PICKER_COLUMNS), f"picker columns the delete guards do not look in: {sorted(set(stored) - set(_PICKER_COLUMNS))}"
+
+
+def test_the_layer_kinds_and_their_sources_agree() -> None:
+    """One source FK per kind, in the model's constraint, the builder's table and the placement dispatch alike."""
+    from core import enums
+    from core.logic import experiment as experiment_logic
+
+    kinds = {choice.value for choice in enums.ExperimentLayerKindChoices}
+    assert set(experiment_logic.SOURCE_FIELD) == kinds
+    assert {kind.value for kind in enums.ExperimentLayerKind} == kinds, "the GraphQL enum and its database twin list the same kinds"
+    from elektro_server.schema import schema
+
+    sdl = str(schema)
+    for concrete in ("TraceLayer", "SpikesLayer", "EventsLayer", "AnnotationLayer"):
+        assert f"type {concrete} implements ExperimentLayer" in sdl, f"{concrete} is not registered in the schema's `types=`"

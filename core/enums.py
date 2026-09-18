@@ -124,6 +124,70 @@ class AxisTypeChoices(TextChoices):
     INDEX = "INDEX", "Index (an enumeration with no metric: an object id, a row number)"
 
 
+class ColumnRoleChoices(TextChoices):
+    """What a table dataset's column is for: a coordinate that places the row, or data hanging off it."""
+
+    COORDINATE = "COORDINATE", "Coordinate (a spatial/temporal column that becomes an axis of the table's space)"
+    ATTRIBUTE = "ATTRIBUTE", "Attribute (a measurement or property column; data only)"
+    ID = "ID", "Id (a per-row identifier)"
+    TRACK_ID = "TRACK_ID", "Track id (groups rows into a trajectory)"
+    GROUP_ID = "GROUP_ID", "Group id (groups rows into one connected object)"
+    LABEL = "LABEL", "Label (a per-row text label)"
+    COLOR = "COLOR", "Color (a per-row color or value to color by)"
+
+class ColorMapChoices(TextChoices):
+    VIRIDIS = "viridis"
+    PLASMA = "plasma"
+    INFERNO = "inferno"
+    MAGMA = "magma"
+    RED = "red"
+    GREEN = "green"
+    BLUE = "blue"
+    CYAN = "cyan"
+    MAGENTA = "magenta"
+    YELLOW = "yellow"
+    BLACK = "black"
+    WHITE = "white"
+    ORANGE = "orange"
+    PURPLE = "purple"
+    PINK = "pink"
+    BROWN = "brown"
+    GREY = "grey"
+    RAINBOW = "rainbow"
+    SPECTRAL = "spectral"
+    COOL = "cool"
+    WARM = "warm"
+    INTENSITY = "intensity"
+    # The qualitative half. Every member above maps an ordered value onto a ramp; these map an
+    # unordered one onto a palette, which is what a categorical column needs and what
+    # `classColors` used to carry as an explicit map the caller had to build itself.
+    HUES = "hues"
+    DISTINCT = "distinct"
+    PASTEL = "pastel"
+    VIVID = "vivid"
+
+class BlendingChoices(TextChoices):
+    ADDITIVE = "additive", "Additive"
+    MULTIPLICATIVE = "multiplicative", "Multiplicative"
+    NORMAL = "normal", "Normal (Alpha Over)"
+
+
+class ExperimentLayerKindChoices(TextChoices):
+    """How a layer of an experiment draws its data. mikro's ``LayerKindChoices``, for time series."""
+
+    TRACE = "trace", "Trace (a lens over an array dataset, drawn as a line per channel)"
+    SPIKES = "spikes", "Spikes (a sparse raster, drawn as a tick per nonzero, a row per unit)"
+    EVENTS = "events", "Events (a table with a TIME column, drawn as marks or intervals)"
+    ANNOTATION = "annotation", "Annotation (an annotation collection's hand-drawn marks)"
+
+
+class SpikeValueModeChoices(TextChoices):
+    """What a spikes layer reads from a raster's nonzero values."""
+
+    PRESENCE = "presence", "Presence (every nonzero is one spike, whatever its value)"
+    AMPLITUDE = "amplitude", "Amplitude (the value is the spike's amplitude, drawn through the colormap)"
+
+
 class RecordingKindChoices(TextChoices):
     """What a recording measured."""
 
@@ -370,6 +434,7 @@ class DerivationSourceKind(str, Enum):
 
     LENS = "LENS"
     DATASET = "DATASET"
+    TABLE_DATASET = "TABLE_DATASET"
     ANNOTATION_COLLECTION = "ANNOTATION_COLLECTION"
     COORDINATE_SYSTEM = "COORDINATE_SYSTEM"
 
@@ -378,6 +443,7 @@ _describe(
     DerivationSourceKind,
     LENS="A selection over an array dataset, and the preferred way to name one: a lens' own edge back to its dataset already carries the crop, so pointing at it gets the rest of the chain for free.",
     DATASET="An array dataset as a whole, through its intrinsic sample grid. Use it when the source is the entire recording and there is no lens worth minting.",
+    TABLE_DATASET="A table dataset, through the space its coordinate columns declare -- the direction an image reconstructed from a table of SMLM localizations is derived. A table with no coordinate columns enumerates objects rather than places them, and its only honest edge is UNMAPPABLE.",
     ANNOTATION_COLLECTION="An annotation collection, through the space its shapes are drawn in.",
     COORDINATE_SYSTEM="A coordinate system directly, when the source is a space rather than a dataset -- a clock, or a world.",
 )
@@ -591,13 +657,17 @@ class FileLinkContainerKind(str, Enum):
     """Which sort of container a file link names."""
 
     DATASET = "DATASET"
+    TABLE_DATASET = "TABLE_DATASET"
     ANNOTATION_COLLECTION = "ANNOTATION_COLLECTION"
+    SPARSE_DATASET = "SPARSE_DATASET"
 
 
 _describe(
     FileLinkContainerKind,
     DATASET="An array dataset -- the container an ABF or NWB file is converted into, and the one an export is written from.",
-    ANNOTATION_COLLECTION="An annotation collection, the container an event or epoch file is loaded into.",
+    TABLE_DATASET="A table dataset, the container a CSV or parquet file is loaded into: an event list, a trial table, a sorter's unit table.",
+    ANNOTATION_COLLECTION="An annotation collection, the container hand-drawn marks are loaded into.",
+    SPARSE_DATASET="A sparse dataset, the container a spike sorter's output is read into -- one raster of units by samples.",
 )
 
 
@@ -628,4 +698,185 @@ _describe(
     DOCUMENT="Human-readable notes and reports: pdf, txt, md, docx.",
     ARCHIVE="Containers of other files: zip, tar, gz, 7z. A zipped acquisition is an ARCHIVE, not a RECORDING -- the extension is all this reads.",
     OTHER="Nothing the curated list recognizes, and no usable `contentType`. Includes every file with no extension at all.",
+)
+
+
+@strawberry.enum(description="The colormap used to map intensity values of a channel to display colors.")
+class ColorMap(str, Enum):
+    """The colormap used to map intensity values of a channel to display colors."""
+
+    VIRIDIS = "viridis"
+    PLASMA = "plasma"
+    INFERNO = "inferno"
+    MAGMA = "magma"
+    RED = "red"
+    GREEN = "green"
+    BLUE = "blue"
+    INTENSITY = "intensity"
+    CYAN = "cyan"
+    MAGENTA = "magenta"
+    YELLOW = "yellow"
+    BLACK = "black"
+    WHITE = "white"
+    ORANGE = "orange"
+    PURPLE = "purple"
+    PINK = "pink"
+    BROWN = "brown"
+    GREY = "grey"
+    RAINBOW = "rainbow"
+    SPECTRAL = "spectral"
+    COOL = "cool"
+    WARM = "warm"
+    HUES = "hues"
+    DISTINCT = "distinct"
+    PASTEL = "pastel"
+    VIVID = "vivid"
+
+
+#: The colormaps that map an *unordered* value onto a colour rather than an ordered one onto a
+#: ramp. A categorical column takes one of these and a measure column takes one of the others,
+#: which is the same rule the column's role has always decided -- it used to be spelled
+#: "a colormap or a `classColors` map", and a qualitative colormap is what that map always was.
+#:
+#: Every one is a golden-ratio hue scatter over the value's rank, so consecutive classes land far
+#: apart on the hue wheel and nothing has to enumerate the classes to assign them colours. They
+#: differ only in saturation and value, and the names are the viewer's own
+#: (`orkestrator-next`'s `INSTANCE_COLORMAPS`), so a palette named here is a palette it already
+#: draws.
+QUALITATIVE_COLORMAPS = frozenset({ColorMap.HUES, ColorMap.DISTINCT, ColorMap.PASTEL, ColorMap.VIVID})
+
+
+_describe(
+    ColorMap,
+    VIRIDIS="The perceptually uniform viridis colormap, ranging from dark purple to yellow.",
+    PLASMA="The perceptually uniform plasma colormap, ranging from dark blue to yellow.",
+    INFERNO="The perceptually uniform inferno colormap, ranging from black through red to yellow.",
+    MAGMA="The perceptually uniform magma colormap, ranging from black through purple to light yellow.",
+    RED="A monochromatic colormap from black to pure red.",
+    GREEN="A monochromatic colormap from black to pure green.",
+    BLUE="A monochromatic colormap from black to pure blue.",
+    INTENSITY="A grayscale colormap mapping intensity values directly to brightness.",
+    CYAN="A monochromatic colormap from black to cyan.",
+    MAGENTA="A monochromatic colormap from black to magenta.",
+    YELLOW="A monochromatic colormap from black to yellow.",
+    BLACK="A colormap rendering all values as black.",
+    WHITE="A monochromatic colormap from black to white.",
+    ORANGE="A monochromatic colormap from black to orange.",
+    PURPLE="A monochromatic colormap from black to purple.",
+    PINK="A monochromatic colormap from black to pink.",
+    BROWN="A monochromatic colormap from black to brown.",
+    GREY="A grayscale colormap from black to white.",
+    RAINBOW="A multi-hue rainbow colormap cycling through the visible spectrum.",
+    SPECTRAL="A diverging colormap spanning the spectral colors from red to blue.",
+    COOL="A colormap of cool tones ranging from cyan to magenta.",
+    WARM="A colormap of warm tones ranging from yellow to red.",
+    HUES="Qualitative. A colour per distinct value, scattered around the hue wheel by the golden ratio so consecutive classes land far apart. The default categorical palette, and the one the id hash itself paints with.",
+    DISTINCT="Qualitative. The hue scatter with saturation and value tiered by rank as well, so two classes that happen to land on nearby hues still separate -- a palette-free take on glasbey. Reach for it when a mask has many classes.",
+    PASTEL="Qualitative. The hue scatter at low saturation, for a colouring meant to sit under something else rather than carry the picture.",
+    VIVID="Qualitative. The hue scatter at full saturation, for a colouring meant to carry the picture.",
+)
+
+
+
+@strawberry.enum(description="The blending mode used to combine multiple channels or layers into a composite image.")
+class Blending(str, Enum):
+    """The blending mode used to combine multiple channels or layers into a composite image."""
+
+    ADDITIVE = "additive"
+    MULTIPLICATIVE = "multiplicative"
+    NORMAL = "normal"
+
+
+_describe(
+    Blending,
+    ADDITIVE="Additive blending, where the color values of overlapping layers are summed.",
+    MULTIPLICATIVE="Multiplicative blending, where the color values of overlapping layers are multiplied.",
+    NORMAL="Alpha-over compositing: the layer is blended over the layers below using its opacity.",
+)
+
+
+
+@strawberry.enum(description="What a table dataset's column is for: a coordinate that places the row, or data hanging off it.")
+class ColumnRole(str, Enum):
+    """What a table dataset's column is for."""
+
+    COORDINATE = "COORDINATE"
+    ATTRIBUTE = "ATTRIBUTE"
+    ID = "ID"
+    TRACK_ID = "TRACK_ID"
+    GROUP_ID = "GROUP_ID"
+    LABEL = "LABEL"
+    COLOR = "COLOR"
+
+
+_describe(
+    ColumnRole,
+    COORDINATE="A spatial or temporal column whose values are coordinates. The coordinate columns become the axes of the table's own coordinate system, which is what makes the table placeable.",
+    ATTRIBUTE="A measurement or property column — area, an intensity, a marker level. Data only; it does not place the row.",
+    ID="A per-row identifier.",
+    TRACK_ID="Groups rows into a trajectory. Required to render a table as tracks.",
+    GROUP_ID="Groups rows into one connected object — the nodes of one traced arbor, the points of one cluster. Distinct from TRACK_ID, which means a trajectory: a branching tree is not one, and a table that grouped by TRACK_ID would be claiming an order its rows do not have.",
+    LABEL="A per-row text label.",
+    COLOR="A per-row color, or a value a layer colors the rows by.",
+)
+
+
+
+@strawberry.enum(
+    description=(
+        "How one axis is identified -- the discriminator of `IdentificationInput`, and the same question whether the axis belongs to a sparse matrix or to a table. An axis of "
+        "positions means nothing until something says what those positions *are*, and in this service there are two ways to answer (mikro has five; its mesh and network "
+        "collections have no counterpart here). `DATASET` authors a FIELD edge, which is also what makes the data reachable from a layer over that source; `TABLE` authors "
+        "none -- a table states a foreign key"
+    )
+)
+class IdentificationKind(str, Enum):
+    """How one axis is identified, for a sparse dataset or a table alike."""
+
+    DATASET = "DATASET"
+    TABLE = "TABLE"
+
+
+_describe(
+    IdentificationKind,
+    DATASET="A label mask, through its intrinsic pixel grid: its pixel values are the positions along this axis. Authors a FIELD edge, so it is also what makes the data reachable from a layer over that mask.",
+    TABLE="A table whose rows this axis' positions are -- the relation `Column.references` carries, said of the axis. Authors no edge and touches no coordinate system: a table is already in record-land, where the relation is a foreign key rather than a map between spaces. It is what lets a FIELD edge land beside it, because an axis identified this way is one the edge is not expected to supply. Valid on an INDEX axis only: a SPACE or TIME coordinate's values are positions, and a position in nanometres and a row id are different things.",
+)
+
+
+@strawberry.enum(description="How a layer of an experiment draws its data: what kind of source it has and what it renders. mikro's LayerKind, for time series")
+class ExperimentLayerKind(str, Enum):
+    """How a layer of an experiment draws its data."""
+
+    TRACE = "trace"
+    SPIKES = "spikes"
+    EVENTS = "events"
+    ANNOTATION = "annotation"
+
+
+_describe(
+    ExperimentLayerKind,
+    TRACE="A lens over an array dataset -- a recording, a stimulus, an analog or irregularly sampled signal alike -- drawn as a line per channel. Its window is the lens' slices.",
+    SPIKES="A sparse dataset with a TIME axis -- a spike raster, units by samples -- drawn as a tick per nonzero and a row per unit. Colour and order come from the table identifying its unit axis.",
+    EVENTS="A table dataset with a TIME coordinate column -- TTL edges, trials, stimuli, Neo events and epochs -- drawn as a mark per row, or an interval when a stop column is named.",
+    ANNOTATION="An annotation collection: hand-drawn marks, drawn in the space the collection owns.",
+)
+
+#: The kinds whose data a layer reaches through a lens: mikro's ``LENS_BACKED_KINDS``. Read by
+#: :func:`core.logic.graph.layer_source_system` rather than spelled again.
+LENS_BACKED_KINDS: frozenset[str] = frozenset({ExperimentLayerKind.TRACE.value})
+
+
+@strawberry.enum(description="What a spikes layer reads from a raster's nonzero values")
+class SpikeValueMode(str, Enum):
+    """What a spikes layer reads from a raster's nonzero values."""
+
+    PRESENCE = "presence"
+    AMPLITUDE = "amplitude"
+
+
+_describe(
+    SpikeValueMode,
+    PRESENCE="Every nonzero is one spike, drawn in the layer's colour (or its unit's colour-by), whatever the stored value.",
+    AMPLITUDE="The stored value is the spike's amplitude, drawn through the layer's colormap between `climMin` and `climMax`.",
 )

@@ -34,7 +34,7 @@ from pytest import approx
 from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
-from tests.coords._helpers import add_view, create_experiment
+from tests.coords._helpers import add_layer, create_experiment
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -42,7 +42,7 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 AS_AFFINE = """
 query AsAffine($id: ID!) {
   experiment(id: $id) {
-    recordingViews {
+    layers {
       id
       placement
       placementInvariance
@@ -56,7 +56,7 @@ query AsAffine($id: ID!) {
 STRICT = """
 query Strict($id: ID!) {
   experiment(id: $id) {
-    recordingViews { id asAffine(strict: true) { matrix outputAxes total } }
+    layers { id asAffine(strict: true) { matrix outputAxes total } }
   }
 }
 """
@@ -74,7 +74,7 @@ _MICRON_YX = [seed.physical_axis("y", enums.AxisType.SPACE, "micrometer"), seed.
 async def _view(aexecute, experiment: models.Experiment, query: str = AS_AFFINE) -> dict:  # noqa: ANN001 - the conftest fixture
     result = await aexecute(query, {"id": str(experiment.pk)})
     assert not result.errors, result.errors
-    (view,) = result.data["experiment"]["recordingViews"]
+    (view,) = result.data["experiment"]["layers"]
     return view
 
 
@@ -102,7 +102,7 @@ async def test_a_partial_registration_condenses_over_the_axes_it_names(aexecute,
     experiment = await create_experiment(ctx, "Composition")  # (z, y, x)
 
     await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, {**_OVER_YX, "scale": [0.5, 0.5], "translation": [10.0, 20.0]})
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     view = await _view(aexecute, experiment)
     affine = view["asAffine"]
@@ -130,7 +130,7 @@ async def test_strict_refuses_the_partial_map_and_names_the_axes_it_cannot_reach
     experiment = await create_experiment(ctx, "Composition")
 
     await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, _OVER_YX)
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     # Without strict, the same view answers happily.
     assert (await _view(aexecute, experiment))["asAffine"]["total"] is False
@@ -154,7 +154,7 @@ async def test_a_total_registration_reports_total_and_composes_every_axis(aexecu
     # so z is a real function of y rather than a zero row -- and a 3 x 2 linear part, which
     # is what makes this a *rank-changing* AFFINE with no inverse to ask about.
     await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, {"kind": "AFFINE", "affine": [[0.25, 0.0, 3.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]})
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     affine = (await _view(aexecute, experiment))["asAffine"]
     assert affine["outputAxes"] == ["z", "y", "x"]
@@ -180,7 +180,7 @@ async def test_a_stepped_lens_carries_its_crop_and_its_subsample(aexecute, authe
     assert lens.coordinate_system_id != dataset.coordinate_system_id, "a stepped lens owns a space of its own, or there is no SEQUENCE to test"
 
     await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, _OVER_YX)
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     view = await _view(aexecute, experiment)
     assert any(step["transformation"]["kind"] == "SEQUENCE" for step in view["pathToWorld"]), "the fixture must actually put a SEQUENCE on the path"
@@ -213,7 +213,7 @@ async def test_a_path_walked_backwards_is_inverted_rather_than_refused(aexecute,
     physical = await seed.create_physical_space(ctx, dataset, axes=_MICRON_YX, scale=[0.1, 0.1])
     # world -> physical, also stored forward: the world's units are half the physical space's.
     await _register(aexecute, experiment.world_id, physical.pk, {**_OVER_YX, "scale": [2.0, 2.0]})
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     view = await _view(aexecute, experiment)
     assert view["pathToWorld"] is not None, "the data reaches the world, backwards down the world's own edge"
@@ -248,7 +248,7 @@ async def test_a_field_step_errors_and_names_the_edge(aexecute, authenticated_co
         {"kind": "FIELD", "field": str(mask.coordinate_system_id), "inputAxes": ["y", "x"], "outputAxes": ["i"]},
     )
     await _register(aexecute, objects.coordinate_system_id, experiment.world_id, {"kind": "BY_DIMENSION", "inputAxes": ["i"], "outputAxes": ["z"]})
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     result = await aexecute(AS_AFFINE, {"id": str(experiment.pk)})
     assert result.errors, "a FIELD on the path has no closed form, and silence about that would be worse than an error"
@@ -261,7 +261,7 @@ async def test_an_unregistered_layer_is_null_exactly_as_its_path_is(aexecute, au
     ctx = authenticated_context
     dataset = await seed.create_array_dataset(ctx, "Unplaced")
     experiment = await create_experiment(ctx, "Composition")
-    await add_view(ctx, experiment, await seed.create_lens(ctx, dataset))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, dataset))
 
     view = await _view(aexecute, experiment)
     assert view["pathToWorld"] is None
@@ -278,7 +278,7 @@ async def test_an_unmappable_layer_is_null_too_and_placement_tells_it_apart(aexe
 
     await _register(aexecute, source.coordinate_system_id, experiment.world_id, _OVER_YX)
     await _register(aexecute, derived.coordinate_system_id, source.coordinate_system_id, {"kind": "UNMAPPABLE", "reason": "one row per sorted unit"})
-    await add_view(ctx, experiment, await seed.create_lens(ctx, derived))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, derived))
 
     view = await _view(aexecute, experiment)
     assert view["asAffine"] is None
@@ -300,7 +300,7 @@ async def test_as_affine_condenses_the_very_path_that_path_to_world_reports(aexe
 
     physical = await seed.create_physical_space(ctx, dataset, axes=_MICRON_YX, scale=[0.1, 0.1])
     await _register(aexecute, physical.pk, experiment.world_id, {**_OVER_YX, "translation": [5.0, -5.0]})
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     view = await _view(aexecute, experiment)
     assert len(view["pathToWorld"]) == 2, "the fixture must exercise a multi-hop path"

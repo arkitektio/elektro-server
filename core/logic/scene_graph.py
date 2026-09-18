@@ -2,19 +2,16 @@
 
 **Vendored from mikro** (``mikro/core/logic/scene_graph.py``): every placement question
 below -- ``placement_path``, ``condensed_placement``, ``placement_state`` and the rest -- is
-mikro's, unchanged. What is rewritten is the head, because what it reads differs.
-
-In mikro a *scene* composes *layers* over its ``world``, and a layer is one table
-discriminated by ``kind``. Here the composition is an :class:`~core.models.Experiment` and
-its layers are its recording, stimulus and annotation views -- three tables, the first two
-naming a :class:`~core.models.Lens` and the third an annotation collection -- so the two
-things mikro spells inline are hooks:
-:func:`layers_of` and :func:`source_system`. A view's data lives in its lens' space; that is
-the whole of what a view contributes, and it carries no offset or duration of its own (the
-rule of mikro's rfc8: a spatial fact is a node or an edge, never a column on a view).
+mikro's, unchanged. The head is mikro's shape again too: an :class:`~core.models.Experiment`
+composes :class:`~core.models.ExperimentLayer` rows over its ``world``, one table
+discriminated by ``kind``, and a layer's data lives in the space
+:func:`core.logic.graph.layer_source_system` names -- its lens' space for a trace, the space a
+spike raster, an event table or an annotation collection owns for the other three. A layer
+carries no offset or duration of its own (the rule of mikro's rfc8: a spatial fact is a node
+or an edge, never a column on a layer).
 
 The universe is built once per experiment, per request (see :func:`for_request`), in a fixed
-number of queries no matter how many views ask. It belongs to the world rather than to the
+number of queries no matter how many layers ask. It belongs to the world rather than to the
 experiment, and lives in :class:`core.logic.edge_universe.EdgeUniverse`.
 """
 
@@ -27,57 +24,42 @@ from core.logic import graph as graph_logic
 #: Where a `SceneGraph` memo lives on the request context, keyed by composition.
 _LOADER_KEY = "scene_graphs"
 
-#: The relations the placement logic reads off a view in Python. The optimizer cannot infer
+#: The relations the placement logic reads off a layer in Python. The optimizer cannot infer
 #: these: it prefetches what the *selection set* names, and a client asking only for
 #: `pathToWorld` never names `lens`.
 LAYER_PLACEMENT_RELATIONS = (
     "experiment__world",
     "lens__coordinate_system",
     "lens__dataset__coordinate_system",
+    "sparse_dataset__coordinate_system",
+    "table_dataset__coordinate_system",
+    "annotation_collection__coordinate_system",
 )
 
-#: The same, for a view of an annotation collection: its data lives in the collection's own space.
-ANNOTATION_PLACEMENT_RELATIONS = (
-    "experiment__world",
-    "collection__coordinate_system",
-)
-
-#: The axes of every space a view can name as its source. Separate because axes are a
+#: The axes of every space a layer can name as its source. Separate because axes are a
 #: *reverse* relation, which `select_related` cannot follow, and `asAffine` needs the source's
 #: axis order to label its matrix's columns.
 LAYER_SOURCE_AXIS_PREFETCH = (
     "lens__coordinate_system__axes",
     "lens__dataset__coordinate_system__axes",
+    "sparse_dataset__coordinate_system__axes",
+    "table_dataset__coordinate_system__axes",
+    "annotation_collection__coordinate_system__axes",
 )
-
-ANNOTATION_SOURCE_AXIS_PREFETCH = ("collection__coordinate_system__axes",)
 
 
 def layers_of(scene: "models.Experiment") -> list:
-    """Every view of an experiment, recordings first, each with the relations placement reads."""
-    return [
-        *scene.recording_views.select_related(*LAYER_PLACEMENT_RELATIONS),
-        *scene.stimulus_views.select_related(*LAYER_PLACEMENT_RELATIONS),
-        *scene.annotation_views.select_related(*ANNOTATION_PLACEMENT_RELATIONS),
-    ]
+    """Every layer of an experiment, in order, each with the relations placement reads."""
+    return list(scene.layers.select_related(*LAYER_PLACEMENT_RELATIONS))
 
 
-def source_system(layer) -> "models.CoordinateSystem | None":  # noqa: ANN001 - a recording or stimulus view
-    """The coordinate system a view's data is expressed in.
-
-    For a recording or a stimulus, its lens' space: a sliced lens' own system, or its dataset's
-    sample grid when the lens selects everything. For an annotation view, its collection's
-    own drawing space. Dispatched on the model rather than probed with ``getattr``: a view
-    without a ``lens`` attribute and one whose lens is missing are different things.
-    """
-    if isinstance(layer, models.ExperimentAnnotationView):
-        return layer.collection.coordinate_system_or_none
-    lens = getattr(layer, "lens", None)
-    return graph_logic.lens_source_system(lens) if lens is not None else None
+def source_system(layer) -> "models.CoordinateSystem | None":  # noqa: ANN001 - an ExperimentLayer
+    """The coordinate system a layer's data is expressed in. One definition, the graph's."""
+    return graph_logic.layer_source_system(layer)
 
 
 class SceneGraph:
-    """The edges and views of one experiment, fetched up front."""
+    """The edges and layers of one experiment, fetched up front."""
 
     def __init__(self, scene: "models.Experiment", *, loaders: dict | None = None) -> None:
         """Fetch the experiment's views, then the edge universe rooted at its world."""
@@ -87,8 +69,8 @@ class SceneGraph:
 
         self.layers = layers_of(scene)
 
-        # The experiment's whole contribution to the universe: the spaces its views draw from.
-        # Seeding by *system* is right here and would be wrong for a space graph -- each view
+        # The experiment's whole contribution to the universe: the spaces its layers draw from.
+        # Seeding by *system* is right here and would be wrong for a space graph -- each layer
         # names one source space, so `residence_map` collapses nothing.
         layer_systems = {source.pk for layer in self.layers if (source := source_system(layer)) is not None}
 
@@ -354,10 +336,10 @@ class SceneGraph:
     def level_placements(self, layer) -> list[tuple["models.DataArray", list[tuple["models.Transformation", bool]] | None]]:  # noqa: ANN001 - a recording or stimulus view
         """Per pyramid level, the path from that level's sample grid to this experiment's world system.
 
-        Every lens-backed view: a pyramid is a fact about the array, so a decimated recording
-        and a decimated stimulus both have one, and a client zoomed out over an hour of data
-        picks a level off each exactly as a multiscale renderer does in mikro. An annotation
-        view has no lens and so no levels.
+        Every trace layer: a pyramid is a fact about the array, so a decimated recording and a
+        decimated stimulus both have one, and a client zoomed out over an hour of data picks a
+        level off each exactly as a multiscale renderer does in mikro. A spikes, events or
+        annotation layer has no lens and so no levels.
         """
         if getattr(layer, "lens_id", None) is None:
             return []

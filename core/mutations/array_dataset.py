@@ -98,6 +98,39 @@ class LabelInput:
     label: str = strawberry.field(description="The label to associate with the coordinate anchor: the name of the channel, sweep or unit it pins")
 
 
+class SiteInputModel(BaseModel):
+    cell: str | None = None
+    location: str | None = None
+    position: float | None = Field(default=None, ge=0.0, le=1.0)
+    label: str | None = None
+
+
+class RecordingSiteInputModel(SiteInputModel):
+    kind: enums.RecordingKind = enums.RecordingKind.VOLTAGE
+
+
+class StimulusSiteInputModel(SiteInputModel):
+    kind: enums.StimulusKind = enums.StimulusKind.CURRENT
+
+
+@kante.pydantic_input(RecordingSiteInputModel, description="Where on a model the anchored values were RECORDED: NEURON's cell, section and position along it, and what was recorded. elektro's own spoke; it replaces the `Recording` row of a simulation")
+class RecordingSiteInput:
+    kind: enums.RecordingKind = strawberry.field(default=enums.RecordingKind.VOLTAGE, description="What was recorded: a voltage, a current, or one named ionic current")
+    cell: str | None = strawberry.field(default=None, description="The id of the cell, as the model config names it")
+    location: str | None = strawberry.field(default=None, description="The id of the section, as the model config names it")
+    position: float | None = strawberry.field(default=None, description="The normalized position along the section, 0 to 1 (NEURON's section(x))")
+    label: str | None = strawberry.field(default=None, description="A display label. Defaults to 'cell: location(position)'")
+
+
+@kante.pydantic_input(StimulusSiteInputModel, description="Where on a model the anchored values were INJECTED: NEURON's cell, section and position along it, and what was clamped. elektro's own spoke; it replaces the `Stimulus` row of a simulation")
+class StimulusSiteInput:
+    kind: enums.StimulusKind = strawberry.field(default=enums.StimulusKind.CURRENT, description="What was clamped: current or voltage")
+    cell: str | None = strawberry.field(default=None, description="The id of the cell, as the model config names it")
+    location: str | None = strawberry.field(default=None, description="The id of the section, as the model config names it")
+    position: float | None = strawberry.field(default=None, description="The normalized position along the section, 0 to 1 (NEURON's section(x))")
+    label: str | None = strawberry.field(default=None, description="A display label. Defaults to 'cell: location(position)'")
+
+
 class CoordinateAnchorInputModel(BaseModel):
     axis_anchors: list[AxisAnchorInputModel]
     rig: RigStateModel | None = None
@@ -105,6 +138,8 @@ class CoordinateAnchorInputModel(BaseModel):
     value_histogram: ValueHistogramInputModel | None = None
     label: LabelInputModel | None = None
     value_unit: ValueUnitInputModel | None = None
+    recording_site: RecordingSiteInputModel | None = None
+    stimulus_site: StimulusSiteInputModel | None = None
 
 
 @kante.pydantic_input(CoordinateAnchorInputModel, description="Input type for a coordinate anchor, which specifies a list of dimension anchors to anchor to")
@@ -115,6 +150,8 @@ class CoordinateAnchorInput:
     value_histogram: ValueHistogramInput | None = strawberry.field(default=None, description="Optional value histogram to associate with the coordinate anchor, which can provide additional context about the distribution of values along the anchored dimensions")
     label: LabelInput | None = strawberry.field(default=None, description="Optional label to associate with the coordinate anchor -- the name of the channel at `{c: 3}`, of the sweep at `{sweep: 12}`")
     value_unit: ValueUnitInput | None = strawberry.field(default=None, description="Optional unit of the array's values at this coordinate. Anchor it to no axis at all to state it for the whole dataset (what `ArrayDataset.valueUnit` reads); anchor it per channel when the channels measure different things")
+    recording_site: RecordingSiteInput | None = strawberry.field(default=None, description="(simulation) Where on the model the values at this coordinate were recorded. The whole dataset at `{}`, one channel at `{c: i}`. Not together with `stimulusSite`")
+    stimulus_site: StimulusSiteInput | None = strawberry.field(default=None, description="(simulation) Where on the model the values at this coordinate were injected. The whole dataset at `{}`, one channel at `{c: i}`. Not together with `recordingSite`")
 
 
 class ScaleInputModel(BaseModel):
@@ -289,6 +326,11 @@ def assert_anchors_name_axes(anchors: list, axes: list[AxisInputModel]) -> None:
         if coordinates in seen:
             raise ValueError(f"Two anchors are pinned to the same coordinates {coordinates or '{} (the whole dataset)'}. One anchor per coordinate: put every spoke for it on the one anchor.")
         seen.append(coordinates)
+        if getattr(anchor, "recording_site", None) is not None and getattr(anchor, "stimulus_site", None) is not None:
+            raise ValueError(
+                f"The anchor at {coordinates or '{} (the whole dataset)'} carries both a recording site and a stimulus site. One value was either recorded or injected: "
+                "a clamp's command and its measured response are two channels, each with a site of its own."
+            )
 
 
 def assert_axes_describe_the_store(axes: list, store: "models.ZarrStore") -> None:
@@ -509,6 +551,12 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
                 anchor=coordinate_anchor,
                 unit=parse_value_unit(anchor.value_unit.unit),
             )
+
+        if anchor.recording_site:
+            models.RecordingSite.objects.create(anchor=coordinate_anchor, **anchor.recording_site.model_dump(mode="json"))
+
+        if anchor.stimulus_site:
+            models.StimulusSite.objects.create(anchor=coordinate_anchor, **anchor.stimulus_site.model_dump(mode="json"))
 
     return dataset
 

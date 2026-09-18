@@ -188,7 +188,11 @@ class FileLink(models.Model):
     # object. That is the cost of having no constraint; if it ever bites, the fix is a
     # `CheckConstraint` here rather than a fourth copy of the check.
     dataset = models.ForeignKey("ArrayDataset", on_delete=models.CASCADE, null=True, blank=True, related_name="file_links", help_text="(DATASET) The array dataset side of the link")
+    table_dataset = models.ForeignKey("TableDataset", on_delete=models.CASCADE, null=True, blank=True, related_name="file_links", help_text="(TABLE_DATASET) The table dataset side of the link")
     annotation_collection = models.ForeignKey("AnnotationCollection", on_delete=models.CASCADE, null=True, blank=True, related_name="file_links", help_text="(ANNOTATION_COLLECTION) The annotation collection side of the link")
+    # elektro: mikro links no sparse dataset to a file. A spike raster is read out of a sorter's
+    # output folder as surely as an array is read out of an ABF, so here it can be.
+    sparse_dataset = models.ForeignKey("SparseDataset", on_delete=models.CASCADE, null=True, blank=True, related_name="file_links", help_text="(SPARSE_DATASET) The sparse dataset side of the link")
 
     direction = TextChoicesField(
         choices_enum=enums.FileLinkDirectionChoices,
@@ -248,8 +252,18 @@ class FileLink(models.Model):
                 name="unique_file_link_per_dataset",
             ),
             models.UniqueConstraint(
+                fields=["file", "table_dataset", "direction", "series_identifier"],
+                condition=models.Q(table_dataset__isnull=False),
+                name="unique_file_link_per_table_dataset",
+            ),
+            models.UniqueConstraint(
                 fields=["file", "annotation_collection", "direction", "series_identifier"],
                 condition=models.Q(annotation_collection__isnull=False),
                 name="unique_file_link_per_annotation_collection",
+            ),
+            models.UniqueConstraint(
+                fields=["file", "sparse_dataset", "direction", "series_identifier"],
+                condition=models.Q(sparse_dataset__isnull=False),
+                name="unique_file_link_per_sparse_dataset",
             ),
         ]

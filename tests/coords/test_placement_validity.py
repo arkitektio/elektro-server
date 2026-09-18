@@ -16,7 +16,7 @@ from asgiref.sync import sync_to_async
 
 from core import enums, models
 from tests import seed
-from tests.coords._helpers import add_view, create_experiment
+from tests.coords._helpers import add_layer, create_experiment
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -24,7 +24,7 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 VIEW_VALIDITY = """
 query ViewValidity($id: ID!) {
   experiment(id: $id) {
-    recordingViews { id placementValidity pathToWorld { transformation { id validity } } }
+    layers { id placementValidity pathToWorld { transformation { id validity } } }
   }
 }
 """
@@ -45,7 +45,7 @@ mutation Refine($input: UpdateTransformationInput!) {
 async def _view(aexecute, experiment: models.Experiment) -> dict:  # noqa: ANN001 - the conftest fixture
     result = await aexecute(VIEW_VALIDITY, {"id": str(experiment.pk)})
     assert not result.errors, result.errors
-    (view,) = result.data["experiment"]["recordingViews"]
+    (view,) = result.data["experiment"]["layers"]
     return view
 
 
@@ -74,7 +74,7 @@ async def test_an_assumed_placement_reads_unknown(aexecute, authenticated_contex
     )
     assert not registered.errors, registered.errors
     assert registered.data["createTransformation"]["validity"] == "UNKNOWN"
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     assert (await _view(aexecute, experiment))["placementValidity"] == "UNKNOWN"
 
@@ -104,7 +104,7 @@ async def test_an_authored_registration_reads_manual_and_validating_it_needs_no_
     assert not registered.errors, registered.errors
     assert registered.data["createTransformation"]["validity"] == "MANUAL", "an edge that arrived through the API was authored by someone"
     edge_id = registered.data["createTransformation"]["id"]
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
 
     assert (await _view(aexecute, experiment))["placementValidity"] == "MANUAL"
 
@@ -143,7 +143,7 @@ async def test_the_weakest_edge_on_the_path_wins(aexecute, authenticated_context
     )
     sliced = await seed.create_lens(ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}])
     experiment = await create_experiment(ctx, "Physical", world=calibration)
-    await add_view(ctx, experiment, sliced)
+    await add_layer(ctx, experiment, sliced)
 
     view = await _view(aexecute, experiment)
     assert [hop["transformation"]["validity"] for hop in view["pathToWorld"]] == ["VALIDATED", "INFERRED"], (
@@ -165,12 +165,12 @@ async def test_the_layer_carries_no_placement_columns():
     """A view's validity is derived: it is no stored column, and the derived field wears its own name."""
     from elektro_server.schema import schema
 
-    for model in (models.ExperimentRecordingView, models.ExperimentStimulusView):
+    for model in (models.ExperimentLayer,):
         columns = {field.name for field in model._meta.get_fields()}
         assert not columns & {"status", "validity", "offset", "duration"}, f"{model.__name__} stores a placement fact: {columns}"
 
     sdl = str(schema)
-    definition = sdl[sdl.find("interface ExperimentView ") : sdl.find("\n}", sdl.find("interface ExperimentView "))]
+    definition = sdl[sdl.find("interface ExperimentLayer ") : sdl.find("\n}", sdl.find("interface ExperimentLayer "))]
     assert "\n  status" not in definition
     assert "placementValidity(" in definition and "): PlacementValidity!" in definition, "the derived aggregate survives, under its own name and taking the coordinate to answer at"
     assert "\n  validity" not in definition, "the bare word belongs to the edge, not the view"

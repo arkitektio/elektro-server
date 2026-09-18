@@ -4,13 +4,14 @@ import strawberry
 from strawberry import ID as StrawberryID
 from typing import Any, Type
 from core import types, models, scoping
+from core import filters as core_filters
 from core import scalars as core_scalars
 from core import mutations
 from core import queries
 from core import subscriptions
 import strawberry_django
 from koherent.strawberry.extension import KoherentExtension
-from core.duck import DuckExtension
+from datalayer.duck import DuckExtension
 from typing import Annotated
 from core.base_models.type.graphql.model import SynapticConnection, Exp2Synapse
 from core.base_models.type.graphql.model import ModelConfigModel
@@ -26,6 +27,8 @@ from strawberry.schema.config import StrawberryConfig
 from core.input_unions import unionElementOf
 from core.inputs.coords import derived_from_union_types, transform_union_types
 from core.inputs.file_link import file_link_union_types
+from core.inputs.identification import identification_union_types
+from core.types.layers import layer_types
 from core.types.coords import transformation_types
 
 ID = Annotated[StrawberryID, strawberry.argument(description="The unique identifier of an object")]
@@ -64,43 +67,36 @@ class Query:
         description="Walk the *derivation* edges out from one dataset and return its provenance component: everything this data was computed from, everything computed from it, transitively in both directions, and the edges between them. Distinct from `coordinateGraph`, which walks every edge touching a space -- a registration there drags in every other dataset on the same clock, which is a neighbourhood rather than a lineage. Nodes are datasets, not spaces: a dataset's sample grid and its lenses are one node in a provenance story. Kind-blind, so an UNMAPPABLE edge is included; filter on `kind` for the chain that actually places things. Root it at any dataset's coordinate system",
     )
 
-    analog_signals: list[types.AnalogSignal] = strawberry_django.field()
-    blocks: list[types.Block] = strawberry_django.field()
-    array_datasets: list[types.ArrayDataset] = strawberry_django.field(description="List array datasets: N-dimensional arrays with named dimensions and anchored metadata -- a recording, a stimulus, a vector of sample times, a spike train")
+    array_datasets: list[types.ArrayDataset] = strawberry_django.field(description="List array datasets: N-dimensional arrays with named dimensions and anchored metadata -- a recording, a stimulus, a vector of sample times, a unit's waveform templates")
+    table_datasets: list[types.TableDataset] = strawberry_django.field(description="List table datasets: parquet-backed tables -- event lists, trial tables, a sorter's unit table. One with a TIME coordinate column is drawn as an events layer")
+    sparse_datasets: list[types.SparseDataset] = strawberry_django.field(description="List sparse datasets: sparse matrices -- a spike raster of units by samples is one, drawn as a spikes layer")
+    layers: list[types.ExperimentLayer] = strawberry_django.field(
+        filters=core_filters.ExperimentLayerFilter,
+        pagination=True,
+        description="List the layers of experiments: traces, spike rasters, event tables and annotation collections, each drawn in one experiment",
+    )
     data_arrays: list[types.DataArray] = strawberry_django.field(description="List data arrays: the multiscale zarr arrays backing array datasets")
     coordinate_anchors: list[types.CoordinateAnchor] = strawberry_django.field(description="List coordinate anchors: the hubs pinning a value unit, a channel label or the rig state to coordinates of a dataset")
     file_links: list[types.FileLink] = strawberry_django.field(description="List file links: which file a container was read from, or written to")
     annotation_collections: list[types.AnnotationCollection] = strawberry_django.field(description="List annotation collections: named sets of marks, each owning the coordinate system they are drawn in")
     annotations: list[types.Annotation] = strawberry_django.field(description="List annotations: events, epochs and measurements, each in its collection's coordinate system")
-    folders: list[types.Folder] = strawberry_django.field(description="List folders (collections of array datasets, recording sessions and files)")
+    folders: list[types.Folder] = strawberry_django.field(description="List folders (collections of array, table and sparse datasets, annotation collections and files)")
     myfolders: list[types.Folder] = strawberry_django.field(description="List folders created by the current user")
     experiments: list[types.Experiment] = strawberry_django.field()
     neuron_models: list[types.NeuronModel] = strawberry_django.field()
     model_collections: list[types.ModelCollection] = strawberry_django.field()
     model_workspaces: list[types.ModelWorkspace] = strawberry_django.field()
     workspace_mappings: list[types.WorkspaceMapping] = strawberry_django.field()
-    recordings: list[types.Recording] = strawberry_django.field()
-    stimuli: list[types.Stimulus] = strawberry_django.field()
 
     files: list[types.File] = strawberry_django.field()
     simulations: list[types.Simulation] = strawberry_django.field()
     myfiles: list[types.File] = strawberry_django.field()
-    children = strawberry_django.field(resolver=queries.children, description="List everything filed in a folder: its sub-folders, files, array datasets, annotation collections and recording sessions")
-
-    block_stats: types.BlockStats = strawberry_django.field(resolver=types.BlockStatsResolver)
+    children = strawberry_django.field(resolver=queries.children, description="List everything filed in a folder: its sub-folders, files, array, table and sparse datasets and annotation collections")
 
     mod_environments: list[types.ModEnvironment] = strawberry_django.field()
     mechanisms: list[types.Mechanism] = strawberry_django.field()
     mechanism: types.Mechanism = strawberry_django.field()
     mod_environment: types.ModEnvironment = strawberry_django.field()
-
-    @strawberry_django.field(permission_classes=[], description="Get a single stimulus by ID")
-    def stimulus(self, info: Info, id: ID) -> types.Stimulus:
-        return scoping.get_for_org(models.Stimulus, info, id=id)
-
-    @strawberry_django.field(permission_classes=[], description="Get a single analog signal by ID")
-    def analog_signal(self, info: Info, id: ID) -> types.AnalogSignal:
-        return scoping.get_for_org(models.AnalogSignal, info, id=id)
 
     @strawberry_django.field(permission_classes=[], description="Returns a list of cells in a model")
     def cells(
@@ -144,14 +140,17 @@ class Query:
 
         raise ValueError(f"Cell with ID {cellId} not found in model {modelId}")
 
-    @strawberry_django.field(permission_classes=[], description="Get a single recording by ID")
-    def recording(self, info: Info, id: ID) -> types.Recording:
-        return scoping.get_for_org(models.Recording, info, id=id)
+    @strawberry_django.field(description="Get a single table dataset by ID")
+    def table_dataset(self, info: Info, id: ID) -> types.TableDataset:
+        return scoping.get_for_org(models.TableDataset, info, id=id)
 
-    @strawberry_django.field()
-    def block(self, info: Info, id: ID) -> types.Block:
-        """Get all blocks"""
-        return scoping.get_for_org(models.Block, info, id=id)
+    @strawberry_django.field(description="Get a single sparse dataset by ID")
+    def sparse_dataset(self, info: Info, id: ID) -> types.SparseDataset:
+        return scoping.get_for_org(models.SparseDataset, info, id=id)
+
+    @strawberry_django.field(description="Get a single experiment layer by ID")
+    def layer(self, info: Info, id: ID) -> types.ExperimentLayer:
+        return scoping.get_for_org(models.ExperimentLayer, info, id=id)
 
     @strawberry_django.field()
     def experiment(self, info: Info, id: ID) -> types.Experiment:
@@ -220,9 +219,6 @@ class Query:
 
 @strawberry.type
 class Mutation:
-    create_block = strawberry_django.mutation(resolver=mutations.create_block, description="Create a recording session over array datasets that already exist: its clock, its segments, and the edge timing each signal's dataset. Creates no data")
-    delete_block = strawberry_django.mutation(resolver=mutations.delete_block, description="Delete a recording session: its segments, its signals and its clocks. The array datasets its signals named stay")
-
     # --- Datalayer actions -------------------------------------------------
     # One block per store type. Each exposes: upload (request + finish),
     # single-object read access, and (where available) an organization-wide
@@ -296,11 +292,43 @@ class Mutation:
         resolver=datalayer_mutations.request_general_parquet_access,
     )
 
+    # Sparse
+    request_sparse_upload = kante.django_mutation(
+        description=(
+            "Request an upload grant for a sparse store. The grant covers the whole prefix, so one request authorizes the group's metadata and all three of its arrays. It declares "
+            "nothing about the matrix: the group states its encoding, shape and chunking, and the server reads them when the upload is finished"
+        ),
+        resolver=datalayer_mutations.request_sparse_upload,
+    )
+    finish_sparse_upload = kante.django_mutation(
+        description=(
+            "Finalize a sparse upload, which is when the group's own metadata is read. A missing encoding, a missing array, or an `indptr` whose length contradicts the declared shape "
+            "are all refused here -- that is what an interrupted upload looks like, and catching it now beats a reader discovering it later"
+        ),
+        resolver=datalayer_mutations.finish_sparse_upload,
+    )
+    refresh_sparse_upload = kante.django_mutation(
+        description=(
+            "Reissue upload credentials for a sparse store whose upload is still in flight, for the reason `refreshZarrUpload` exists: three chunked arrays of a large matrix take "
+            "long enough that a write can outlive its session token. Refuses a store that is already populated -- that is an overwrite, not a resumption"
+        ),
+        resolver=datalayer_mutations.refresh_sparse_upload,
+    )
+    request_sparse_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for a sparse store. Covers the whole prefix, because a lookup needs `indptr` before it knows which range of `data` to fetch",
+        resolver=datalayer_mutations.request_sparse_access,
+    )
+    request_general_sparse_access = kante.django_mutation(
+        description="Request temporary S3 read credentials for sparse stores in the organization",
+        resolver=datalayer_mutations.request_general_sparse_access,
+    )
+
     create_array_dataset = strawberry_django.mutation(
         resolver=mutations.create_array_dataset,
         description=(
             "Create a new dataset from array-like data, with its pyramid levels, optional coordinate anchors (a value unit, channel labels, the rig state) and derivation edges. "
-            "This is the one way data enters: what it *means* -- a signal of a block, a recording of a simulation -- is said afterwards, by `createBlock` or `createSimulation` naming it by ID"
+            "One of the three ways data enters (with createTableDataset and createSparseDataset): when its samples were taken is said afterwards, by an edge onto a clock (`createSamplingLaw`), "
+            "and what it is drawn as by an experiment layer"
         ),
     )
     update_array_dataset = strawberry_django.mutation(
@@ -313,6 +341,43 @@ class Mutation:
     )
     delete_data_array = strawberry_django.mutation(resolver=mutations.delete_data_array, description="Delete one downsampled level of a dataset. Level 0 cannot be deleted: it is the dataset")
 
+    # --- Tables and sparse matrices (vendored from mikro) ---------------------------------
+    create_table_dataset = strawberry_django.mutation(
+        resolver=mutations.create_table_dataset,
+        description=(
+            "Create a table dataset from an uploaded parquet store: every column declared in file order, checked against the file. Columns with an `axisType` become the axes of "
+            "the table's own coordinate system -- a TIME column makes it an event table, placeable on a clock. `identifiedBy` on a column says what its values are: a DATASET "
+            "whose contents are the ids (a FIELD edge), or a TABLE whose rows they are (a foreign key -- a spike's unit id referencing the unit table)"
+        ),
+    )
+    update_table_dataset = strawberry_django.mutation(resolver=mutations.update_table_dataset, description="Rename a table dataset or redescribe it. Its store, columns and coordinate system are fixed at creation")
+    delete_table_dataset = strawberry_django.mutation(
+        resolver=mutations.delete_table_dataset,
+        description="Delete a table dataset, and the coordinate system it owned if nothing else lives in it. Refused while a layer's picker or a column elsewhere references it",
+    )
+    create_sparse_dataset = strawberry_django.mutation(
+        resolver=mutations.create_sparse_dataset,
+        description=(
+            "Create a sparse dataset from an uploaded sparse store. Each INDEX axis says what its positions are through `identifiedBy`; one axis may be TIME (elektro's own) -- a "
+            "spike raster's samples, identified by nothing and placed on a clock with `createSamplingLaw`. The spec, shape and layouts are read from the store, never declared"
+        ),
+    )
+    update_sparse_dataset = strawberry_django.mutation(resolver=mutations.update_sparse_dataset, description="Rename a sparse dataset or redescribe it. Its store, axes and coordinate system are fixed at creation")
+    delete_sparse_dataset = strawberry_django.mutation(
+        resolver=mutations.delete_sparse_dataset,
+        description="Delete a sparse dataset, and the coordinate system it owned if nothing else lives in it. Refused while a layer's picker names it",
+    )
+
+    # --- Timing: samples onto clocks, clocks onto clocks ---------------------------------
+    create_sampling_law = strawberry_django.mutation(
+        resolver=mutations.create_sampling_law,
+        description="Time a sample grid (an array dataset's, or a spike raster's) on a clock: one BY_DIMENSION edge stating `t = sample / samplingRate + tStart`, in the clock's unit. Refused when the grid is already timed on that clock",
+    )
+    create_clock_offset = strawberry_django.mutation(
+        resolver=mutations.create_clock_offset,
+        description="Place one clock on another -- a segment in its session, a session or a run in an experiment's world -- with one offset edge shared by everything timed on it. Refused when the two are already related",
+    )
+
     create_mod_environment = strawberry_django.mutation(
         resolver=mutations.create_mod_environment,
         description="Create a mechanism from a mod file",
@@ -320,7 +385,10 @@ class Mutation:
 
 
     create_neuron_model = strawberry_django.mutation(resolver=mutations.create_neuron_model, description="Create a new neuron model")
-    create_simulation = strawberry_django.mutation(resolver=mutations.create_simulation, description="Create a simulation over array datasets that already exist: its clock, a recording or stimulus per dataset, and the edge timing each one. Creates no data")
+    create_simulation = strawberry_django.mutation(
+        resolver=mutations.create_simulation,
+        description="Create a simulation: a run of a neuron model, its integrator parameters and its clock, and a timing edge onto that clock for each array dataset named. Creates no data; what was recorded where is each dataset's `recordingSite` / `stimulusSite`",
+    )
 
     # --- Guarded deletes ---------------------------------------------------
     # One delete per model. Each enforces the deletion guard (core.guards):
@@ -332,17 +400,8 @@ class Mutation:
     delete_mod_environment = strawberry_django.mutation(resolver=mutations.delete_mod_environment, description="Delete an existing mod environment")
     delete_mechanism = strawberry_django.mutation(resolver=mutations.delete_mechanism, description="Delete an existing mechanism")
     delete_neuron_model = strawberry_django.mutation(resolver=mutations.delete_neuron_model, description="Delete an existing neuron model")
-    delete_experiment = strawberry_django.mutation(resolver=mutations.delete_experiment, description="Delete an existing experiment")
-    delete_experiment_recording_view = strawberry_django.mutation(resolver=mutations.delete_experiment_recording_view, description="Delete an existing experiment recording view")
-    delete_experiment_stimulus_view = strawberry_django.mutation(resolver=mutations.delete_experiment_stimulus_view, description="Delete an existing experiment stimulus view")
-    delete_block_group = strawberry_django.mutation(resolver=mutations.delete_block_group, description="Delete an existing block group")
-    delete_block_segment = strawberry_django.mutation(resolver=mutations.delete_block_segment, description="Delete an existing block segment")
-    delete_analog_signal = strawberry_django.mutation(resolver=mutations.delete_analog_signal, description="Delete an existing analog signal")
-    delete_irregularly_sampled_signal = strawberry_django.mutation(resolver=mutations.delete_irregularly_sampled_signal, description="Delete an existing irregularly sampled signal")
-    delete_spike_train = strawberry_django.mutation(resolver=mutations.delete_spike_train, description="Delete an existing spike train")
-    delete_simulation = strawberry_django.mutation(resolver=mutations.delete_simulation, description="Delete a simulation: its recordings, its stimuli, their experiment views and its clock. The array datasets they named stay")
-    delete_stimulus = strawberry_django.mutation(resolver=mutations.delete_stimulus, description="Delete an existing stimulus")
-    delete_recording = strawberry_django.mutation(resolver=mutations.delete_recording, description="Delete an existing recording")
+    delete_experiment = strawberry_django.mutation(resolver=mutations.delete_experiment, description="Delete an experiment and its layers. Its world and everything drawn in it stay")
+    delete_simulation = strawberry_django.mutation(resolver=mutations.delete_simulation, description="Delete a simulation and its clock, which takes the timing edges onto it along. The array datasets it timed stay")
 
     from_file_like = strawberry_django.mutation(
         resolver=mutations.from_file_like,
@@ -428,26 +487,42 @@ class Mutation:
         resolver=mutations.release_annotation_collections_from_folder,
         description="Take annotation collections out of a folder",
     )
-    put_blocks_in_folder = strawberry_django.mutation(resolver=mutations.put_blocks_in_folder, description="File recording sessions in a folder")
-    release_blocks_from_folder = strawberry_django.mutation(resolver=mutations.release_blocks_from_folder, description="Take recording sessions out of a folder")
+    put_table_datasets_in_folder = strawberry_django.mutation(resolver=mutations.put_table_datasets_in_folder, description="File table datasets in a folder. A derived table follows its primary parent")
+    release_table_datasets_from_folder = strawberry_django.mutation(resolver=mutations.release_table_datasets_from_folder, description="Take table datasets out of a folder")
+    put_sparse_datasets_in_folder = strawberry_django.mutation(resolver=mutations.put_sparse_datasets_in_folder, description="File sparse datasets in a folder. A derived matrix follows its primary parent")
+    release_sparse_datasets_from_folder = strawberry_django.mutation(resolver=mutations.release_sparse_datasets_from_folder, description="Take sparse datasets out of a folder")
 
-    # Experiment
-    create_experiment = strawberry_django.mutation(resolver=mutations.create_experiment, description="Create a new experiment")
+    # --- Experiments and their layers (mikro's scenes and layers, over time) --------------
+    create_experiment = strawberry_django.mutation(resolver=mutations.create_experiment, description="Create an empty experiment over a world: an existing space it adopts, or one minted for it. Fill it with the layer mutations")
+    create_experiment_from_coordinate_system = strawberry_django.mutation(
+        resolver=mutations.create_experiment_from_coordinate_system,
+        description="Create an experiment over a coordinate system -- a session's or a run's clock -- with a layer for every trace, spike raster, event table and annotation collection laid out on it. Authors no edges",
+    )
+    update_experiment = strawberry_django.mutation(resolver=mutations.update_experiment, description="Rename or redescribe an experiment")
+    create_layer = strawberry_django.mutation(resolver=mutations.create_layer, description="Add a layer of any kind to an experiment, with default render settings")
+    update_layer = strawberry_django.mutation(resolver=mutations.update_layer, description="Restyle any layer's compositing: name, blending, opacity, visibility, order")
+    delete_layer = strawberry_django.mutation(resolver=mutations.delete_layer, description="Remove a layer from its experiment. What it drew is untouched")
+    create_trace_layer = strawberry_django.mutation(resolver=mutations.create_trace_layer, description="Draw an array dataset as a trace: a lens over it (or a `window` of time, lowered to one), and how its lines look")
+    update_trace_layer = strawberry_django.mutation(resolver=mutations.update_trace_layer, description="Restyle a trace layer, or point it at another lens")
+    create_spikes_layer = strawberry_django.mutation(resolver=mutations.create_spikes_layer, description="Draw a spike raster: a tick per spike and a row per unit, coloured and ordered by the unit table")
+    update_spikes_layer = strawberry_django.mutation(resolver=mutations.update_spikes_layer, description="Restyle a spikes layer, or point it at another raster")
+    create_events_layer = strawberry_django.mutation(resolver=mutations.create_events_layer, description="Draw an event table: a mark per row at its TIME column, or an interval with `stopColumn`")
+    update_events_layer = strawberry_django.mutation(resolver=mutations.update_events_layer, description="Restyle an events layer, or point it at another table")
+    create_annotation_layer = strawberry_django.mutation(resolver=mutations.create_annotation_layer, description="Draw an annotation collection's marks in an experiment")
 
     # --- Annotations ------------------------------------------------------------------
     create_annotation_collection = strawberry_django.mutation(
         resolver=mutations.create_annotation_collection,
         description="Create an annotation collection, in a coordinate system of its own, optionally related to what its shapes are drawn over: a dataset's sample grid, a segment's clock. The common path for a timeline -- drawing on an experiment -- goes through createAnnotation instead, which mints the experiment's collection on first use",
     )
-    delete_annotation_collection = strawberry_django.mutation(resolver=mutations.delete_annotation_collection, description="Delete an annotation collection. Its annotations, its experiment views and the drawing space it owned go with it; what it was drawn over is untouched")
+    delete_annotation_collection = strawberry_django.mutation(resolver=mutations.delete_annotation_collection, description="Delete an annotation collection. Its annotations, its experiment layers and the drawing space it owned go with it; what it was drawn over is untouched")
     create_annotation = strawberry_django.mutation(
         resolver=mutations.create_annotation,
-        description="Draw an annotation into a collection, or onto an experiment (exactly one of the two). Drawing on an experiment finds its annotation collection or mints it on first use: a coordinate system copying the world's axes, an identity registration into the world, and one annotation view",
+        description="Draw an annotation into a collection, or onto an experiment (exactly one of the two). Drawing on an experiment finds its annotation collection or mints it on first use: a coordinate system copying the world's axes, an identity registration into the world, and one annotation layer",
     )
     create_annotations = strawberry_django.mutation(resolver=mutations.create_annotations, description="Draw many annotations in one call -- a detector's whole output. One collection resolve, one chain resolve, one insert")
     update_annotation = strawberry_django.mutation(resolver=mutations.update_annotation, description="Edit an annotation. Only the supplied fields change; new vectors re-derive the bounding box")
     delete_annotation = strawberry_django.mutation(resolver=mutations.delete_annotation, description="Delete an annotation. Its collection, and the space it was drawn in, stay")
-    delete_experiment_annotation_view = strawberry_django.mutation(resolver=mutations.delete_experiment_annotation_view, description="Stop showing an annotation collection in an experiment. The collection and its annotations are untouched")
 
 
     # --- The coordinate graph ---------------------------------------------------------
@@ -461,11 +536,11 @@ class Mutation:
     )
     delete_coordinate_system = strawberry_django.mutation(
         resolver=mutations.delete_coordinate_system,
-        description="Delete an unused shared coordinate system. Refused while data lives in it, while anything is laid out over it (an experiment, a block, a segment, a simulation), or while any transformation edge touches it. This is the only door a shared space leaves through -- deleting an experiment never deletes one",
+        description="Delete an unused shared coordinate system. Refused while data lives in it, while anything is laid out over it (an experiment, a simulation), or while any transformation edge touches it. This is the only door a shared space leaves through -- deleting an experiment never deletes one",
     )
     clear_coordinate_system = strawberry_django.mutation(
         resolver=mutations.clear_coordinate_system,
-        description="Delete every registration INTO a shared space in one call, returning the deleted edge ids. The space, whatever is laid out over it (its views drop to UNREGISTERED) and the space's own claims into wider spaces all survive",
+        description="Delete every registration INTO a shared space in one call, returning the deleted edge ids. The space, whatever is laid out over it (its layers drop to UNREGISTERED) and the space's own claims into wider spaces all survive",
     )
     delete_orphaned_coordinate_systems = strawberry_django.mutation(
         resolver=mutations.delete_orphaned_coordinate_systems,
@@ -524,6 +599,8 @@ schema = kante.Schema(
         *transform_union_types,
         *derived_from_union_types,
         *file_link_union_types,
+        *identification_union_types,
+        *layer_types,
     ],
     schema_directives=[unionElementOf],
     config=StrawberryConfig(scalar_map={**core_scalars.SCALAR_MAP, **datalayer_scalars.SCALAR_MAP, **kanne_scalars.SCALAR_MAP}),

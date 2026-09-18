@@ -2,10 +2,10 @@
 
 **Vendored from mikro** (``mikro/core/types/coords.py``). The transformation interface, its
 ten kinds and every result shape are unchanged. What differs: a resident is a dataset, a
-level, a lens or an annotation collection; mikro's mesh and network collection types are
-gone with the models behind them; and every type mixes in ``OrgScoped``, because mikro
-leaves its ``coordinateSystems`` and ``transformations`` lists unscoped and this service
-scopes every read. Read "scene" as "experiment" and "layer" as "view".
+level, a lens, a table dataset, an annotation collection or a sparse dataset; mikro's mesh
+and network collection types are gone with the models behind them; and every type mixes in
+``OrgScoped``, because mikro leaves its ``coordinateSystems`` and ``transformations`` lists
+unscoped and this service scopes every read. Read "scene" as "experiment".
 
 The API ships transformations as **edges** -- ``(input, output, params)`` -- and
 leaves the walking to the client. There is deliberately no ``toWorld`` field on
@@ -29,6 +29,8 @@ are registered in :data:`transformation_types` and threaded into the schema's
 import datetime
 from typing import TYPE_CHECKING, Annotated, List, Union
 
+from django.db.models import Prefetch
+
 import strawberry
 from strawberry import auto
 
@@ -51,6 +53,8 @@ if TYPE_CHECKING:
     # it back at runtime would be a cycle.
     from core.types.annotation import Annotation, AnnotationCollection
     from core.types.array_dataset import ArrayDataset, CoordinateAnchor, DataArray, Lens
+    from core.types.sparse_dataset import SparseDataset
+    from core.types.table_dataset import TableDataset
 
 
 @kante.django_type(
@@ -86,7 +90,9 @@ Resident = Annotated[
         Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")],
         Annotated["DataArray", strawberry.lazy("core.types.array_dataset")],
         Annotated["Lens", strawberry.lazy("core.types.array_dataset")],
+        Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")],
         Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")],
+        Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
     ],
     strawberry.union("Resident", description="A piece of data living in a coordinate system. Data belongs to a space; the space belongs to nobody"),
 ]
@@ -287,6 +293,20 @@ class Selector:
 
 
 
+def _endpoint_with_axes(side: str):  # noqa: ANN202 - a strawberry_django PrefetchCallable
+    return lambda info: Prefetch(side, queryset=models.CoordinateSystem.objects.prefetch_related("axes"))
+
+
+#: The endpoints' axes, which `inputAxes`/`outputAxes` are read from. The endpoints are
+#: `Prefetch`es, not `"input__axes"` strings: `CoordinateSystem` has a `get_queryset`, so
+#: selecting `input { ... }` makes the optimizer prefetch `input` with a scoped queryset,
+#: and Django refuses a path it has already walked without one ("'input' lookup was already
+#: seen with a different queryset"). Two `Prefetch`es on one path the optimizer merges,
+#: keeping its own filter. Callables, because a merge mutates the `Prefetch` it is given.
+#: `parent` is never selected, so its paths can stay strings.
+EDGE_AXIS_HINTS = [_endpoint_with_axes("input"), _endpoint_with_axes("output"), "parent__input__axes", "parent__output__axes"]
+
+
 @kante.django_interface(
     models.Transformation,
     description="A directed edge of the coordinate graph, mapping `input` to `output`. Direction is always forward. The concrete kind (Scale, Translation, Affine, Sequence, ...) carries the parameters",
@@ -357,7 +377,7 @@ class Transformation(OrgScopedOrNested):
     # arrive prefetched, and re-querying them per edge is the N+1 this whole field is
     # meant to spare the client).
     @kante.django_field(
-        prefetch_related=["input__axes", "output__axes", "parent__input__axes", "parent__output__axes"],
+        prefetch_related=EDGE_AXIS_HINTS,
         description="The names of the input axes this edge's parameters are ordered by. `scale`, `translation` and the columns of `affine` follow this order -- which is the input system's axis order, NOT the reading layer's axis names, and the two differ often enough that indexing the arrays against them silently misplaces them. A BY_DIMENSION edge names only the subset of axes it acts on; the axes it does not name are the ones it leaves untouched",
     )
     def input_axes(self, info: Info) -> List[str]:
@@ -365,7 +385,7 @@ class Transformation(OrgScopedOrNested):
         return graph_logic.edge_axis_names(self, "input")
 
     @kante.django_field(
-        prefetch_related=["input__axes", "output__axes", "parent__input__axes", "parent__output__axes"],
+        prefetch_related=EDGE_AXIS_HINTS,
         description="The names of the output axes this edge produces. For a rank-changing BY_DIMENSION edge (placing a (c,y,x) dataset into a (t,z,y,x) world) this is the subset it maps onto; the world's other axes are untouched",
     )
     def output_axes(self, info: Info) -> List[str]:
@@ -619,7 +639,9 @@ InViewSource = Annotated[
         Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")],
         Annotated["DataArray", strawberry.lazy("core.types.array_dataset")],
         Annotated["Lens", strawberry.lazy("core.types.array_dataset")],
+        Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")],
         Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")],
+        Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
     ],
     strawberry.union(
         "InViewSource",
@@ -635,7 +657,7 @@ InViewSource = Annotated[
 class SourcePlacement:
     """One container in view of a region asked in a coordinate system."""
 
-    source: InViewSource = strawberry.field(description="The container in view: a dataset, a lens over one, or an annotation collection. A collection comes back with `extentState: UNREADABLE` -- the server does not bound a set of shapes as one box; ask its annotations with `intersects` instead")
+    source: InViewSource = strawberry.field(description="The container in view: a dataset, a lens over one, an event or unit table, a spike raster, or an annotation collection. A collection comes back with `extentState: UNREADABLE` -- the server does not bound a set of rows or shapes as one box; read the rows, or ask an annotation collection's annotations with `intersects`")
     system: CoordinateSystem = strawberry.field(
         description=(
             "The source's own coordinate system that `extent` is anchored at and `path` starts from -- its pixel grid, its lens crop, or its collection's space. Which one it "

@@ -18,7 +18,7 @@ from django.conf import settings
 from django.core.cache import cache
 from authentikate.models import Organization, Membership
 from polymorphic.models import PolymorphicModel
-from datalayer.models import BigFileStore, ZarrStore
+from datalayer.models import BigFileStore, ParquetStore, SparseStore, ZarrStore  # noqa: F401  (re-exported, as in mikro)
 
 
 class ModelCollection(models.Model):
@@ -272,255 +272,99 @@ class Experiment(models.Model):
         return f"Experiment {self.pk}: {self.name}"
 
 
-class ExperimentViewBase(models.Model):
-    """What a view of an experiment is: a lens, shown in an experiment. mikro's Layer.
+class ExperimentLayer(models.Model):
+    """One thing drawn in an experiment, and how. mikro's ``Layer``, for time series.
 
-    **No time column.** A view used to carry its own ``offset`` and ``duration``, which let a
-    stimulus view and a recording view of *one* simulation state two different offsets and
-    silently misalign stimulus and response. Where the data sits is an edge from its clock
-    into the experiment's world -- one per clock, so everything timed against that clock moves
-    together -- and how much of it is shown is the lens' slices. ``offset`` and ``duration``
-    are still readable, derived from those.
+    **Exactly one source**, and the kind says which: a ``lens`` (TRACE -- any array dataset, a
+    recording and a stimulus alike), a ``sparse_dataset`` (SPIKES -- a raster), a
+    ``table_dataset`` (EVENTS -- a table with a TIME column) or an ``annotation_collection``
+    (ANNOTATION). mikro checks that in its mutations only; here a CheckConstraint states it
+    too, because a layer naming two sources would be placed by whichever the reader asked.
+
+    **No time column**, as there was none on the views this replaced. Where the data sits is an
+    edge from its clock into the experiment's world -- one per clock, so everything timed
+    against that clock moves together -- and how much of an array is shown is the lens'
+    slices. A spikes or events layer has no lens and shows its whole dataset; windowing it is
+    the viewer's business, not a second selection vocabulary on the server.
+
+    Everything past the compositing fields is **render state**, per kind, and like mikro's it
+    is a flat set of nullable columns rather than a JSON blob: each is read by exactly one kind
+    and ignored by the others.
     """
 
-    label = models.CharField(max_length=1000, help_text="The label of the view", null=True, blank=True)
-    order = models.PositiveIntegerField(default=0, help_text="The position of the view within its experiment, top to bottom")
-    visible = models.BooleanField(default=True, help_text="Whether the view is shown")
+    experiment = models.ForeignKey(Experiment, on_delete=models.CASCADE, related_name="layers", help_text="The experiment this layer is drawn in")
+    kind = TextChoicesField(choices_enum=enums.ExperimentLayerKindChoices, help_text="How this layer draws its data, and so which source it has")
+    name = models.CharField(max_length=1000, null=True, blank=True, help_text="A display name. Defaults to the source's name")
+    blending = TextChoicesField(
+        choices_enum=enums.BlendingChoices,
+        # NORMAL, not mikro's ADDITIVE: a trace is a line in its own lane, drawn over whatever
+        # is beneath it. Summing two voltages' pixels means nothing.
+        default=enums.BlendingChoices.NORMAL.value,
+        help_text="How this layer composites over the layers below it",
+    )
+    opacity = models.FloatField(default=1.0, help_text="The layer's opacity, 0 to 1")
+    visible = models.BooleanField(default=True, help_text="Whether the layer is shown")
+    order = models.IntegerField(default=0, help_text="The position of the layer within its experiment, top to bottom")
+
+    # -- the source: exactly one, matching `kind` ---------------------------------------------
+    lens = models.ForeignKey("core.Lens", on_delete=models.CASCADE, null=True, blank=True, related_name="experiment_layers", help_text="(trace) The selection of an array dataset this layer draws")
+    sparse_dataset = models.ForeignKey("core.SparseDataset", on_delete=models.CASCADE, null=True, blank=True, related_name="experiment_layers", help_text="(spikes) The spike raster this layer draws")
+    table_dataset = models.ForeignKey("core.TableDataset", on_delete=models.CASCADE, null=True, blank=True, related_name="experiment_layers", help_text="(events) The event table this layer draws")
+    annotation_collection = models.ForeignKey(
+        "core.AnnotationCollection", on_delete=models.CASCADE, null=True, blank=True, related_name="experiment_layers", help_text="(annotation) The annotation collection whose marks this layer draws"
+    )
+
+    # -- trace ----------------------------------------------------------------------------------
+    channel_index = models.IntegerField(null=True, blank=True, help_text="(trace) The one channel of the lens' CHANNEL axis to draw; null draws every channel, stacked")
+    clim_min = models.FloatField(null=True, blank=True, help_text="(trace) The bottom of the value range, in the dataset's value unit; (spikes, amplitude) the bottom of the colormap. Null reads it from the value histogram")
+    clim_max = models.FloatField(null=True, blank=True, help_text="(trace) The top of the value range, in the dataset's value unit; (spikes, amplitude) the top of the colormap. Null reads it from the value histogram")
+    line_width = models.FloatField(null=True, blank=True, help_text="(trace) The line width, in screen pixels")
+
+    # -- shared by the drawing kinds -----------------------------------------------------------
+    color = models.JSONField(null=True, blank=True, help_text="(trace, spikes, events) The base colour as RGBA, 0-255. Null lets the viewer choose")
+    colormap = TextChoicesField(choices_enum=enums.ColorMapChoices, null=True, blank=True, help_text="(spikes, events) The colormap an active colour-by or an amplitude is drawn through")
+
+    # -- spikes ---------------------------------------------------------------------------------
+    tick_height = models.FloatField(null=True, blank=True, help_text="(spikes) A spike tick's height as a fraction of its unit's row, 0 to 1")
+    row_order_column = models.CharField(max_length=255, null=True, blank=True, help_text="(spikes) A column of the table identifying the unit axis to order the rows by (depth, channel); null keeps unit index order")
+    value_mode = TextChoicesField(choices_enum=enums.SpikeValueModeChoices, default=enums.SpikeValueModeChoices.PRESENCE.value, help_text="(spikes) What a nonzero value means: one spike, or its amplitude")
+    rate_bin = QuantityField(base_unit="picosecond", null=True, blank=True, help_text="(spikes) Draw a firing-rate histogram at this bin width instead of a raster. Null draws the raster")
+    spike_color_bys = models.JSONField(default=list, blank=True, help_text="(spikes) The colour pickers over the unit table, each a column-backed colouring; which one is active is `active_color_by`")
+    spike_filter_bys = models.JSONField(default=list, blank=True, help_text="(spikes) The filter pickers over the unit table; which apply is `active_filter_bys`")
+
+    # -- events ---------------------------------------------------------------------------------
+    stop_column = models.CharField(max_length=255, null=True, blank=True, help_text="(events) A column whose values end each row's interval, in the TIME column's unit; null draws instants")
+    label_column = models.CharField(max_length=255, null=True, blank=True, help_text="(events) A column naming each row, drawn beside its mark")
+    lane_column = models.CharField(max_length=255, null=True, blank=True, help_text="(events) A categorical column giving each distinct value its own lane; null draws one lane")
+    event_color_bys = models.JSONField(default=list, blank=True, help_text="(events) The colour pickers over the table and what it references; which one is active is `active_color_by`")
+    event_filter_bys = models.JSONField(default=list, blank=True, help_text="(events) The filter pickers over the table and what it references; which apply is `active_filter_bys`")
+
+    # -- picker state (mikro's rule: one active index per layer, whatever its kind) -------------
+    active_color_by = models.PositiveSmallIntegerField(null=True, blank=True, help_text="The index of the colour picker in use; null colours by `color`")
+    active_filter_bys = models.JSONField(default=list, blank=True, help_text="The indices of the filter pickers in use")
+
+    provenance = ProvenanceField()
 
     class Meta:
-        abstract = True
         ordering = ["order", "id"]
-
-
-class ExperimentRecordingView(ExperimentViewBase):
-    """A recording, shown in an experiment."""
-
-    experiment = models.ForeignKey(Experiment, on_delete=models.CASCADE, related_name="recording_views")
-    recording = models.ForeignKey("Recording", on_delete=models.CASCADE, related_name="experiment_views")
-    lens = models.ForeignKey("core.Lens", on_delete=models.CASCADE, related_name="experiment_recording_views", help_text="The selection of the recording's dataset this view shows")
-
-    def __str__(self) -> str:
-        return f"View of recording {self.recording_id} in experiment {self.experiment_id}"
-
-
-class ExperimentStimulusView(ExperimentViewBase):
-    """A stimulus, shown in an experiment."""
-
-    experiment = models.ForeignKey(Experiment, on_delete=models.CASCADE, related_name="stimulus_views")
-    stimulus = models.ForeignKey("Stimulus", on_delete=models.CASCADE, related_name="experiment_views")
-    lens = models.ForeignKey("core.Lens", on_delete=models.CASCADE, related_name="experiment_stimulus_views", help_text="The selection of the stimulus' dataset this view shows")
+        constraints = [
+            # elektro: mikro enforces "exactly one source" in its mutations only.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(kind=enums.ExperimentLayerKindChoices.TRACE.value, lens__isnull=False, sparse_dataset__isnull=True, table_dataset__isnull=True, annotation_collection__isnull=True)
+                    | models.Q(kind=enums.ExperimentLayerKindChoices.SPIKES.value, lens__isnull=True, sparse_dataset__isnull=False, table_dataset__isnull=True, annotation_collection__isnull=True)
+                    | models.Q(kind=enums.ExperimentLayerKindChoices.EVENTS.value, lens__isnull=True, sparse_dataset__isnull=True, table_dataset__isnull=False, annotation_collection__isnull=True)
+                    | models.Q(kind=enums.ExperimentLayerKindChoices.ANNOTATION.value, lens__isnull=True, sparse_dataset__isnull=True, table_dataset__isnull=True, annotation_collection__isnull=False)
+                ),
+                name="experiment_layer_has_the_source_its_kind_names",
+            ),
+            # One layer per annotation collection per experiment, as there was one view: per-shape
+            # styling lives on the annotations themselves.
+            models.UniqueConstraint(fields=["experiment", "annotation_collection"], condition=models.Q(annotation_collection__isnull=False), name="one_layer_per_collection_per_experiment"),
+        ]
 
     def __str__(self) -> str:
-        return f"View of stimulus {self.stimulus_id} in experiment {self.experiment_id}"
-
-
-class ExperimentAnnotationView(ExperimentViewBase):
-    """An annotation collection, shown in an experiment. mikro's annotation layer.
-
-    One view per collection: per-shape styling lives on the annotations themselves. Its
-    data lives in the collection's own drawing space, and where that sits on the timeline is
-    an edge like any other -- the identity a drawn-on-the-experiment collection is minted
-    with, or whatever relates a collection drawn over a dataset to the dataset.
-    """
-
-    experiment = models.ForeignKey(Experiment, on_delete=models.CASCADE, related_name="annotation_views")
-    collection = models.ForeignKey("core.AnnotationCollection", on_delete=models.CASCADE, related_name="experiment_views", help_text="The annotation collection whose shapes this view shows")
-
-    class Meta(ExperimentViewBase.Meta):
-        constraints = [models.UniqueConstraint(fields=["experiment", "collection"], name="one_view_per_collection_per_experiment")]
-
-    def __str__(self) -> str:
-        return f"View of annotation collection {self.collection_id} in experiment {self.experiment_id}"
-
-
-class Block(models.Model):
-    """A recording session: the top-level container of Neo's data model.
-
-    A block groups the segments of one session and owns the session's **clock** -- a space
-    with one TIME axis whose ``epoch`` is the wall-clock instant the recording started. That
-    is where ``recording_time`` went: it is a property of the clock, so that everything laid
-    out on it agrees about when it started (see :mod:`core.logic.clocks`).
-    """
-
-    # Filing, not containment: deleting the folder unfiles the session, it does not delete it.
-    folder = models.ForeignKey(
-        "Folder",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="blocks",
-        help_text="The folder this session is filed in. Organisational only",
-    )
-    origin = models.ForeignKey(
-        "File",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="blocks",
-        help_text="The file this block was read from, if any",
-    )
-    name = models.CharField(max_length=1000, help_text="The name of the recording session")
-    description = models.CharField(max_length=1000, null=True, blank=True)
-    creator = models.ForeignKey(
-        get_user_model(),
-        on_delete=models.CASCADE,
-        help_text="The user that created the recording session",
-        null=True,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    pinned_by = models.ManyToManyField(
-        get_user_model(),
-        related_name="pinned_blocks",
-        blank=True,
-        help_text="The users that have pinned the recording session",
-    )
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="blocks")
-    clock = models.ForeignKey(
-        "core.CoordinateSystem",
-        # A block is laid out on its clock without living in it: the clock outlives nothing
-        # it times, and cannot be deleted from under it.
-        on_delete=models.RESTRICT,
-        # Nullable only for the `historical*` twin. Every write path sets it.
-        null=True,
-        blank=True,
-        related_name="blocks",
-        help_text="The session clock: one TIME axis, whose epoch is the wall-clock instant the recording started",
-    )
-    provenance = ProvenanceField()
-
-    @property
-    def recording_time(self):
-        """The wall-clock instant the session started: its clock's epoch."""
-        return self.clock.epoch if self.clock_id else None
-
-    def __str__(self) -> str:
-        return f"Block {self.pk}: {self.name}"
-
-
-class BlockSegment(models.Model):
-    """One contiguous stretch of a session -- a trial, a sweep, a protocol step. Neo's Segment.
-
-    Every signal of a segment is timed against the segment's ``clock``. That clock is either
-    the session's own (the signals' start times are already session-relative, so there is
-    nothing to relate) or the segment's own -- related to the session's by one offset edge
-    when the segment's start is known, and honestly unrelated when it is not.
-    """
-
-    block = models.ForeignKey(Block, on_delete=models.CASCADE, related_name="segments")
-    index = models.PositiveIntegerField(default=0, help_text="The position of the segment within its block")
-    name = models.CharField(max_length=1000, null=True, blank=True, help_text="The name of the segment")
-    description = models.CharField(max_length=1000, null=True, blank=True)
-    clock = models.ForeignKey(
-        "core.CoordinateSystem",
-        on_delete=models.RESTRICT,
-        null=True,
-        blank=True,
-        related_name="block_segments",
-        help_text="The clock this segment's signals are timed against: the session's, or one of its own",
-    )
-    provenance = ProvenanceField()
-
-    class Meta:
-        ordering = ["index", "id"]
-
-    def __str__(self) -> str:
-        return f"Segment {self.index} of block {self.block_id}"
-
-
-class SignalBase(models.Model):
-    """What every signal is: a named dataset recorded in a segment.
-
-    A signal is a *spoke on a dataset*, not data in its own right: the samples are the dataset's,
-    the dataset lives in its sample grid, and how those samples are timed is an edge from that
-    grid onto the segment's clock. Nothing here says when anything happened.
-    """
-
-    name = models.CharField(max_length=1000, help_text="The name of the signal", default="")
-    description = models.CharField(max_length=1000, null=True, blank=True)
-
-    # `provenance` is declared on each concrete signal, not here: history on an abstract
-    # model is not inherited, so the three signals would silently keep no audit trail.
-
-    class Meta:
-        abstract = True
-
-    def __str__(self) -> str:
-        return f"{type(self).__name__} {self.pk}: {self.name}"
-
-
-class AnalogSignal(SignalBase):
-    """A regularly sampled signal: Neo's AnalogSignal, one ``(t, c)`` dataset for all its channels.
-
-    Its sampling rate and start time are not columns. They are the sampling law: one edge
-    from the dataset's sample grid onto the segment's clock, read back as ``samplingRate`` and
-    ``tStart``. The unit of its values is the dataset's ``value_unit``.
-    """
-
-    segment = models.ForeignKey(BlockSegment, on_delete=models.CASCADE, related_name="analog_signals")
-    dataset = models.ForeignKey("ArrayDataset", on_delete=models.CASCADE, related_name="analog_signals", help_text="The samples: one array dataset, with a CHANNEL axis when the signal has more than one channel")
-    color = models.CharField(max_length=7, help_text="The color of the signal in HEX", default="#000000")
-    pinned_by = models.ManyToManyField(get_user_model(), related_name="pinned_analog_signals", blank=True, help_text="The users that pinned this signal")
-    provenance = ProvenanceField()
-
-
-class IrregularlySampledSignal(SignalBase):
-    """A signal sampled at arbitrary instants: Neo's IrregularlySampledSignal.
-
-    It has no sampling law. Its samples are timed by a *lookup* -- a FIELD edge from its sample
-    grid onto the segment's clock, whose field is the system of a separate times dataset. That
-    times dataset is not a column here: it is read back off the edge (``timeDataset``).
-    """
-
-    segment = models.ForeignKey(BlockSegment, on_delete=models.CASCADE, related_name="irregularly_sampled_signals")
-    dataset = models.ForeignKey("ArrayDataset", on_delete=models.CASCADE, related_name="irregularly_sampled_signals", help_text="The samples")
-    pinned_by = models.ManyToManyField(get_user_model(), related_name="pinned_irregularly_sampled_signals", blank=True, help_text="The users that pinned this signal")
-    provenance = ProvenanceField()
-
-
-class SpikeTrain(SignalBase):
-    """The spike times of one unit: Neo's SpikeTrain.
-
-    The dataset's *values are the times* -- one per spike, along an INDEX axis, because spike
-    number has no metric. It is timed by a lookup whose field is the dataset's own grid.
-
-    ``t_start`` and ``t_stop`` stay columns, and are the one exception to "derive everything":
-    they are the **observation window**, which the spike times cannot reproduce. A train with
-    no spikes over ten seconds is a different measurement from one with no spikes over a hundred.
-    """
-
-    segment = models.ForeignKey(BlockSegment, on_delete=models.CASCADE, related_name="spike_trains")
-    dataset = models.ForeignKey("ArrayDataset", on_delete=models.CASCADE, related_name="spike_trains", help_text="The spike times: one value per spike")
-    waveforms = models.ForeignKey(
-        "ArrayDataset",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="spike_train_waveforms",
-        help_text="The spike waveforms, as a (spike, c, t) array dataset",
-    )
-    t_start = QuantityField(base_unit="picosecond", help_text="The start of the window the unit was observed over, on the segment's clock, stored in picoseconds")
-    t_stop = QuantityField(base_unit="picosecond", help_text="The end of the window the unit was observed over, on the segment's clock, stored in picoseconds")
-    pinned_by = models.ManyToManyField(get_user_model(), related_name="pinned_spike_trains", blank=True, help_text="The users that pinned this spike train")
-    provenance = ProvenanceField()
-
-
-class BlockGroup(models.Model):
-    """A named grouping across a block's segments -- a tetrode, a brain area, a sorted unit. Neo's Group.
-
-    Also where a *non-contiguous* channel selection lives: a lens slices ``start:stop:step``
-    and cannot pick channels 0, 3 and 7, but a group can name them.
-    """
-
-    block = models.ForeignKey(Block, on_delete=models.CASCADE, related_name="groups")
-    parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="children")
-    name = models.CharField(max_length=1000, help_text="The name of the group")
-    description = models.CharField(max_length=1000, null=True, blank=True)
-    analog_signals = models.ManyToManyField(AnalogSignal, related_name="groups", blank=True)
-    irregularly_sampled_signals = models.ManyToManyField(IrregularlySampledSignal, related_name="groups", blank=True)
-    spike_trains = models.ManyToManyField(SpikeTrain, related_name="groups", blank=True)
-
-    def __str__(self) -> str:
-        return f"Group {self.pk}: {self.name}"
+        return f"{self.kind} layer {self.pk} in experiment {self.experiment_id}"
 
 
 class Simulation(models.Model):
@@ -569,58 +413,6 @@ class Simulation(models.Model):
         return f"Simulation {self.pk}: {self.name}"
 
 
-class SiteBase(models.Model):
-    """Where on the model a stimulus was injected or a recording was taken, and the dataset it produced.
-
-    The site is NEURON's addressing: a cell, a section of it (``location``) and a normalized
-    position along that section, 0 to 1. It is not a position in any coordinate system yet --
-    no spatial model lives in the graph -- so these stay descriptive fields.
-    """
-
-    cell = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the cell, as the model config names it")
-    location = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the section, as the model config names it")
-    position = models.FloatField(null=True, blank=True, help_text="The normalized position along the section, 0 to 1 (NEURON's section(x))")
-    label = models.CharField(max_length=1000, null=True, blank=True, help_text="A display label. Defaults to 'cell: location(position)'")
-
-    class Meta:
-        abstract = True
-
-    @property
-    def display_label(self) -> str:
-        """The stated label, or the site spelled out."""
-        return self.label or f"{self.cell}: {self.location}({self.position})"
-
-
-class Stimulus(SiteBase):
-    """What was injected into the model at one site, as a dataset over the run's samples."""
-
-    dataset = models.ForeignKey("ArrayDataset", on_delete=models.CASCADE, related_name="stimuli")
-    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="stimuli")
-    kind = TextChoicesField(
-        choices_enum=enums.StimulusKindChoices,
-        default=enums.StimulusKindChoices.CURRENT.value,
-        help_text="What was clamped: current or voltage",
-    )
-
-    def __str__(self) -> str:
-        return f"Stimulus {self.pk}: {self.display_label}"
-
-
-class Recording(SiteBase):
-    """What was recorded from the model at one site, as a dataset over the run's samples."""
-
-    dataset = models.ForeignKey("ArrayDataset", on_delete=models.CASCADE, related_name="recordings")
-    simulation = models.ForeignKey(Simulation, on_delete=models.CASCADE, related_name="recordings")
-    kind = TextChoicesField(
-        choices_enum=enums.RecordingKindChoices,
-        default=enums.RecordingKindChoices.VOLTAGE.value,
-        help_text="What was recorded: a voltage, a current, or one named ionic current",
-    )
-
-    def __str__(self) -> str:
-        return f"Recording {self.pk}: {self.display_label}"
-
-
 from core.models.coords import CoordinateSystem, Axis, Transformation  # noqa: E402,F401  (re-exported via core.models)
 from core.models.folder import Folder, FolderManager, File, FileLink  # noqa: E402,F401
 from core.models.array_dataset import (  # noqa: E402,F401
@@ -632,8 +424,12 @@ from core.models.array_dataset import (  # noqa: E402,F401
     ValueHistogram,
     ChannelLabel,
     ValueUnit,
+    RecordingSite,
+    StimulusSite,
     Lens,
 )
 from core.models.annotation import AnnotationCollection, Annotation  # noqa: E402,F401
+from core.models.table_dataset import TableDataset, Column  # noqa: E402,F401
+from core.models.sparse_dataset import SparseDataset, SparseArray, SparseAxisReference  # noqa: E402,F401
 
 from core import signals

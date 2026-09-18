@@ -30,7 +30,7 @@ from pytest import approx
 from core import models
 from core.logic import graph as graph_logic
 from tests import seed
-from tests.coords._helpers import add_view, create_experiment
+from tests.coords._helpers import add_layer, create_experiment
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -38,7 +38,7 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 AT_AFFINE = """
 query AtAffine($id: ID!, $at: [CoordinateInput!]) {
   experiment(id: $id) {
-    recordingViews {
+    layers {
       id
       asAffine(at: $at) { matrix inputAxes outputAxes total }
       pathToWorld(at: $at) { transformation { id selector { axis index } } }
@@ -56,7 +56,7 @@ mutation Create($input: CreateTransformationInput!) {
 STATE = """
 query State($id: ID!, $at: [CoordinateInput!]) {
   experiment(id: $id) {
-    recordingViews { id placement(at: $at) placementValidity(at: $at) placementInvariance(at: $at) }
+    layers { id placement(at: $at) placementValidity(at: $at) placementInvariance(at: $at) }
   }
 }
 """
@@ -93,7 +93,7 @@ async def _errors(aexecute, input_id: int, output_id: int, transform: dict, sele
 async def _view_at(aexecute, experiment: models.Experiment, at: list | None, query: str = AT_AFFINE) -> dict:  # noqa: ANN001
     result = await aexecute(query, {"id": str(experiment.pk), "at": at})
     assert not result.errors, result.errors
-    (view,) = result.data["experiment"]["recordingViews"]
+    (view,) = result.data["experiment"]["layers"]
     return view
 
 
@@ -106,7 +106,7 @@ async def _chromatic_experiment(ctx) -> tuple[models.Experiment, models.ArrayDat
     """A (c,y,x) dataset on one view, with no unscoped route into its experiment's world."""
     experiment = await create_experiment(ctx, "Chromatic")
     dataset = await seed.create_array_dataset(ctx, "Stack", shapes=[[3, 64, 64]])
-    await add_view(ctx, experiment, await seed.create_lens(ctx, dataset))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, dataset))
     return experiment, dataset
 
 
@@ -294,7 +294,7 @@ async def test_a_layer_can_be_created_over_a_scoped_only_registration(aexecute, 
     assert await sync_to_async(graph_logic.is_placeable_in)(world, grid, require_affine=True)
 
     # And it reads as the placement it is, resolving when the channel is fixed.
-    await add_view(ctx, experiment, lens)
+    await add_layer(ctx, experiment, lens)
     assert (await _view_at(aexecute, experiment, None, STATE))["placement"] == "CONDITIONAL"
     assert (await _view_at(aexecute, experiment, [{"name": "c", "value": 2}], STATE))["placement"] == "PLACED"
 

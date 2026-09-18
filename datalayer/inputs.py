@@ -135,3 +135,48 @@ class RequestParquetAccessInput:
     """
 
     pass
+
+
+@pydantic.input(model=base_models.RequestSparseUploadInput, all_fields=True)
+class RequestSparseUploadInput:
+    """
+    Docstring for RequestSparseUploadInput
+    """
+
+    pass
+
+
+@pydantic.input(model=base_models.FinishSparseUploadInput, all_fields=True)
+class FinishSparseUploadInput:
+    """
+    Docstring for FinishSparseUploadInput
+    """
+
+    pass
+
+
+@pydantic.input(model=base_models.RefreshSparseUploadInput, all_fields=True)
+class RefreshSparseUploadInput:
+    """
+    Docstring for RefreshSparseUploadInput
+    """
+
+    pass
+
+
+@pydantic.input(model=base_models.RequestSparseAccessInput, all_fields=True)
+class RequestSparseAccessInput:
+    """
+    Docstring for RequestSparseAccessInput
+    """
+
+    pass
+
+
+@pydantic.input(model=base_models.RequestGeneralSparseAccessInput, all_fields=True)
+class RequestGeneralSparseAccessInput:
+    """
+    Docstring for RequestGeneralSparseAccessInput
+    """
+
+    pass

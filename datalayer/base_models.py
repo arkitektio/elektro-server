@@ -42,6 +42,12 @@ class RequestGeneralParquetAccessInput(BaseModel):
     expires_in: Optional[int] = None
 
 
+class RequestGeneralSparseAccessInput(BaseModel):
+    """Request temporary S3 access credentials for sparse stores in the organization."""
+
+    expires_in: Optional[int] = None
+
+
 class RequestBigFileUploadInput(BaseModel):
     """Request temporary S3 upload credentials for a big file."""
 
@@ -86,6 +92,116 @@ class RequestZarrAccessInput(BaseModel):
     """Request temporary S3 access credentials for a media object."""
 
     store_id: str
+
+
+class RequestSparseUploadInput(BaseModel):
+    """Request temporary S3 upload credentials for a sparse store.
+
+    Carries nothing about the matrix, for the reason its fabriks sibling carries nothing about
+    the meshes: a sparse store is *self-describing*. The writer states the encoding, the shape
+    and the chunking in the group it uploads, and the server reads them back when the upload is
+    finished. Declaring them here would be a second statement of the same facts, free to
+    disagree with the bytes.
+
+    Note this is the one place it differs from `RequestZarrUploadInput`, which does take
+    `shape` and `chunks`: that grant describes a single array whose metadata a caller may
+    legitimately know in advance, where this one describes a group of three whose relationship
+    is the whole content.
+    """
+
+    host: Optional[str] = None
+    port: Optional[int] = None
+
+
+class FinishSparseUploadInput(BaseModel):
+    """Mark a SparseStore as populated after a successful upload."""
+
+    store_id: str
+    valid: bool = True
+
+
+class RefreshSparseUploadInput(BaseModel):
+    """Reissue upload credentials for a sparse store whose upload is still in flight.
+
+    Present for the same reason `RefreshZarrUploadInput` is: a prefix is written incrementally,
+    and a session token can expire in the middle of a matrix that takes minutes to upload.
+    """
+
+    store_id: str
+
+
+class RequestSparseAccessInput(BaseModel):
+    """Request temporary S3 access credentials for a sparse store."""
+
+    store_id: str
+
+
+class SparseLayoutMetadata(BaseModel):
+    """One stored layout of a sparse matrix, as its own group declares it.
+
+    ``encoding`` is the whole of what the two layouts differ in -- ``csr_matrix`` means
+    ``indptr`` indexes axis 0, ``csc_matrix`` axis 1 -- and therefore which question this layout
+    answers in one contiguous read. It is never taken from a caller.
+    """
+
+    path: str
+    encoding: str
+    encoding_version: Optional[str] = None
+    indexed_axis: int
+    #: The axes this layout did *not* compress, in the order ``indices`` was raveled over them.
+    #: At rank two it has one member and says nothing; above it, it is the one fact in the format
+    #: that cannot be recovered from the bytes -- a wrong one does not fail, it puts every value
+    #: in a different cell -- which is why the writer states it and the reader checks it.
+    index_order: list[int]
+    nnz: int
+    dtype: str
+    chunks: JsonValue = None
+    #: Whether a slice of this layout can be fetched as an exact byte range rather than as whole
+    #: chunks. **Derived, never declared** -- true exactly when each array is one uncompressed
+    #: chunk, so the stored object is the raw buffer and `indptr` names byte offsets into it.
+    #:
+    #: False is the ordinary case and not a defect: the default trades bytes for reuse, because on
+    #: an object store the cost is requests, and a chunk is a cache unit that the next lookup along
+    #: an adjacent slice hits again.
+    range_readable: bool = False
+
+
+class SparseMetadata(BaseModel):
+    """What a sparse store states about itself, as discovered from its own zarr metadata.
+
+    The sparse analogue of :class:`ZarrMetadata` and :class:`FabriksMetadata`, and read for the
+    same reason: a fact derived from the artifact cannot be declared wrong.
+
+    Unlike those two it is *nested*, because one matrix is one upload and may hold a layout per
+    axis. ``shape`` is the store's, at whatever rank it has, and every layout is checked against
+    it; everything that differs between layouts lives in :class:`SparseLayoutMetadata`.
+
+    **Two axes is one case, not the definition.** A layout is one axis made contiguous, so an
+    array of rank *n* has up to *n* of them -- a (object, feature, timepoint) matrix can answer
+    "this object", "this feature" and "this timepoint" in one contiguous read each.
+
+    ``spec`` comes from the root block, which the writer lands **last**. That ordering is the
+    only reason an interrupted upload is detectable at all: zarr writes an array's metadata
+    ahead of its chunks and substitutes the fill value for a chunk it cannot fetch, so a torn
+    prefix otherwise reads back as the right number of zeros and raises nothing.
+    """
+
+    spec: str
+    shape: list[int]
+    layouts: list[SparseLayoutMetadata]
+
+
+class ParquetColumn(BaseModel):
+    """One column, as the file itself declares it.
+
+    The three fields are the first three of a DuckDB ``DESCRIBE`` row. ``type`` is therefore a
+    DuckDB type name (``BIGINT``, ``DOUBLE``, ``VARCHAR``) -- the same vocabulary a caller used
+    to have to guess at, now read rather than declared.
+    """
+
+    name: str
+    type: str
+    nullable: bool
 
 
 class ZarrMetadata(BaseModel):
@@ -193,6 +309,10 @@ class GeneralParquetAccessGrant(GeneralAccessGrant):
     """Temporary S3 credentials for an existing media object, without a store reference."""
 
 
+class GeneralSparseAccessGrant(GeneralAccessGrant):
+    """Temporary S3 credentials for existing sparse stores, without a store reference."""
+
+
 class BigFileAccessGrant(AccessGrant):
     """Temporary S3 credentials for an existing big file."""
 
@@ -207,6 +327,15 @@ class ZarrAccessGrant(AccessGrant):
 
 class ParquetAccessGrant(AccessGrant):
     """Temporary S3 credentials for an existing parquet store."""
+
+
+class SparseAccessGrant(AccessGrant):
+    """Temporary S3 credentials for an existing sparse store.
+
+    Covers the whole prefix, so one grant reads the group's attributes and all three of its
+    arrays -- which is the minimum that answers anything, since a lookup needs `indptr` before
+    it knows which range of `data` to fetch.
+    """
 
 
 class BaseUploadGrant(AccessGrant):
@@ -234,3 +363,11 @@ class ZarrUploadGrant(BaseUploadGrant):
 
 class ParquetUploadGrant(BaseUploadGrant):
     """Temporary S3 credentials for a parquet upload."""
+
+
+class SparseUploadGrant(BaseUploadGrant):
+    """Temporary S3 credentials for a sparse upload.
+
+    Scoped to the prefix and permitted to read back and delete inside it, because the three
+    arrays are written incrementally.
+    """

@@ -22,15 +22,19 @@ from .folder import (
     release_array_datasets_from_folder,
     put_annotation_collections_in_folder,
     release_annotation_collections_from_folder,
-    put_blocks_in_folder,
-    release_blocks_from_folder,
+    put_table_datasets_in_folder,
+    release_table_datasets_from_folder,
+    put_sparse_datasets_in_folder,
+    release_sparse_datasets_from_folder,
 )
 from .file import (
     from_file_like,
     delete_file,
 )
 from .file_link import link_file, unlink_file
-from .block import create_block
+from .sparse_dataset import create_sparse_dataset, update_sparse_dataset, delete_sparse_dataset
+from .table_dataset import create_table_dataset, update_table_dataset, delete_table_dataset
+from .clock import create_sampling_law, create_clock_offset
 from .coordinate_system import (
     create_coordinate_system,
     update_coordinate_system,
@@ -48,7 +52,18 @@ from .lens import create_lens, delete_lens
 from .annotation import create_annotation, create_annotations, update_annotation, delete_annotation
 from .annotation_collection import create_annotation_collection, delete_annotation_collection
 from .simulation import *
-from .experiment import *
+from .experiment import create_experiment, create_experiment_from_coordinate_system, update_experiment
+from .experiment_layer import (
+    create_layer,
+    update_layer,
+    create_trace_layer,
+    update_trace_layer,
+    create_spikes_layer,
+    update_spikes_layer,
+    create_events_layer,
+    update_events_layer,
+    create_annotation_layer,
+)
 from .model_collection import *
 from .model_workspace import (
     create_model_workspace,
@@ -60,7 +75,6 @@ from .workspace_mapping import (
     remove_models_from_workspace,
     update_workspace_mapping,
 )
-from .block import delete_block
 from .environment import create_mod_environment, delete_mechanism
 from .delete import (
     delete_model_collection,
@@ -69,14 +83,5 @@ from .delete import (
     delete_mod_environment,
     delete_neuron_model,
     delete_experiment,
-    delete_experiment_recording_view,
-    delete_experiment_stimulus_view,
-    delete_experiment_annotation_view,
-    delete_block_group,
-    delete_block_segment,
-    delete_analog_signal,
-    delete_irregularly_sampled_signal,
-    delete_spike_train,
-    delete_stimulus,
-    delete_recording,
+    delete_layer,
 )

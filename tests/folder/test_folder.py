@@ -9,7 +9,8 @@ thing, never where the data sits -- and deleting a folder *unfiles* what was in 
 import pytest
 from asgiref.sync import sync_to_async
 
-from core.models import ArrayDataset, Block, File, Folder
+from core.models import ArrayDataset, File, Folder, SparseDataset, TableDataset
+from tests import seed
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -25,7 +26,8 @@ PUT_FILES = "mutation ($input: AssociateInput!) { putFilesInFolder(input: $input
 RELEASE_FILES = "mutation ($input: DesociateInput!) { releaseFilesFromFolder(input: $input) { id } }"
 PUT_DATASETS = "mutation ($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }"
 RELEASE_DATASETS = "mutation ($input: DesociateInput!) { releaseArrayDatasetsFromFolder(input: $input) { id } }"
-PUT_BLOCKS = "mutation ($input: AssociateInput!) { putBlocksInFolder(input: $input) { id } }"
+PUT_TABLES = "mutation ($input: AssociateInput!) { putTableDatasetsInFolder(input: $input) { id } }"
+PUT_SPARSE = "mutation ($input: AssociateInput!) { putSparseDatasetsInFolder(input: $input) { id } }"
 
 CHILDREN = """
 query ($parent: ID!, $filters: FolderChildrenFilter, $order: ChildrenOrder) {
@@ -34,8 +36,9 @@ query ($parent: ID!, $filters: FolderChildrenFilter, $order: ChildrenOrder) {
     ... on Folder { name }
     ... on File { name }
     ... on ArrayDataset { name }
+    ... on TableDataset { name }
+    ... on SparseDataset { name }
     ... on AnnotationCollection { name }
-    ... on Block { name }
   }
 }
 """
@@ -150,14 +153,18 @@ async def test_a_derived_dataset_follows_its_parent_and_cannot_be_filed_alone(ae
     assert named.errors and "cannot be filed on its own" in str(named.errors[0]), "refused rather than silently ignored"
 
 
-async def test_a_block_is_filed_like_a_file(aexecute, authenticated_context):
-    folder = await _make_folder(authenticated_context, "Sessions")
-    block = await aexecute("mutation ($input: CreateBlockInput!) { createBlock(input: $input) { id folder { name } } }", {"input": {"name": "B"}})
-    assert block.data["createBlock"]["folder"]["name"] == "Default"
+async def test_tables_and_rasters_are_filed_like_datasets(aexecute, authenticated_context):
+    """A table (events, units) and a sparse dataset (a spike raster) are filed exactly as an array dataset is."""
+    folder = await _make_folder(authenticated_context, "Sorting")
+    table = await seed.create_table_dataset(authenticated_context, "units")
+    raster = await seed.create_sparse_dataset(authenticated_context, "spikes")
 
-    res = await aexecute(PUT_BLOCKS, {"input": {"selfs": [block.data["createBlock"]["id"]], "other": str(folder.id)}})
+    res = await aexecute(PUT_TABLES, {"input": {"selfs": [str(table.pk)], "other": str(folder.id)}})
     assert not res.errors, res.errors
-    assert (await Block.objects.aget(name="B")).folder_id == folder.id
+    res = await aexecute(PUT_SPARSE, {"input": {"selfs": [str(raster.pk)], "other": str(folder.id)}})
+    assert not res.errors, res.errors
+    assert (await TableDataset.objects.aget(pk=table.pk)).folder_id == folder.id
+    assert (await SparseDataset.objects.aget(pk=raster.pk)).folder_id == folder.id
 
 
 async def test_children_lists_everything_filed_in_a_folder(aexecute, authenticated_context, make_dataset, bigfile_store):
@@ -165,11 +172,18 @@ async def test_children_lists_everything_filed_in_a_folder(aexecute, authenticat
     await _make_folder(authenticated_context, "sub", parent=folder)
     await _make_file(authenticated_context, await bigfile_store(), folder=folder)
     await make_dataset(name="recording", folder=folder)
-    await aexecute("mutation ($input: CreateBlockInput!) { createBlock(input: $input) { id } }", {"input": {"name": "session", "folder": str(folder.id)}})
+    await seed.create_table_dataset(authenticated_context, "events", folder=folder)
+    await seed.create_sparse_dataset(authenticated_context, "spikes", folder=folder)
 
     res = await aexecute(CHILDREN, {"parent": str(folder.id)})
     assert not res.errors, res.errors
-    assert [(child["__typename"], child["name"]) for child in res.data["children"]] == [("Folder", "sub"), ("File", "f"), ("ArrayDataset", "recording"), ("Block", "session")]
+    assert [(child["__typename"], child["name"]) for child in res.data["children"]] == [
+        ("Folder", "sub"),
+        ("File", "f"),
+        ("ArrayDataset", "recording"),
+        ("TableDataset", "events"),
+        ("SparseDataset", "spikes"),
+    ]
 
     searched = await aexecute(CHILDREN, {"parent": str(folder.id), "filters": {"search": "recording"}})
     assert [child["name"] for child in searched.data["children"]] == ["recording"]

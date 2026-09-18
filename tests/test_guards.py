@@ -73,31 +73,33 @@ def test_bot_creator_denied(authenticated_context):
     assert guards.can_delete(info, ds) is False
 
 
-def test_anchor_defers_recording_to_simulation(authenticated_context):
+def test_anchor_defers_a_layer_to_its_experiment(authenticated_context):
     ctx = authenticated_context
-    env = models.ModEnvironment.objects.create(
-        name="env", organization=ctx.request.organization
-    )
-    nm = models.NeuronModel.objects.create(
-        name="nm", hash="h1", json_model={}, creator=ctx.request.user, environment=env
-    )
-    tt = models.ArrayDataset.objects.create(
-        name="t", creator=ctx.request.user, organization=ctx.request.organization
-    )
-    sim = models.Simulation.objects.create(model=nm, name="sim", duration=400.0, creator=ctx.request.user)
-    rec = models.Recording.objects.create(simulation=sim, dataset=tt, kind="VOLTAGE", cell="soma", location="0", position=0.5)
+    world = models.CoordinateSystem.objects.create(name="world", creator=ctx.request.user, organization=ctx.request.organization)
+    experiment = models.Experiment.objects.create(name="e", world=world, creator=ctx.request.user, organization=ctx.request.organization)
+    dataset = models.ArrayDataset.objects.create(name="t", creator=ctx.request.user, organization=ctx.request.organization)
+    lens = models.Lens.objects.create(dataset=dataset)
+    layer = models.ExperimentLayer.objects.create(experiment=experiment, kind="trace", lens=lens)
 
-    # The recording's governing anchor is its simulation.
-    assert guards.resolve_anchor(rec) == sim
+    # The layer's governing anchor is its experiment.
+    assert guards.resolve_anchor(layer) == experiment
 
-    # The simulation's creator may delete the recording...
+    # The experiment's creator may delete the layer...
     info = _info(ctx.request.user, ctx.request.organization, roles=[])
-    assert guards.can_delete(info, rec) is True
+    assert guards.can_delete(info, layer) is True
 
     # ...an unrelated user may not.
     stranger = User.objects.create(username="stranger", sub="44", iss="static_issuer")
     info_other = _info(stranger, ctx.request.organization, roles=[])
-    assert guards.can_delete(info_other, rec) is False
+    assert guards.can_delete(info_other, layer) is False
+
+
+def test_anchor_defers_a_site_spoke_to_its_dataset(authenticated_context):
+    ctx = authenticated_context
+    dataset = models.ArrayDataset.objects.create(name="soma.v", creator=ctx.request.user, organization=ctx.request.organization)
+    anchor = models.CoordinateAnchor.objects.create(dataset=dataset, coordinates={})
+    site = models.RecordingSite.objects.create(anchor=anchor, kind="VOLTAGE", cell="soma", location="0", position=0.5)
+    assert guards.resolve_anchor(site) == dataset
 
 
 # --- schema-level: generated delete mutations --------------------------------
@@ -107,8 +109,8 @@ DELETE_DATASET = """
 mutation ($input: DeleteFolderInput!) { deleteFolder(input: $input) }
 """
 
-DELETE_RECORDING = """
-mutation ($input: DeleteInput!) { deleteRecording(input: $input) }
+DELETE_LAYER = """
+mutation ($input: DeleteInput!) { deleteLayer(input: $input) }
 """
 
 
@@ -121,9 +123,15 @@ async def test_delete_denied_for_other_org(aexecute, authenticated_context, othe
 
 
 @pytest.mark.asyncio
-async def test_delete_recording_defers_to_simulation(aexecute, make_simulation_chain):
-    chain = await make_simulation_chain()
-    res = await aexecute(DELETE_RECORDING, {"input": {"id": str(chain.recording.id)}})
+async def test_delete_layer_defers_to_its_experiment(aexecute, authenticated_context):
+    from tests import seed
+    from tests.coords._helpers import add_layer, create_experiment
+
+    dataset = await seed.create_array_dataset(authenticated_context, "recording", seed.T_AXES, [[100]])
+    experiment = await create_experiment(authenticated_context, axes=seed.CLOCK_AXES)
+    layer = await add_layer(authenticated_context, experiment, await seed.create_lens(authenticated_context, dataset))
+    res = await aexecute(DELETE_LAYER, {"input": {"id": str(layer.pk)}})
     assert not res.errors, res.errors
-    assert res.data["deleteRecording"] == str(chain.recording.id)
-    assert not await models.Recording.objects.filter(id=chain.recording.id).aexists()
+    assert res.data["deleteLayer"] == str(layer.pk)
+    assert not await models.ExperimentLayer.objects.filter(pk=layer.pk).aexists()
+    assert await models.ArrayDataset.objects.filter(pk=dataset.pk).aexists(), "a layer draws data; removing it removes nothing it drew"

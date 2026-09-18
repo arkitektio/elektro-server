@@ -301,11 +301,14 @@ async def test_the_anchors_of_a_recording_in_view_of_a_window_of_its_clock(aexec
     await _pin(dataset, {}, {"c": 2}, {"t": 900}, {"t": 5, "c": 0})
     await seed.register_into_world(ctx, clock, dataset)
 
+    def pinned(hit: dict) -> list[dict]:
+        return sorted((anchor["coordinates"] for anchor in hit["anchors"]), key=lambda entry: sorted(entry.items()))
+
     (early,) = await _anchors_in_view(aexecute, clock.pk, [0.0], [10.0])
-    assert sorted(str(anchor["coordinates"]) for anchor in early["anchors"]) == ["{'c': 2}", "{'t': 5, 'c': 0}", "{}"], "the marker at t=900 is outside the first ten seconds"
+    assert pinned(early) == [{}, {"c": 0, "t": 5}, {"c": 2}], "the marker at t=900 is outside the first ten seconds"
 
     (late,) = await _anchors_in_view(aexecute, clock.pk, [899.5], [900.5])
-    assert sorted(str(anchor["coordinates"]) for anchor in late["anchors"]) == ["{'c': 2}", "{'t': 900}", "{}"]
+    assert pinned(late) == [{}, {"c": 2}, {"t": 900}]
 
     assert await _anchors_in_view(aexecute, clock.pk, [5000.0], [6000.0]) == [], "and when the recording is out of view there is no source to hang an anchor on"
 
@@ -359,35 +362,66 @@ async def test_the_query_count_does_not_grow_with_the_sources(aexecute, authenti
     assert counts[0] == counts[1], f"the cost grew with the sources: {counts[0]} then {counts[1]}"
 
 
+async def _anchored_worlds(ctx) -> tuple[str, str]:  # noqa: ANN001
+    """Two worlds, of two and of six registered sources, every source carrying one labelled anchor."""
+
+    async def build(name: str, count: int) -> str:
+        world = await seed.create_world(ctx, name, seed.ZYX_WORLD_AXES)
+        for index in range(count):
+            dataset = await seed.create_dataset(ctx, f"{name}-{index}", SPATIAL_AXES, [8, 64, 64])
+            anchor = await models.CoordinateAnchor.objects.acreate(dataset=dataset, coordinates={"z": 0})
+            await models.ChannelLabel.objects.acreate(anchor=anchor, label=f"{name}-{index}")
+            await seed.register_into_world(ctx, world, dataset)
+        return str(world.pk)
+
+    return await build("Small", 2), await build("Large", 6)
+
+
+async def _anchor_costs(aexecute, query: str, small: str, large: str) -> tuple[list[int], list[dict]]:  # noqa: ANN001
+    variables = lambda world_id: {"id": world_id, "region": {"min": [-100.0] * 3, "max": [100.0] * 3}}  # noqa: E731
+    await aexecute(query, variables(small))  # warmed, as above
+
+    counts = []
+    for world_id in (small, large):
+        with QueryCounter() as counter:
+            result = await aexecute(query, variables(world_id))
+        assert not result.errors, result.errors
+        counts.append(len(counter.queries))
+    return counts, result.data["coordinateSystem"]["inView"]
+
+
 async def test_the_query_count_does_not_grow_with_the_anchored_sources(aexecute, authenticated_context):
     """mikro's version of the test above: every source carries anchors.
 
     The anchor resolution returns early when a dataset has none, so the test above measures it
     bailing. Here it is measured doing its actual work.
     """
-    ctx = authenticated_context
+    small, large = await _anchored_worlds(authenticated_context)
+    query = "query ($id: ID!, $region: BoundingBoxInput!) { coordinateSystem(id: $id) { inView(region: $region) { anchors { id coordinates } } } }"
 
-    async def build(name: str, count: int) -> str:
-        world = await seed.create_world(ctx, name, seed.ZYX_WORLD_AXES)
-        for index in range(count):
-            dataset = await seed.create_dataset(ctx, f"{name}-{index}", SPATIAL_AXES, [8, 64, 64])
-            await _pin(dataset, {"z": 0})
-            await seed.register_into_world(ctx, world, dataset)
-        return str(world.pk)
-
-    small = await build("Small", 2)
-    large = await build("Large", 6)
-
-    await _anchors_in_view(aexecute, small, [-100.0] * 3, [100.0] * 3)
-
-    counts = []
-    for world_id in (small, large):
-        with QueryCounter() as counter:
-            hits = await _anchors_in_view(aexecute, world_id, [-100.0] * 3, [100.0] * 3)
-        counts.append(len(counter.queries))
+    counts, hits = await _anchor_costs(aexecute, query, small, large)
 
     assert len(hits) == 6, "the larger space really did have more sources in view"
     assert all(len(hit["anchors"]) == 1 for hit in hits), "and every one of them resolved its anchor"
+    assert counts[0] == counts[1], f"the cost grew with the sources: {counts[0]} then {counts[1]}"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "core/logic/space_graph.py::_anchors_of loads every reachable anchor in one query but without its spokes "
+        "(no select_related on channel_label / value_unit / rig / value_histogram / acquisition_metadata), so any spoke selected under "
+        "`SourcePlacement.anchors` is one reverse one-to-one lookup per anchor: measured 68 queries for 2 sources and 72 for 6. "
+        "mikro's test only selects `anchors { id coordinates }` and so never sees it; mikro's loader is the same line."
+    ),
+)
+async def test_the_query_count_does_not_grow_with_the_spokes_of_the_anchors_in_view(aexecute, authenticated_context):
+    """What `anchors` is *for*: "how a view of channels 2 to 5 learns what those four channels are called". Asking for the label must stay flat too."""
+    small, large = await _anchored_worlds(authenticated_context)
+
+    counts, hits = await _anchor_costs(aexecute, IN_VIEW_ANCHORS, small, large)
+
+    assert sorted(hit["anchors"][0]["channelLabel"]["label"] for hit in hits) == [f"Large-{index}" for index in range(6)]
     assert counts[0] == counts[1], f"the cost grew with the sources: {counts[0]} then {counts[1]}"
 
 

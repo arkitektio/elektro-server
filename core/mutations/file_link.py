@@ -29,7 +29,9 @@ class LinkFileModel(BaseModel):
     file: str | None = Field(default=None, description="The file the containers were written to")
     source_files: list[SourceFileInputModel] | None = Field(default=None, description="The files a container was produced from")
     dataset: str | None = Field(default=None, description="The array dataset the files were read into")
+    table_dataset: str | None = Field(default=None, description="The table dataset the files were read into")
     annotation_collection: str | None = Field(default=None, description="The annotation collection the files were read into")
+    sparse_dataset: str | None = Field(default=None, description="The sparse dataset the files were read into")
 
 
 @kante.pydantic_input(
@@ -45,14 +47,18 @@ class LinkFileInput:
     file: strawberry.ID | None = strawberry.field(default=None, description="(export) The file that was written. Pair it with `sourceOf`")
     source_of: list[ExportOfInput] | None = strawberry.field(default=None, description="(export) The containers `file` was written from")
     dataset: strawberry.ID | None = strawberry.field(default=None, description="(ingest) The array dataset that was produced. Pair it with `sourceFiles`")
+    table_dataset: strawberry.ID | None = strawberry.field(default=None, description="(ingest) The table dataset that was produced. Pair it with `sourceFiles`")
     annotation_collection: strawberry.ID | None = strawberry.field(default=None, description="(ingest) The annotation collection that was produced. Pair it with `sourceFiles`")
+    sparse_dataset: strawberry.ID | None = strawberry.field(default=None, description="(ingest) The sparse dataset that was produced. Pair it with `sourceFiles`")
     source_files: list[SourceFileInput] | None = strawberry.field(default=None, description="(ingest) The files the named container was produced from")
 
 
 #: The container arguments, and the model each names. Ordered as the SDL declares them.
 _CONTAINER_ARGS: tuple[tuple[str, type], ...] = (
     ("dataset", models.ArrayDataset),
+    ("table_dataset", models.TableDataset),
     ("annotation_collection", models.AnnotationCollection),
+    ("sparse_dataset", models.SparseDataset),
 )
 
 

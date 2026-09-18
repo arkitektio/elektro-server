@@ -3,9 +3,10 @@
 **Vendored from mikro** (``mikro/core/logic/graph.py``), kept at the same path so the two
 copies stay diffable -- ``diff`` the two and what is left is this list. What changed: the
 container registry (:data:`CONTAINERS`) is mikro's array half -- a dataset, its levels, its
-lenses -- plus one collection, the annotation collection; the table, sparse, mesh and network
-writers are gone; :func:`assert_field_is_dereferenceable` admits a times dataset, alone in
-its system; :func:`identified_axes` is empty; :data:`WORLD_RELATIONS` replaces mikro's
+lenses -- plus three collections, the table dataset, the annotation collection and the sparse
+dataset; the mesh and network writers are gone; :func:`assert_field_is_dereferenceable` admits
+a times dataset, alone in its system; :func:`self_placed_axes` makes a spike raster's TIME axis
+optional for a FIELD keying its units (it is placed by a sampling law, never identified); :data:`WORLD_RELATIONS` replaces mikro's
 inline ``scenes``; and :func:`frames_into` / :func:`vertex_padding` are additions. The prose
 was left as mikro wrote it -- read "pixel grid" as "sample grid" and "scene" as "experiment"
 -- because the error messages here are asserted on by tests shared between the two
@@ -73,24 +74,28 @@ class Container:
 #: dataset before its level and its lens. This is the order `CoordinateSystem.residents` returns.
 #:
 #: mikro lists eight (a dataset, its pyramid levels, its lenses, and five collections that
-#: own their space). Here the array half is the same three, and an annotation
-#: collection is the one *collection*: it owns the space its shapes are drawn in outright,
-#: and is its own node of the fact tree. Signals, recordings and stimuli are *wrappers
-#: around* a dataset rather than residents: making them containers would give one array two
-#: homes. A future probe or morphology collection is one more line with ``is_collection=True``.
+#: own their space). Here the array half is the same three, and three of mikro's collections
+#: are here: a table dataset (events, units), an annotation collection and a sparse dataset
+#: (a spike raster). Each owns its space outright and is its own node of the fact tree. The
+#: layers of an experiment are *views onto* these rather than residents: making them
+#: containers would give one dataset two homes. A future probe or morphology collection is
+#: one more line with ``is_collection=True``.
 CONTAINERS: tuple[Container, ...] = (
     Container(model=models.ArrayDataset, related_name="datasets", root_field="pk", key="dataset"),
     Container(model=models.DataArray, related_name="data_arrays", root_field="dataset_id", key="dataset"),
     Container(model=models.Lens, related_name="lenses", root_field="dataset_id", key="dataset"),
+    Container(model=models.TableDataset, related_name="table_datasets", root_field="pk", key="tabledataset", is_collection=True),
     Container(model=models.AnnotationCollection, related_name="annotation_collections", root_field="pk", key="annotationcollection", is_collection=True),
+    Container(model=models.SparseDataset, related_name="sparse_datasets", root_field="pk", key="sparsedataset", is_collection=True),
 )
 
 #: The reverse accessors from ``CoordinateSystem`` to the *compositions* over it: the rows
 #: that name a space as the one they are laid out in, without living in it. mikro has one
 #: (``scenes``) and spells it inline in three places -- the delete guard, the orphan sweep
-#: and the ``scene`` filter. There are four here, so it is a registry: a space any of these
-#: points at is in use even when no data lives in it.
-WORLD_RELATIONS: tuple[str, ...] = ("experiments", "blocks", "block_segments", "simulations")
+#: and the ``scene`` filter. There are two here -- an experiment over its world, a simulation
+#: over its clock -- so it is a registry: a space any of these points at is in use even when no
+#: data lives in it. (A recording session is not one: it *is* its clock, and nothing else.)
+WORLD_RELATIONS: tuple[str, ...] = ("experiments", "simulations")
 
 #: The model a container key resolves back to. A key names one *node*, so the three models
 #: sharing the ``dataset`` key resolve to the one that is the node: the dataset itself.
@@ -159,6 +164,91 @@ def create_pixel_axes(system: "models.CoordinateSystem", axes: list) -> list["mo
         dataset.save_without_historical_record(update_fields=["stored_spec"])
 
     return created
+
+
+@dataclasses.dataclass(frozen=True)
+class _TableAxisSpec:
+    """An axis-typed `ColumnInput`, read under the names the axis writer below uses."""
+
+    name: str
+    axis_type: object
+    unit: object
+    long_name: object
+    description: object
+
+
+def create_table_axes(system: "models.CoordinateSystem", axes: list) -> list["models.Axis"]:
+    """Write a table dataset's system axes from its declared axes, in the order given.
+
+    Neither pixel nor calibrated: a table's coordinate columns carry a unit exactly
+    when the client declared one -- pixel-index centroids do not, an SMLM
+    localization in nanometres does -- so this is the one axis writer that treats the
+    unit as optional-but-validated. It is all-or-nothing across the spatial axes: a
+    half-calibrated space (one axis in nm, its sibling unitless) composes wrongly
+    into a single matrix, so it is rejected rather than stored.
+
+    **A table's axes are held to no type ordering** -- and neither is anything else any
+    more. A parquet column's position is whatever the frame happened to have, and holding
+    a table to an ordering meant refusing ``centroid_x, centroid_y, object_id`` -- a
+    natural column order -- for nothing.
+
+    For nothing quite literally, measured against this module's own logic: ``x, y, t`` was
+    refused and ``t, x, y`` accepted, and *both* derive ``x=y, y=x`` -- identically,
+    because :func:`resolve_render_axes` finds the time axis by a type scan and the spatial
+    ones through ``spatial_axes()``, so where a TIME or INDEX axis sits among them changes
+    nothing it computes. The rule refused what rendered no worse than what it accepted,
+    which is why it is now gone for arrays too: the orderings it turned away there --
+    ``(z, c, y, x)``, ``(c, z, y, x)`` -- are how acquisitions are ordinarily written.
+
+    What the derivation *does* read is the relative order of the **spatial** axes --
+    the last is x, the one before it y, the one before that z -- and that survives
+    untouched here, because the columns are stored in the order they were given. It
+    is also still unguarded: ``x, y, z`` derives ``x=z, z=x``, fully transposed, with
+    no error. That is a real hole and a separate fix; see item 14 of the proposals
+    doc. It was never caught by the ordering rule either.
+
+    ``order`` is written by enumeration -- for a table it is the axis' position among the
+    axis-typed columns, there being no array shape to index. Since the flat declaration,
+    that IS the file's column order restricted to the axes: there is no separate list to
+    reorder them with, because nothing strides a table by position -- consumers address
+    axes by name, and an edge states its own axis lists where order matters.
+    """
+    # A `ColumnInput` with a non-null `axisType` names the column and the axis in one entry,
+    # so the two vocabularies meet here and nowhere else. The caller passes the axis-typed
+    # columns in declaration (= file) order, which IS the axis order: a table has no byte
+    # order, its axes are named columns, and an edge wanting a different order states its own
+    # axis lists.
+    coordinate_columns = [
+        _TableAxisSpec(name=column.name, axis_type=column.axis_type, unit=column.unit, long_name=column.long_name, description=column.description)
+        for column in axes
+    ]
+    specs = [coords_logic.AxisSpec(name=col.name, type=col.axis_type.value if hasattr(col.axis_type, "value") else col.axis_type) for col in coordinate_columns]
+    coords_logic.assert_axis_names_unique(specs)
+    coords_logic.assert_at_most_one_time_axis(specs)
+
+    spatial_units = [col.unit for col in coordinate_columns if (col.axis_type.value if hasattr(col.axis_type, "value") else col.axis_type) == enums.AxisTypeChoices.SPACE.value]
+    if spatial_units and any(u is None for u in spatial_units) and any(u is not None for u in spatial_units):
+        raise ValueError("A table's spatial coordinate columns must be all calibrated (each with a unit) or all pixel-index (none with a unit). A half-calibrated space composes wrongly into one matrix.")
+
+    rows = []
+    for index, col in enumerate(coordinate_columns):
+        axis_type = col.axis_type.value if hasattr(col.axis_type, "value") else col.axis_type
+        unit = None
+        if col.unit is not None:
+            unit = kanne_scalars.parse_unit(col.unit)
+            coords_logic.assert_unit_matches_type(col.name, axis_type, unit)
+        rows.append(
+            models.Axis(
+                coordinate_system=system,
+                order=index,
+                name=col.name,
+                type=axis_type,
+                unit=unit,
+                long_name=col.long_name,
+                description=col.description,
+            )
+        )
+    return models.Axis.objects.bulk_create(rows)
 
 
 def create_physical_axes(system: "models.CoordinateSystem", axes: list) -> list["models.Axis"]:
@@ -642,8 +732,8 @@ def assert_field_is_dereferenceable(field: "models.CoordinateSystem") -> None:
     A FIELD's map is the *contents* of what lives in the system it names. In mikro that is a
     label mask (a pixel holds an object id) or a collection's geometry. Here it is a **times
     dataset**: an array whose value at sample ``i`` is the instant sample ``i`` was taken. That
-    is how an irregularly sampled signal and a spike train reach physical time at all -- a
-    regular signal has a sampling law (one affine edge), these have a lookup.
+    is how an irregularly sampled signal reaches physical time at all -- a
+    regular signal (and a spike raster) has a sampling law (one affine edge), it has a lookup.
 
     **Exactly one dataset may live in the field's system (rule R3), and this is ours, not
     mikro's.** mikro asks only that *something* lives there. But several datasets may share
@@ -675,7 +765,36 @@ def assert_field_is_dereferenceable(field: "models.CoordinateSystem") -> None:
         )
     raise ValueError(
         f"No dataset lives in coordinate system '{field.name}', so standing in it dereferences nothing and it cannot be a FIELD's map. "
-        "A FIELD's map is the contents of an array: here, a dataset whose values are the instants (or positions) its samples map to."
+        "A FIELD's map is the contents of an array: here, a dataset whose values are the instants (or positions) its samples map to. "
+        "A map out of a *table* is not a FIELD edge -- it does no coordinate work, so no walk can use it: declare it as a column reference (Column.references) instead."
+    )
+
+
+def product_space_tables(tables: "Iterable[models.TableDataset]") -> set[int]:
+    """Which of ``tables`` identify an axis themselves -- the product spaces -- in one query.
+
+    The batched form of :func:`identified_axes`, and the one every *loop* must use. Whether a
+    table is a product space is a fact about its columns, so asking it per table is an N+1 that
+    grows with the graph rather than with the join depth -- the shape
+    ``tests/test_column_options.py::test_the_walk_costs_the_same_however_many_columns_there_are``
+    exists to catch, and did.
+
+    Returns primary keys rather than names, because the callers hold tables and want a
+    membership test, and because a name is not unique.
+    """
+    identifiers = [table.pk for table in tables]
+    if not identifiers:
+        return set()
+    # A `references` pair (the contact-map case) means a row is addressed by more ids than the
+    # one the FIELD edge supplies -- exactly what the callers drop such tables for. elektro:
+    # mikro's second no-edge identification (a network's node ids) has no counterpart here.
+    return set(
+        models.Column.objects.filter(
+            table_id__in=identifiers,
+            role=enums.ColumnRoleChoices.COORDINATE.value,
+            axis_type=enums.AxisTypeChoices.INDEX.value,
+            references__isnull=False,
+        ).values_list("table_id", flat=True)
     )
 
 
@@ -683,14 +802,62 @@ def identified_axes(system: "models.CoordinateSystem") -> set[str]:
     """The axes of ``system`` that something other than the edge landing on it identifies.
 
     **Every axis of a FIELD's target must be accounted for** -- by the edge (consumed, passed
-    through, or produced) or by its own identification. In mikro a table's INDEX column can
-    identify an axis by naming what it enumerates; nothing here has columns, so nothing
-    identifies an axis but the edge, and the rule reduces to "the edge accounts for all of
-    them". Kept as a function, and still called by :func:`assert_edge_rank`, so the rank
-    check is the same code in both services and a future container that *can* identify an
-    axis is a change here only.
+    through, or produced) or by its own identification. Until product spaces, the second half
+    was empty and the rule reduced to "the edge accounts for all of them", which is what
+    :func:`assert_edge_rank` used to say outright.
+
+    One thing identifies a table's axis, on INDEX coordinate columns only (an INDEX axis's
+    values are already ids, so naming what it enumerates is what the enumeration is *of*, not a
+    second map competing with the first): a ``references`` naming the table its positions
+    enumerate. (elektro: mikro's second, ``node_references`` -- a network collection's node
+    ids -- has no counterpart here.)
+
+    One definition, used by both the rank check and the ``keyedBy`` axis split, because two
+    copies of this would be a table the split accepts and the rank check then refuses.
+
+    **Two substrates, one relation**, exactly as a FIELD edge has two: a table says it with a
+    COORDINATE column's ``references``, a sparse dataset with a :class:`SparseAxisReference`,
+    because a matrix has no columns to hang it on. The sentence is the same either way -- *the
+    values along this axis identify rows of that table* -- so it is answered here once rather
+    than branched on at every call site.
+
+    Returns an empty set for a system that owns neither, which is every array-backed one: a
+    pixel grid's axes are identified by being a grid.
     """
+    table = next(iter(system.table_datasets.all()[:1]), None)
+    if table is not None:
+        return {
+            column.name
+            for column in table.columns.all()
+            if column.role == enums.ColumnRoleChoices.COORDINATE.value
+            and column.axis_type == enums.AxisTypeChoices.INDEX.value
+            and column.references_id is not None
+        }
+
+    sparse = next(iter(system.sparse_datasets.all()[:1]), None)
+    if sparse is not None:
+        return {reference.axis for reference in sparse.axis_references.all()}
+
     return set()
+
+
+def self_placed_axes(system: "models.CoordinateSystem") -> set[str]:
+    """The axes of ``system`` that are placed by an edge of their own -- elektro's, and only a spike raster's TIME axis.
+
+    mikro's sparse axes all enumerate, so every one is identified (by a FIELD landing on it, or
+    by a table) and :func:`identified_axes` is the whole story. A raster's sample axis is
+    neither: it is placed on a clock by a sampling law out of this space, exactly as an analog
+    signal's is. So for a FIELD keying the raster's *units* it is **optional** -- the edge may
+    pass it through by name (a per-sample unit assignment, aligned with the raster's samples)
+    or say nothing about it (a per-channel assignment, which has no time at all). What it must
+    not be is *produced*: one place holds one id, and an instant is not an id.
+
+    Deliberately not folded into :func:`identified_axes`, which is mikro's rank bookkeeping and
+    refuses an edge that names an identified axis -- which would forbid the passthrough.
+    """
+    if next(iter(system.sparse_datasets.all()[:1]), None) is None:
+        return set()
+    return {axis.name for axis in system.axes.all() if axis.type == enums.AxisTypeChoices.TIME.value}
 
 
 def assert_field_produces(*, field: "models.CoordinateSystem", output_axes: list[str]) -> None:
@@ -1027,7 +1194,10 @@ def assert_edge_rank(
             raise ValueError(
                 f"A FIELD transformation over '{output_system.name}' names {overlap}, which that space already identifies by `references`. An axis is accounted for once: either the edge supplies it or its own declaration does, and two answers to 'what are these positions' is the ambiguity `references` on a coordinate exists to avoid."
             )
-        accountable = sorted(set(output_names) - identified)
+        # elektro: a raster's self-placed TIME axis may pass through or go unmentioned; see
+        # `self_placed_axes`. Produced is still refused below, as any extra implied axis is.
+        optional = self_placed_axes(output_system) - set(implied)
+        accountable = sorted(set(output_names) - identified - optional)
         if sorted(implied) != accountable:
             unaccounted = "" if not identified else f" ('{output_system.name}' identifies {sorted(identified)} by `references`, which this edge is not expected to supply)"
             raise ValueError(
@@ -1198,14 +1368,14 @@ def create_collection_system(
     *,
     name: str,
     axes: list,
-    owner: "models.MeshCollection | models.NetworkCollection | models.TableDataset | models.AnnotationCollection | None" = None,
+    owner: "models.TableDataset | models.SparseDataset | models.AnnotationCollection | None" = None,
     ctx: CreationContext,
 ) -> "models.CoordinateSystem":
     """The coordinate system a collection owns, with its axes.
 
-    Pixel axes, not calibrated ones: a mesh collection's vertices are in the voxel grid
-    they were extracted from, a feature table's rows are enumerated, and an annotation
-    collection's shapes are drawn in the grid of whatever it registers into. None carries
+    Pixel axes, not calibrated ones: a feature table's rows are enumerated, and an annotation
+    collection's shapes are drawn in the grid of whatever it registers into (mikro adds a mesh
+    collection's vertices, which are in the voxel grid they were extracted from). None carries
     a unit, and a unit is the only thing `create_physical_axes` would add.
 
     A collection is the one caller whose axes arrive straight from the client, and the
@@ -2517,6 +2687,16 @@ def placeable_lens_dataset_ids(space: "models.CoordinateSystem", *, derived_only
     return {dataset_id for system in _placeable_systems(space, derived_only=derived_only) if (dataset_id := _fk_dataset_id(system)) is not None}
 
 
+def placeable_table_dataset_ids(space: "models.CoordinateSystem") -> set[int]:
+    """The table datasets whose own coordinate system is placeable in this space.
+
+    A table owns its system one-to-one, so there is no dataset reduction as there is for a
+    lens: the placeable table datasets are exactly those whose system is in the placeable set.
+    """
+    placeable = {system.pk for system in _placeable_systems(space)}
+    return set(models.TableDataset.objects.filter(coordinate_system_id__in=placeable).values_list("pk", flat=True)) if placeable else set()
+
+
 def categorized_dataset_ids(dataset_ids: "Iterable[int]") -> set[int]:
     """Of these datasets, the ones whose *primary* derivation declares CATEGORIZED.
 
@@ -3340,6 +3520,26 @@ def lens_source_system(lens: "models.Lens") -> "models.CoordinateSystem | None":
     An unsliced lens owns no system: its space is the dataset's intrinsic space.
     """
     return getattr(lens, "coordinate_system", None) or lens.dataset.intrinsic_coordinate_system
+
+
+def layer_source_system(layer: "models.ExperimentLayer") -> "models.CoordinateSystem | None":
+    """The coordinate system a layer's data is expressed in, per kind.
+
+    mikro's function, over elektro's four kinds. A trace layer's data lives in its lens' space;
+    a spikes layer's in the space its sparse dataset owns (a raster's ``(unit, t)``); an events
+    layer's in the space its table owns (its TIME coordinate column); an annotation layer's in
+    its collection's drawing space. Read the lens-backed kinds off
+    :data:`core.enums.LENS_BACKED_KINDS` rather than spelling them again.
+    """
+    if layer.kind in enums.LENS_BACKED_KINDS and layer.lens_id:
+        return lens_source_system(layer.lens)
+    if layer.kind == enums.ExperimentLayerKindChoices.SPIKES.value and layer.sparse_dataset_id:
+        return getattr(layer.sparse_dataset, "coordinate_system", None)
+    if layer.kind == enums.ExperimentLayerKindChoices.EVENTS.value and layer.table_dataset_id:
+        return getattr(layer.table_dataset, "coordinate_system", None)
+    if layer.kind == enums.ExperimentLayerKindChoices.ANNOTATION.value and layer.annotation_collection_id:
+        return getattr(layer.annotation_collection, "coordinate_system", None)
+    return None
 
 
 def system_dataset(system: "models.CoordinateSystem") -> "models.ArrayDataset | None":

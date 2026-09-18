@@ -1,7 +1,8 @@
 """Writing the links between a file's bytes and the data held in a container.
 
-**Vendored from mikro** (``mikro/core/logic/file_link.py``), minus the table and mesh
-containers and the photographic-source inference (that one feeds mikro's scene bootstrap).
+**Vendored from mikro** (``mikro/core/logic/file_link.py``), minus the mesh container and the
+photographic-source inference (that one feeds mikro's scene bootstrap), plus a sparse dataset
+container (a spike raster read out of a sorter's output).
 
 
 The one writer for both directions. An ingest (``sourceFiles`` on a container's create
@@ -33,13 +34,17 @@ from core.scoping import get_for_org
 #: side (which is handed a discriminator) cannot disagree about where a link is written.
 _CONTAINER_FIELDS: dict[type, str] = {
     models.ArrayDataset: "dataset",
+    models.TableDataset: "table_dataset",
     models.AnnotationCollection: "annotation_collection",
+    models.SparseDataset: "sparse_dataset",
 }
 
 #: The model each ``FileLinkContainerKind`` names, for the export direction.
 _CONTAINER_MODELS: dict[str, type] = {
     enums.FileLinkContainerKind.DATASET.value: models.ArrayDataset,
+    enums.FileLinkContainerKind.TABLE_DATASET.value: models.TableDataset,
     enums.FileLinkContainerKind.ANNOTATION_COLLECTION.value: models.AnnotationCollection,
+    enums.FileLinkContainerKind.SPARSE_DATASET.value: models.SparseDataset,
 }
 
 
@@ -51,7 +56,7 @@ def container_field(container) -> str:  # noqa: ANN001 - one of the four contain
     """
     field = _CONTAINER_FIELDS.get(type(container))
     if field is None:
-        raise ValueError(f"A {type(container).__name__} cannot be linked to a file: only an array dataset or an annotation collection holds data a file encodes.")
+        raise ValueError(f"A {type(container).__name__} cannot be linked to a file: only an array dataset, a table dataset, an annotation collection or a sparse dataset holds data a file encodes.")
     return field
 
 

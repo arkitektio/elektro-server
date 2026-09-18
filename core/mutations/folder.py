@@ -1,8 +1,9 @@
 """Folders: creating, renaming, pinning, nesting, and filing things in them.
 
-**Vendored from mikro** (``mikro/core/mutations/folder.py``). The fileable models differ: an
-array dataset, an annotation collection and a file as there, plus a recording session
-(``Block``), which has no lineage and so is always explicitly fileable.
+**Vendored from mikro** (``mikro/core/mutations/folder.py``). The fileable models: an array
+dataset, a table dataset, an annotation collection and a file as there, and a sparse dataset
+(where mikro has a mesh collection). A recording *session* is no longer a model -- it is a
+clock and the datasets placed on it -- so it is filed by filing those.
 """
 
 from kante.types import Info
@@ -232,6 +233,8 @@ release_array_datasets_from_folder = _make_release_from_folder(models.ArrayDatas
 put_annotation_collections_in_folder = _make_put_in_folder(models.AnnotationCollection)
 release_annotation_collections_from_folder = _make_release_from_folder(models.AnnotationCollection)
 
-# Elektro's own: a recording session is filed like a file is -- it has no lineage to follow.
-put_blocks_in_folder = _make_put_in_folder(models.Block)
-release_blocks_from_folder = _make_release_from_folder(models.Block)
+put_table_datasets_in_folder = _make_put_in_folder(models.TableDataset)
+release_table_datasets_from_folder = _make_release_from_folder(models.TableDataset)
+
+put_sparse_datasets_in_folder = _make_put_in_folder(models.SparseDataset)
+release_sparse_datasets_from_folder = _make_release_from_folder(models.SparseDataset)

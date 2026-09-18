@@ -214,6 +214,96 @@ class Datalayer:
         requested = expires_in or self.config.session_duration_seconds
         return min(max(requested, MIN_SESSION_DURATION_SECONDS), MAX_SESSION_DURATION_SECONDS)
 
+    def parquet_source(self, store: "models.ParquetStore") -> str:
+        """The ``s3://`` URL DuckDB reads a parquet store through."""
+        return f"s3://{self.get_bucket_config('parquet').bucket}/{store.key}"
+
+    def get_parquet_schema(self, store: "models.ParquetStore") -> list[base_models.ParquetColumn]:
+        """Read the columns a parquet file declares, in file order.
+
+        A ``DESCRIBE`` and nothing else: it reads the footer's schema, never a row. That is the
+        same line :meth:`get_zarr_metadata` and :meth:`get_sparse_metadata` hold -- registration
+        asks a store what it is, and asks nothing about what it contains. A picker that wanted a
+        column's distinct values was refused here for exactly that reason; the client already
+        holds an access grant and can scan it locally at its own expense.
+
+        Args:
+            store: Parquet store whose file should be described.
+
+        Returns:
+            One entry per column, carrying the name and the DuckDB type the file declares.
+        """
+        # Deferred: duckdb is a heavy import and only the parquet path needs it.
+        from datalayer.duck import get_current_duck
+
+        # Bound to a name, not inlined. `sql()` returns a lazy relation; a `get_current_duck()`
+        # whose only reference is the temporary in that expression is collected as soon as the
+        # relation is built, taking its duckdb connection with it, and `fetchall` then raises
+        # "Connection has already been closed". Measured against 24 live stores.
+        duck = get_current_duck()
+        rows = duck.sql(f"DESCRIBE SELECT * FROM read_parquet('{self.parquet_source(store)}');").fetchall()
+        return [base_models.ParquetColumn(name=row[0], type=row[1], nullable=str(row[2]).upper() == "YES") for row in rows]
+
+    def get_sparse_metadata(self, store: "models.SparseStore") -> base_models.SparseMetadata:
+        """Read what a sporadik store states about itself: its block, and every layout it names.
+
+        The GET half. Every rule lives in :mod:`datalayer.sporadik`, which parses the wire format
+        with `json` and nothing else -- the same split :meth:`get_fabriks_metadata` makes, and for
+        the same reason: the rules are the interesting part and are worth testing without a bucket
+        behind them, while fetching a handful of small objects is not.
+
+        A handful of small GETs at registration only: the root's ``zarr.json`` for the block, then
+        per layout its own plus one per array. Nothing here opens a chunk.
+
+        Args:
+            store: Sparse store whose prefix should be inspected.
+
+        Returns:
+            The parsed store metadata: the spec, the shape, and one entry per layout.
+
+        Raises:
+            FileNotFoundError: If an object the block names is missing.
+            ValueError: If the prefix contradicts what the block declares.
+        """
+        from datalayer import sporadik
+
+        path = store.path or self.build_store_path("zarr", store.key)
+        bucket_name, prefix = self._parse_s3_path(path)
+        root = prefix.rstrip("/")
+
+        def fetch(suffix: str) -> bytes:
+            key = f"{root}/{suffix}zarr.json" if suffix else f"{root}/zarr.json"
+            try:
+                return self._s3.get_object(Bucket=bucket_name, Key=key)["Body"].read()
+            except Exception as exc:
+                raise FileNotFoundError(
+                    f"No zarr metadata at s3://{bucket_name}/{key}, so this prefix is not a readable sporadik store. "
+                    f"A store is a group carrying a `{sporadik.BLOCK_KEY}` block and holding its layouts under "
+                    f"`{sporadik.LAYOUTS_GROUP}/`; an interrupted upload leaves exactly this."
+                ) from exc
+
+        where = f"s3://{bucket_name}/{root}"
+        reading = sporadik.parse_root(fetch(""), where=where)
+
+        # The block is fully checked by `parse_root` before a single layout object is fetched: an
+        # entry naming an axis the array does not have is wrong whatever is behind it, and four GETs
+        # is a lot to spend learning nothing.
+        layouts = [
+            base_models.SparseLayoutMetadata(
+                **vars(
+                    sporadik.parse_layout(
+                        entry,
+                        {"": fetch(f"{entry.path}/"), **{name: fetch(f"{entry.path}/{name}/") for name in sporadik.ARRAYS}},
+                        reading.shape,
+                        where=where,
+                    )
+                )
+            )
+            for entry in reading.entries
+        ]
+
+        return base_models.SparseMetadata(spec=reading.spec, shape=reading.shape, layouts=layouts)
+
     def get_zarr_metadata(self, store: "models.ZarrStore") -> base_models.ZarrMetadata:
         """Retrieve structured metadata for a Zarr store.
 
@@ -262,6 +352,24 @@ class Datalayer:
             dimension_names=metadata.get("dimension_names"),
         )
 
+    @staticmethod
+    def prefix_bucket_keys() -> frozenset[str]:
+        """The logical buckets whose stores are prefixes rather than single objects.
+
+        Derived from the store classes -- every ``DatalayerStore`` subclass declares its
+        ``bucket_key`` and its ``is_prefix`` -- rather than from a literal here. Before this,
+        the grant builder tested ``bucket_key == "zarr"`` while deletion tested ``is_prefix``,
+        so the two halves of "this store is a directory" were stated in different places and
+        could disagree. A new prefix store type that set only ``is_prefix`` deleted correctly
+        and was granted credentials that could neither list nor write its own children -- and
+        nothing raised, because an unscoped grant works anyway wherever no role is assumed.
+
+        Imported inside the function: ``datalayer.models`` imports this module.
+        """
+        from datalayer import models
+
+        return frozenset(subclass.bucket_key for subclass in models.DatalayerStore.__subclasses__() if subclass.is_prefix and subclass.bucket_key)
+
     def _object_resources(self, bucket_key: str, object_path: str) -> tuple[str, list[str], bool]:
         """Resolve S3 resources covered by a grant.
 
@@ -274,7 +382,7 @@ class Datalayer:
             and whether bucket listing permission is also required.
         """
         full_key = self.build_object_key(bucket_key, object_path)
-        if bucket_key == "zarr":
+        if bucket_key in self.prefix_bucket_keys():
             prefix = full_key.rstrip("/")
             return full_key, [prefix, f"{prefix}/*"], True
         return full_key, [full_key], False
@@ -654,6 +762,122 @@ class Datalayer:
             upload_content_type=store.content_type,
             upload_form_field="file",
             store=str(store.pk),
+        )
+
+    def _build_sparse_upload_grant(self, store: "models.SparseStore") -> base_models.SparseUploadGrant:
+        """Issue an upload grant for a sparse store that already exists.
+
+        Split out so credentials can be reissued for the same store without minting a second
+        one, exactly as :meth:`_build_zarr_upload_grant` is. Everything is derived from the
+        store row, so a reissued grant addresses the same prefix -- only the credentials and
+        their expiry are new.
+        """
+        conf = self.get_bucket_config("zarr")
+        ttl = self._session_duration()
+        access_key, secret_key, session_token = self._issue_temporary_credentials("zarr", store.key, "upload", ttl)
+
+        return base_models.SparseUploadGrant(
+            access_key=access_key,
+            secret_key=secret_key,
+            session_token=session_token,
+            bucket=conf.bucket,
+            region=self.config.region,
+            key=self.build_object_key("zarr", store.key),
+            path=self.build_store_path("zarr", store.key),
+            expires_in=ttl,
+            # elektro: stores carry no `max_bytes` column here; the bucket's default is advertised.
+            max_bytes=conf.default_max_bytes,
+            upload_file_name=store.get_upload_file_name(),
+            store=str(store.pk),
+        )
+
+    def generate_sparse_upload_grant(self, organization_id: int, input: base_models.RequestSparseUploadInput) -> base_models.SparseUploadGrant:
+        """Create a sparse store and a prefix upload grant.
+
+        The grant covers the whole prefix and permits read-back and delete inside it, because a
+        sparse store is written as a tree: three arrays, each in chunks. Nothing about the
+        matrix is taken from the caller -- the group states it, and ``fill_info`` reads it when
+        the upload is finished.
+
+        In the zarr bucket, because a sparse matrix *is* a zarr tree. See
+        :class:`~datalayer.models.SparseStore`.
+        """
+        from datalayer import models
+
+        conf = self.get_bucket_config("zarr")
+        key = self._new_key()
+        store = models.SparseStore.objects.create(
+            organization_id=organization_id,
+            path=self.build_store_path("zarr", key),
+            key=key,
+            bucket="zarr",
+        )
+        return self._build_sparse_upload_grant(store)
+
+    def refresh_sparse_upload_grant(self, organization_id: int, store_id: str) -> base_models.SparseUploadGrant:
+        """Reissue upload credentials for a sparse store whose upload is still in flight.
+
+        The same problem :meth:`refresh_zarr_upload_grant` solves, and a sparse matrix meets it
+        sooner: the 16 um Visium HD matrix is 88 M nonzeros across three arrays, and the 2 um
+        one is 128 M. A write that outlives its session token otherwise dies partway through.
+
+        Refuses a store that is already populated: those bytes are referenced, and handing out
+        write credentials for them is an overwrite path, not a resumption. A store finished with
+        ``valid=False`` is not populated and stays refreshable, which is the retry case.
+        """
+        from datalayer import models
+
+        store = models.SparseStore.objects.get(id=store_id, organization_id=organization_id)
+        if store.populated:
+            raise ValueError(
+                f"Sparse store {store_id} is already populated, so its upload is finished and its bytes are referenced. "
+                "Reissuing write credentials for it would be an overwrite, not a resumption -- upload a new store instead."
+            )
+        return self._build_sparse_upload_grant(store)
+
+    def finish_sparse_upload(self, organization_id: int, input: base_models.FinishSparseUploadInput) -> "models.SparseStore":
+        """Mark a sparse upload complete, which is when its group metadata is read.
+
+        Not bookkeeping: ``fill_info`` fetches the group's attributes and each array's, and
+        refuses the store if the encoding is absent, an array is missing, or ``indptr``
+        contradicts the declared shape -- so an interrupted upload fails here rather than
+        surviving as a store a reader discovers is broken.
+        """
+        from datalayer import models
+
+        return self._finish_store_upload(models.SparseStore, organization_id, input.store_id, input.valid)
+
+    def generate_sparse_access_grant(self, store: "models.SparseStore") -> base_models.SparseAccessGrant:
+        """Return read credentials covering a sparse store's whole prefix."""
+        conf = self.get_bucket_config("zarr")
+        ttl = self._session_duration()
+        access_key, secret_key, session_token = self._issue_temporary_credentials("zarr", store.key, "read", ttl)
+
+        return base_models.SparseAccessGrant(
+            access_key=access_key,
+            secret_key=secret_key,
+            session_token=session_token,
+            bucket=conf.bucket,
+            region=self.config.region,
+            key=self.build_object_key("zarr", store.key),
+            path=store.path or self.build_store_path("zarr", store.key),
+            expires_in=ttl,
+            store=str(store.pk),
+        )
+
+    def generate_general_sparse_access_grant(self, organization_id: str, user_id: str) -> base_models.GeneralSparseAccessGrant:
+        """Return organization-wide read credentials for sparse stores."""
+        conf = self.get_bucket_config("zarr")
+        ttl = self._session_duration()
+        access_key, secret_key, session_token = self._issue_temporary_user_access_credentials("zarr", organization_id, user_id, ttl)
+
+        return base_models.GeneralSparseAccessGrant(
+            access_key=access_key,
+            secret_key=secret_key,
+            session_token=session_token,
+            bucket=conf.bucket,
+            region=self.config.region,
+            expires_in=ttl,
         )
 
     def _finish_store_upload(self, model_class: type[StoreModel], organization_id: int, store_id: str, valid: bool) -> StoreModel:

@@ -24,7 +24,8 @@ from core.types.coords import CoordinateSystem, Transformation
 
 if TYPE_CHECKING:
     # Only for the lazy annotations below: `core.types.experiment` imports this module.
-    from core.types.experiment import Experiment, ExperimentAnnotationView
+    from core.types.experiment import Experiment
+    from core.types.layers import AnnotationLayer
 
 
 @kante.type(description="A discrete coordinate an annotation is pinned to, e.g. a channel or a sweep")
@@ -65,7 +66,7 @@ class AnnotationCollection(OrgScoped):
     )
     coordinate_system: CoordinateSystem = kante.django_field(description="The coordinate system the annotations' vectors are expressed in. The collection owns it; `derivedFrom` relates it to whatever the shapes are drawn over")
     annotations: List[Annotated["Annotation", strawberry.lazy("core.types.annotation")]] = kante.django_field(description="The annotations in this collection")
-    experiment_views: List[Annotated["ExperimentAnnotationView", strawberry.lazy("core.types.experiment")]] = kante.django_field(description="The experiments this collection is shown in, one view each")
+    experiment_layers: List[Annotated["AnnotationLayer", strawberry.lazy("core.types.layers")]] = kante.django_field(description="The experiment layers drawing this collection, one per experiment")
     created_at: datetime.datetime
     creator: User | None
     provenance_entries: List[ProvenanceEntry] = kante.django_field(description="Provenance entries for this annotation collection")

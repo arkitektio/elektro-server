@@ -8,16 +8,12 @@ Three things the ported tests need and ``tests/seed.py`` does not give them:
 - :class:`QueryCounter`, mikro's SQL counter for the query-count tests. The schema runs
   async, so the ORM work happens on asgiref's executor thread and ``django_assert_num_queries``
   would instrument the wrong connection.
-- :func:`create_experiment` and :func:`add_view`, the stand-in for mikro's ``create_scene`` plus
-  ``Layer.objects.create``. mikro's layer names a lens and nothing else; a view here names a
-  lens *and* a recording (or stimulus), and a recording needs a simulation. The placement
-  resolvers read only the lens and the experiment's world, so the simulation built here is a
-  bare holder: it has no clock, and a test that reads ``offset`` or ``duration`` should go
-  through ``make_simulation_chain`` + ``createExperiment`` instead.
+- :func:`create_experiment` and :func:`add_layer`, the stand-in for mikro's ``create_scene``
+  plus ``Layer.objects.create``: an experiment, and a TRACE layer naming a lens -- exactly what
+  mikro's layer names.
 """
 
 import threading
-import uuid
 
 from asgiref.sync import sync_to_async
 from django.db.backends import utils as db_utils
@@ -96,34 +92,17 @@ async def create_experiment(ctx: HttpContext, name: str = "Experiment", *, world
     return await sync_to_async(_experiment_sync)(ctx, name, world, axes)
 
 
-def _holder_simulation(ctx: HttpContext, experiment: models.Experiment) -> models.Simulation:
-    """One clockless simulation per experiment, for the recordings its views wrap."""
-    name = f"{experiment.name}/holder"
-    existing = models.Simulation.objects.filter(name=name, creator=ctx.request.user).first()
-    if existing is not None:
-        return existing
-    environment = models.ModEnvironment.objects.create(name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization)
-    neuron_model = models.NeuronModel.objects.create(name="NeuronModel", hash=uuid.uuid4().hex, json_model={}, creator=ctx.request.user, environment=environment)
-    return models.Simulation.objects.create(model=neuron_model, clock=None, name=name, duration=0, creator=ctx.request.user)
+def _layer_sync(ctx: HttpContext, experiment: models.Experiment, lens: models.Lens, name: str | None) -> models.ExperimentLayer:
+    return models.ExperimentLayer.objects.create(experiment=experiment, kind="trace", lens=lens, order=experiment.layers.count(), name=name)
 
 
-def _view_sync(ctx: HttpContext, experiment: models.Experiment, lens: models.Lens, stimulus: bool, label: str | None):  # noqa: ANN202
-    simulation = _holder_simulation(ctx, experiment)
-    order = experiment.recording_views.count() + experiment.stimulus_views.count()
-    if stimulus:
-        site = models.Stimulus.objects.create(simulation=simulation, dataset=lens.dataset, kind="CURRENT", cell="soma", location="0", position=0.5)
-        return models.ExperimentStimulusView.objects.create(experiment=experiment, stimulus=site, lens=lens, order=order, label=label)
-    site = models.Recording.objects.create(simulation=simulation, dataset=lens.dataset, kind="VOLTAGE", cell="soma", location="0", position=0.5)
-    return models.ExperimentRecordingView.objects.create(experiment=experiment, recording=site, lens=lens, order=order, label=label)
-
-
-async def add_view(ctx: HttpContext, experiment: models.Experiment, lens: models.Lens, *, stimulus: bool = False, label: str | None = None):  # noqa: ANN201
-    """A view of ``lens`` in ``experiment``: mikro's ``Layer.objects.create(scene=, lens=)``.
+async def add_layer(ctx: HttpContext, experiment: models.Experiment, lens: models.Lens, *, name: str | None = None) -> models.ExperimentLayer:
+    """A TRACE layer of ``lens`` in ``experiment``: mikro's ``Layer.objects.create(scene=, lens=)``.
 
     Written through the ORM, so nothing checks that the lens is placeable -- which is what the
     ported tests want, since several of them are about a layer that is *not*.
     """
-    return await sync_to_async(_view_sync)(ctx, experiment, lens, stimulus, label)
+    return await sync_to_async(_layer_sync)(ctx, experiment, lens, name)
 
 
 DERIVE = """

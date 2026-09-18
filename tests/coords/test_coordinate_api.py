@@ -98,15 +98,19 @@ async def test_every_transformation_kind_and_union_member_is_in_the_sdl():
         assert f"type {kind}Transformation implements Transformation" in sdl, f"{kind}Transformation is missing from the SDL"
         if kind != "Sequence":  # a wrapper is never authored directly
             assert f"input {kind}TransformInput" in sdl, f"{kind}TransformInput is missing from the SDL"
-    assert "union Resident = ArrayDataset | DataArray | Lens" in sdl
+    assert "union Resident = ArrayDataset | DataArray | Lens | TableDataset | AnnotationCollection | SparseDataset" in sdl
     for member in ("LensDerivedFromInput", "DatasetDerivedFromInput", "CoordinateSystemDerivedFromInput"):
         assert f"input {member}" in sdl
     assert "directive @unionElementOf" in sdl
-    for leftover in ("MICROTIME", "SPECTRUM", "TABLE_DATASET", "MeshCollection", "OptikitState", "LightPath", "Phasor"):
+    for leftover in ("MICROTIME", "SPECTRUM", "MESH_COLLECTION", "NETWORK_COLLECTION", "MeshCollection", "NetworkCollection", "OptikitState", "LightPath", "Phasor"):
         assert leftover not in sdl, f"mikro's '{leftover}' leaked into the schema"
     # The data layer is mikro's, by name: nothing of the old vocabulary is left beside it.
-    for gone in ("type Trace ", "TraceLike", "fromTraceLike", "type Dataset ", "AnalogSignalChannel", "TRACE"):
+    # `TRACE` came back as a layer kind (a trace layer draws an array dataset), so the old
+    # derivation-source member is checked by its enum instead.
+    for gone in ("type Trace ", "TraceLike", "fromTraceLike", "type Dataset ", "AnalogSignalChannel", "type AnalogSignal ", "type SpikeTrain ", "type Block "):
         assert gone not in sdl, f"'{gone}' is still in the schema"
+    derivation_sources = sdl[sdl.index("enum DerivationSourceKind {") :].split("}")[0]
+    assert "TRACE" not in derivation_sources, "the old TRACE derivation source is DATASET now"
 
 
 # --- a clock and a sampling law ---------------------------------------------------------------

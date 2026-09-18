@@ -6,7 +6,7 @@ has no space. Asking a dataset where its pixels came from can therefore have two
 are both complete and about different things: the recording it was filtered from, and the ABF
 it was converted out of.
 
-**Vendored from mikro** (``mikro/core/types/file_link.py``), with two containers.
+**Vendored from mikro** (``mikro/core/types/file_link.py``), with four containers (mikro's mesh collection has no counterpart; a sparse dataset is elektro's addition).
 """
 
 import datetime
@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from core.types.annotation import AnnotationCollection
     from core.types.array_dataset import ArrayDataset
     from core.types.folder import File
+    from core.types.sparse_dataset import SparseDataset
+    from core.types.table_dataset import TableDataset
 
 
 #: The containers a file can be read into or written from. Deliberately narrower than
@@ -36,7 +38,9 @@ if TYPE_CHECKING:
 FileLinkContainer = Annotated[
     Union[
         Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")],
+        Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")],
         Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")],
+        Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
     ],
     strawberry.union("FileLinkContainer", description="The data side of a file link: a container whose contents a file encodes"),
 ]
@@ -76,16 +80,16 @@ class FileLink(OrgScoped):
 
     @kante.django_field(
         description="The data side of the link. Exactly one container is set on a link, and this is it",
-        select_related=["dataset", "annotation_collection"],
+        select_related=["dataset", "table_dataset", "annotation_collection", "sparse_dataset"],
     )
     def container(self, info: Info) -> FileLinkContainer:
         """Whichever of the two container FKs is set."""
-        container = self.dataset or self.annotation_collection
+        container = self.dataset or self.table_dataset or self.annotation_collection or self.sparse_dataset
         if container is None:
             # Unreachable through the writer, which refuses a link naming no container. Loud
             # rather than a null, because a link with no data side is a corrupt row, not an
             # absent value -- the field is non-null in the SDL precisely to say so.
-            raise ValueError(f"File link {self.pk} names no container. Exactly one of dataset or annotation collection must be set.")
+            raise ValueError(f"File link {self.pk} names no container. Exactly one of dataset, table dataset, annotation collection or sparse dataset must be set.")
         # Returned as the Django model, exactly as `CoordinateSystem.residents` returns its
         # union members: strawberry_django maps model to type through its own registry, and a
         # `strawberry.cast` here stops it doing so.

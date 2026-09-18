@@ -18,7 +18,7 @@ first `derivedFrom` entry is the primary parent, and it drives the lineage root 
 
 Unlike mikro's helper, nothing here patches ``ZarrStore.fill_info``: ``zarr_store(shape=...)``
 writes a real ``zarr.json`` to the compose RustFS and the mutation reads it back. The views go
-in through the ORM (``_helpers.add_view``); `createExperiment` lays out simulations by their
+in through the ORM (``_helpers.add_layer``); `createExperiment` lays out simulations by their
 clock, and these datasets are placed by a registration of their source instead.
 """
 
@@ -28,7 +28,7 @@ from asgiref.sync import sync_to_async
 from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
-from tests.coords._helpers import add_view, create_experiment, derive, derived_dataset
+from tests.coords._helpers import add_layer, create_experiment, derive, derived_dataset
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -42,7 +42,7 @@ mutation Register($input: CreateTransformationInput!) {
 PLACEMENT = """
 query Placement($id: ID!) {
   experiment(id: $id) {
-    recordingViews {
+    layers {
       id
       placement
       pathToWorld {
@@ -102,7 +102,7 @@ async def _register(aexecute, dataset: models.ArrayDataset, world_id) -> None:  
 async def _view(aexecute, experiment: models.Experiment) -> dict:  # noqa: ANN001
     result = await aexecute(PLACEMENT, {"id": str(experiment.pk)})
     assert not result.errors, result.errors
-    (view,) = result.data["experiment"]["recordingViews"]
+    (view,) = result.data["experiment"]["layers"]
     return view
 
 
@@ -156,7 +156,7 @@ async def test_a_derived_dataset_walks_to_world_through_its_source(aexecute, zar
 
     # A zero-phase filter: same grid, so the derivation is an identity.
     derived = await derived_dataset(await derive(aexecute, zarr_store, "Filtered", lens=source_lens, axes=seed.SIMPLE_AXES, shape=[3, 64, 64]))
-    await add_view(ctx, experiment, await seed.create_lens(ctx, derived))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, derived))
 
     path = (await _view(aexecute, experiment))["pathToWorld"]
     assert path is not None, "a derived dataset is placed by its source; the walk must cross the derivation edge"
@@ -186,7 +186,7 @@ async def test_an_unregistered_derived_dataset_is_placed_through_its_source(aexe
     source = await seed.create_array_dataset(ctx, "Source")
     derived = await derived_dataset(await derive(aexecute, zarr_store, "Filtered", lens=await seed.create_lens(ctx, source), axes=seed.SIMPLE_AXES, shape=[3, 64, 64]))
     experiment = await create_experiment(ctx, "Exp")
-    await add_view(ctx, experiment, await seed.create_lens(ctx, derived))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, derived))
 
     unplaced = await _view(aexecute, experiment)
     assert (unplaced["placement"], unplaced["pathToWorld"]) == ("UNREGISTERED", None), "nothing places the derived dataset yet"
@@ -606,7 +606,7 @@ async def test_an_all_unmappable_fusion_is_a_root_and_its_layer_is_refused_as_un
     assert root.pk == dataset.pk
 
     experiment = await create_experiment(ctx, "Exp")
-    await add_view(ctx, experiment, await seed.create_lens(ctx, dataset))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, dataset))
 
     view = await _view(aexecute, experiment)
     assert view["pathToWorld"] is None
@@ -645,7 +645,7 @@ async def test_a_fusion_places_through_either_parent(aexecute, zarr_store, authe
     dataset = await derived_dataset(await _fuse(aexecute, zarr_store, "Fused", [_identity(left_lens), _identity(right_lens)]))
 
     experiment = await create_experiment(ctx, "Exp")
-    await add_view(ctx, experiment, await seed.create_lens(ctx, dataset))
+    await add_layer(ctx, experiment, await seed.create_lens(ctx, dataset))
 
     await _register(aexecute, right, experiment.world_id)
     assert (await _view(aexecute, experiment))["placement"] == "PLACED", "the secondary parent's registration places the fusion too"

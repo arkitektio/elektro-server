@@ -2,8 +2,9 @@
 
 **Vendored from mikro** (``mikro/core/types/array_dataset.py``), at the same path, which is
 where ``core.types.coords`` expects to find what lives in a space. mikro keeps its scenes and
-layers in this module too; the interpretation layer here (blocks, simulations, experiments)
-lives in ``core/types/__init__.py`` and ``core/types/experiment.py`` instead. What a dataset
+layers in this module too; the interpretation layer here (simulations, experiments and their
+layers) lives in ``core/types/__init__.py``, ``core/types/experiment.py`` and
+``core/types/layers.py`` instead. What a dataset
 gains over mikro's is ``valueUnit`` / ``valueDimension`` and the reverse accessors to what
 interprets it; what it loses is ``scenes``, ``defaultScene`` and ``latestSnapshot``. The
 spokes are this service's (:mod:`rigkit` where mikro has ``optikit``). Every type mixes in
@@ -33,7 +34,8 @@ from datalayer.types import ZarrStore
 
 if TYPE_CHECKING:
     # Only for the lazy annotations below: each of these modules imports this one back.
-    from core.types import AnalogSignal, IrregularlySampledSignal, Recording, SpikeTrain, Stimulus
+    from core.types import Simulation
+    from core.types.layers import ExperimentLayer
     from core.types.annotation import AnnotationCollection
     from core.types.file_link import FileLink
     from core.types.folder import Folder
@@ -44,7 +46,7 @@ if TYPE_CHECKING:
     filters=filters.ArrayDatasetFilter,
     ordering=order.ArrayDatasetOrder,
     pagination=True,
-    description="A multi-dimensional array dataset: a recording, a stimulus, a vector of sample times, a spike train. Its dimensions and their types live on the axes of its INTRINSIC (sample grid) coordinate system; physical units live on the clocks it has edges into; its pyramid levels are DataArrays, each mapping into its grid. What it *means* -- a signal of a block, a recording of a simulation -- is said by whatever names it, never here",
+    description="A multi-dimensional array dataset: a recording, a stimulus, a vector of sample times, a unit's waveform templates. Its dimensions and their types live on the axes of its INTRINSIC (sample grid) coordinate system; physical units live on the clocks it has edges into; its pyramid levels are DataArrays, each mapping into its grid. What it *means* -- a trace in an experiment -- is said by whatever names it, never here; where it was recorded is a `recordingSite` on its anchors",
 )
 class ArrayDataset(OrgScoped):
     """A multi-dimensional array dataset with named dimensions, described by its intrinsic pixel-grid coordinate system."""
@@ -191,12 +193,17 @@ class ArrayDataset(OrgScoped):
         return list(scoping.for_org(models.AnnotationCollection, info).filter(coordinate_system__in=filters._systems_drawn_over_dataset(self.pk)))
 
     # What interprets this dataset. Elektro's counterpart of mikro's `ArrayDataset.scenes`: a
-    # dataset says nothing about what it means, so these are the ways to ask who does.
-    analog_signals: List[Annotated["AnalogSignal", strawberry.lazy("core.types")]] = kante.django_field(description="The analog signals that name this dataset as their samples")
-    irregularly_sampled_signals: List[Annotated["IrregularlySampledSignal", strawberry.lazy("core.types")]] = kante.django_field(description="The irregularly sampled signals that name this dataset as their samples")
-    spike_trains: List[Annotated["SpikeTrain", strawberry.lazy("core.types")]] = kante.django_field(description="The spike trains that name this dataset as their spike times")
-    recordings: List[Annotated["Recording", strawberry.lazy("core.types")]] = kante.django_field(description="The simulation recordings that name this dataset as their samples")
-    stimuli: List[Annotated["Stimulus", strawberry.lazy("core.types")]] = kante.django_field(description="The simulation stimuli that name this dataset as their samples")
+    # dataset says nothing about what it means, so this is the way to ask who does.
+    @kante.django_field(description="The experiment layers drawing this dataset, through any of its lenses")
+    def experiment_layers(self, info: Info) -> List[Annotated["ExperimentLayer", strawberry.lazy("core.types.layers")]]:
+        """The layers whose lens selects over this dataset."""
+        return list(scoping.for_org(models.ExperimentLayer, info).filter(lens__dataset_id=self.pk).order_by("experiment_id", "order", "pk"))
+
+    @kante.django_field(description="The simulation runs this dataset is timed on: those whose clock its sample grid has a sampling law or a time lookup onto. Read off the graph, never stored")
+    def simulations(self, info: Info) -> List[Annotated["Simulation", strawberry.lazy("core.types")]]:
+        """The runs whose clock this dataset's grid is timed onto."""
+        clocks = models.Transformation.objects.filter(input_id=self.coordinate_system_id, parent__isnull=True).values("output_id")
+        return list(scoping.for_org(models.Simulation, info).filter(clock_id__in=clocks).order_by("pk"))
 
 
 @kante.django_type(
@@ -321,6 +328,44 @@ class AcquisitionMetadata(OrgScoped):
 
 
 @kante.django_type(
+    models.RecordingSite,
+    pagination=True,
+    description="The site truth, recorded: where on a simulated model the anchored values were recorded (NEURON's cell, section and position along it) and what was recorded. elektro's own spoke; it was the `Recording` row of a simulation",
+)
+class RecordingSite(OrgScoped):
+    """Where on a model the anchored values were recorded."""
+
+    id: auto
+    kind: enums.RecordingKind
+    cell: str | None = kante.django_field(description="The id of the cell, as the model config names it")
+    location: str | None = kante.django_field(description="The id of the section, as the model config names it")
+    position: float | None = kante.django_field(description="The normalized position along the section, 0 to 1")
+
+    @kante.django_field(description="The stated label, or the site spelled out as 'cell: location(position)'")
+    def label(self, info: Info) -> str:
+        return self.display_label
+
+
+@kante.django_type(
+    models.StimulusSite,
+    pagination=True,
+    description="The site truth, injected: where on a simulated model the anchored values were injected (NEURON's cell, section and position along it) and what was clamped. elektro's own spoke; it was the `Stimulus` row of a simulation",
+)
+class StimulusSite(OrgScoped):
+    """Where on a model the anchored values were injected."""
+
+    id: auto
+    kind: enums.StimulusKind
+    cell: str | None = kante.django_field(description="The id of the cell, as the model config names it")
+    location: str | None = kante.django_field(description="The id of the section, as the model config names it")
+    position: float | None = kante.django_field(description="The normalized position along the section, 0 to 1")
+
+    @kante.django_field(description="The stated label, or the site spelled out as 'cell: location(position)'")
+    def label(self, info: Info) -> str:
+        return self.display_label
+
+
+@kante.django_type(
     models.CoordinateAnchor,
     filters=filters.CoordinateAnchorFilter,
     pagination=True,
@@ -337,6 +382,8 @@ class CoordinateAnchor(OrgScoped):
     channel_label: ChannelLabel | None
     value_unit: ValueUnit | None
     acquisition_metadata: AcquisitionMetadata | None
+    recording_site: Optional["RecordingSite"] = kante.django_field(description="(simulation) Where on the model the values at this coordinate were recorded")
+    stimulus_site: Optional["StimulusSite"] = kante.django_field(description="(simulation) Where on the model the values at this coordinate were injected")
 
     @kante.django_field(
         description="The coordinates this anchor is pinned to, e.g. {'c': 0, 'sweep': 5}. Level-0 sample indices, i.e. coordinates of the dataset's INTRINSIC system. An anchor that omits an axis is global along it; an empty object is the whole dataset"

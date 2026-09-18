@@ -12,15 +12,25 @@ This service now uses the model mikro uses for space, for time — and it is spl
 mikro is split:
 
 - **The data layer is mikro's**, vendored module for module at the same relative paths and
-  under the same identifiers: `ArrayDataset`, `DataArray`, `Lens`, `CoordinateSystem`,
-  `Transformation`, `CoordinateAnchor` and its spokes, `AnnotationCollection`, `Folder`,
-  `File`, `FileLink`, and the mutations that write them (`createArrayDataset`, `createLens`,
-  `createCoordinateSystem`, `linkFile`, …). `diff` the two copies of any of these files and
-  what is left is a short, commented list. This layer knows nothing about electrophysiology.
-- **The interpretation layer is elektro's.** mikro reads an array as a *layer of a scene*;
-  elektro reads it as a *signal of a block*, a *recording of a simulation*, a *view of an
-  experiment*. Like a scene, an interpretation **names data by id and owns none of it**: it
-  never creates an array, and deleting it never deletes one.
+  under the same identifiers: `ArrayDataset`, `DataArray`, `Lens`, `TableDataset`, `Column`,
+  `SparseDataset`, `SparseArray`, `SparseAxisReference`, `CoordinateSystem`, `Transformation`,
+  `CoordinateAnchor` and its spokes, `AnnotationCollection`, `Folder`, `File`, `FileLink`, and
+  the mutations that write them (`createArrayDataset`, `createTableDataset`,
+  `createSparseDataset`, `createLens`, `createCoordinateSystem`, `linkFile`, …). `diff` the
+  two copies of any of these files and what is left is a short, commented list. This layer
+  knows nothing about electrophysiology.
+- **The interpretation layer is elektro's, and it is mikro's shape.** mikro reads data as a
+  *layer of a scene*; elektro reads it as a *layer of an experiment* -- a trace, a spike
+  raster, an event table, hand-drawn marks. Like a scene, an experiment **names data by id and
+  owns none of it**: it never creates data, and deleting it never deletes any. The one other
+  interpretation is a `Simulation` (a run of a neuron model), and it is thinner still: a model,
+  the integrator's parameters and a clock.
+
+**CS first.** There is no `Block`, `BlockSegment`, `AnalogSignal`, `IrregularlySampledSignal`,
+`SpikeTrain`, `Recording` or `Stimulus` any more. A recording *session* is a clock (a
+coordinate system whose `epoch` is when it started), a *segment* is a clock with an offset onto
+it, and a *signal* is a dataset with a timing edge onto one of them. What used to be a row per
+signal is either a fact of the graph (when) or a spoke on the data (where it was recorded).
 
 This document is the part that is elektro's own: what the concepts mean here, what was
 mapped onto what, and every place the port deliberately differs.
@@ -40,11 +50,12 @@ Read for electrophysiology:
 
 | A space is… | A map is… | Data is… |
 |---|---|---|
-| a **sample grid** — a dataset's axes, typed, never carrying a unit (mikro: the pixel grid) | a **sampling law** — `t = sample · period + t_start`, one affine edge (mikro: pixel size + stage position) | an **`ArrayDataset`** — a recording, a stimulus, a vector of sample times, a spike train |
+| a **sample grid** — a dataset's axes, typed, never carrying a unit (mikro: the pixel grid) | a **sampling law** — `t = sample · period + t_start`, one affine edge (mikro: pixel size + stage position) | an **`ArrayDataset`** — a recording, a stimulus, a vector of sample times, a unit's waveform templates |
 | a **level's grid** — a decimated copy's own sample indices | a **level edge** — scale and half-sample shift back into the recording's grid | a **`DataArray`** — one pyramid level; level 0 *is* the dataset's grid |
 | a **clock** — one `TIME` axis in a time unit, optionally anchored to a wall-clock `epoch` | a **time lookup** — a `FIELD` whose map is the values of a times dataset | a **`Lens`** — an immutable selection over a dataset |
 | a **world** — the clock an experiment is laid out on | an **offset** — where one clock sits on another | an **`AnnotationCollection`** — a set of marks, owning the space they are drawn in |
-| a **drawing space** — an annotation collection's own | a **derivation** — how a computed dataset's grid maps back into its source's | |
+| a **drawing space** — an annotation collection's own | a **derivation** — how a computed dataset's grid maps back into its source's | a **`TableDataset`** — events, trials, a sorter's units: rows, owning the space its coordinate columns declare |
+| a **raster space** — a sparse dataset's `(unit, t)` | a **key** — a FIELD whose map is an array of ids (a unit assignment) | a **`SparseDataset`** — a spike raster: units × samples, one nonzero per spike |
 
 Four rules carry over from mikro unchanged:
 
@@ -53,8 +64,8 @@ Four rules carry over from mikro unchanged:
    would be wrong in one of them. Composing on read is fine (`asAffine`); storing the result
    is what is forbidden. Refine one edge and everything that looks through it moves.
 2. **Store what was authored or measured; derive everything else.** A sampling rate was
-   measured, so it is stored — once, on the edge. `AnalogSignal.samplingRate` is a *reading*
-   of that edge. A lens' shape follows from its dataset and its slices, so it is not a column.
+   measured, so it is stored — once, on the edge. `Simulation.samplingRate` and
+   `TraceLayer.duration` are *readings* of that edge. A lens' shape follows from its dataset and its slices, so it is not a column.
 3. **The sample grid is structural; physical time is an interpretation.** A dataset's grid is
    always known, never wrong and never revised, which is why marks drawn over a dataset resolve against it.
    Physical time enters exactly once, as a clock plus one edge. Correcting a sampling rate
@@ -99,12 +110,55 @@ are **checked against the axes** (`{ch: 3}` on a `(t, c)` dataset would otherwis
 that labels nothing), and `deleteArrayDataset` / `deleteDataArray` / `deleteLens` **sweep the
 spaces they leave empty**.
 
+### Tables and sparse matrices
+
+`createTableDataset(data, columns, name, folder, derivedFrom, sourceFiles)` and
+`createSparseDataset(store, axes, name, folder, derivedFrom, sourceFiles)` are mikro's, input
+for input (`tests/test_print_schema.py` pins the field sets against a snapshot of mikro's --
+refresh it when re-vendoring, as its comment says), over the same
+stores: a `ParquetStore` whose schema `finishParquetUpload` reads off the file, and a
+`SparseStore` -- a sporadik prefix of anndata-spelled CSR/CSC layouts -- whose spec, shape and
+layouts `finishSparseUpload` reads off the block. Each owns its coordinate system, as a
+collection does, and is a registered container (`graph.CONTAINERS`), so it is a `Resident`, a
+member of `InViewSource`, a derivation source and a node of `lineageGraph`.
+
+Read for electrophysiology:
+
+| Thing | Stored as | Its space |
+|---|---|---|
+| **events / epochs** (TTL edges, trials, Neo `Event`/`Epoch`) | a table with one TIME coordinate column (and a stop column for an interval) | `(t)`, in the column's unit, placed on a clock by an offset |
+| **units** (a sorter's cluster table) | a table with one INDEX coordinate column (`unit_id`) and attribute columns (depth, channel, quality) | `(unit_id)`, placed by nothing -- it is looked up |
+| **spikes** | a sparse dataset over `(unit: INDEX, t: TIME)`, `unit` identified by the units table | `(unit, t)`, placed on a clock by a **sampling law** over `t` |
+| **waveform templates** | an array dataset `(unit, c, w)`, derived from the raster (UNMAPPABLE) | its own grid |
+
+`identifiedBy` on a column or a sparse axis says what its values **are**: a `DATASET` whose
+contents are the ids (a FIELD edge into this space -- a per-sample unit assignment keying the
+raster's units) or a `TABLE` whose rows they are (a foreign key, `Column.references` /
+`SparseAxisReference`, which authors no edge). mikro's `MESH_COLLECTION`, `NETWORK_COLLECTION`
+and `NETWORK_COLLECTION_NODES` have nothing to name here and are gone (divergence 14).
+
+**The one additive divergence: a sparse axis may be TIME** (divergence 15). mikro's sparse axes
+all enumerate, so its `SparseAxisInput` has no `type`. A raster's sample axis has a metric -- it
+was sampled exactly as the recording it was sorted from -- so `type` exists here, defaults to
+INDEX (a mikro client that never sends it is unaffected), admits INDEX and TIME, and at most one
+TIME. A TIME axis is identified by nothing (`identifiedBy` must be empty, and so defaults to
+`[]`): its positions are samples, and a sampling law onto a clock says when they were. For a
+FIELD keying the raster's *units* the TIME axis is **optional** (`graph.self_placed_axes`): a
+per-sample assignment passes it through by name, a per-channel one does not mention it, and
+neither is refused -- but it is never *produced*, because an instant is not an id.
+
+Deleting a table or a sparse dataset sweeps the space it owned (divergence 7), taking every
+edge touching it -- a sampling law, an offset, a key -- and flags its store. A table another
+column references, or one a layer's picker names, is refused (`core/logic/pickers.py`).
+
 **Filing** is mikro's too: `Dataset` became **`Folder`** (the old name collided with the data
 it filed), its foreign keys are `SET_NULL` — deleting a folder *unfiles*, where the old
 `Dataset` cascaded into every file in it — and derived data follows its primary parent
-(`core/logic/folder.py`). A `Block` is fileable as well. A **`FileLink`** relates a file's
-bytes to a container, from either end (`sourceFiles`, `exportOf`, `linkFile`), and is
-deliberately not a derivation: a file has no space.
+(`core/logic/folder.py`). The four fileable containers are an array dataset, a table dataset,
+an annotation collection and a sparse dataset. A **`FileLink`** relates a file's bytes to a
+container, from either end (`sourceFiles`, `exportOf`, `linkFile`), and is deliberately not a
+derivation: a file has no space. A sparse dataset is a link container here and not in mikro
+(a raster is read out of a sorter's output folder as surely as an array out of an ABF).
 
 **Stores outlive their data.** No delete mutation touches S3. A delete flags the stores it
 leaves unreferenced (`orphaned_at`), and `manage.py purge_orphaned_stores` collects them
@@ -114,48 +168,94 @@ after `DATALAYER_STORE_GRACE_DAYS`, re-checking for referrers first (`core/logic
 
 | mikro | elektro |
 |---|---|
-| `Scene` over a `world` | `Experiment` over a `world`; also `Block` / `BlockSegment` / `Simulation`, each laid out on a `clock` |
-| `Layer` naming a `Lens` | `ExperimentRecordingView` / `ExperimentStimulusView` naming a `Lens`; `AnalogSignal` / `IrregularlySampledSignal` / `SpikeTrain` / `Recording` / `Stimulus` naming an `ArrayDataset` |
-| `createScene`, `createLayer` | `createBlock`, `createSimulation`, `createExperiment` |
+| `Scene` over a `world` | `Experiment` over a `world` |
+| `Layer`, one table discriminated by `kind`, exactly one source | `ExperimentLayer`, one table discriminated by `kind`, exactly one source |
+| image / intensity / label … over a `Lens` | `TRACE` over a `Lens` (any array dataset: a recording, a stimulus, any signal) |
+| point / track over a `TableDataset` | `EVENTS` over a `TableDataset` with a TIME column |
+| *(no sparse layer: a matrix only colours)* | `SPIKES` over a `SparseDataset` with a TIME axis |
+| annotation over an `AnnotationCollection` | `ANNOTATION` over an `AnnotationCollection` |
+| `createScene`, `createSceneFromCoordinateSystem`, `createXxxLayer` / `updateXxxLayer`, `createLayer` / `updateLayer` / `deleteLayer` | `createExperiment`, `createExperimentFromCoordinateSystem`, `create{Trace,Spikes,Events,Annotation}Layer` / `update{Trace,Spikes,Events}Layer`, `createLayer` / `updateLayer` / `deleteLayer` |
 
-An interpretation mutation takes **ids of datasets that already exist** and writes only
-what it means for them to be a session or a run: a clock, a row per dataset, and **one
-timing edge per dataset** onto that clock (`core/logic/clocks.py` is the one writer). There
-is no `axes`, `unit` or `channels` on a signal — those are facts of the dataset and were
-said when it was created. What an interpretation checks is that the dataset can *bear* it:
+A layer carries **view state only**: compositing (`blending`, `opacity`, `visible`, `order`,
+`name`) and its kind's render settings (a trace's channel and value range; a raster's tick
+height, row order and rate bin; an event table's stop, label and lane columns; the colour and
+filter pickers). Where its data sits is the graph's answer -- `pathToWorld`, `asAffine`,
+`placement`, `placementValidity`, `placementInvariance`, read from
+`graph.layer_source_system(layer)` to the world, exactly as mikro reads a layer -- and nothing
+about time is a column of it. A spikes or events layer has no lens and shows its whole dataset:
+windowing it is the viewer's business, not a second selection vocabulary on the server.
 
-| | Input | Refused unless |
-|---|---|---|
-| analog signal | `dataset`, `samplingRate`, `tStart`, `validity` | the dataset has a `TIME` axis for the law to act on |
-| irregular signal | `dataset`, `timesDataset` | one instant per sample; the times dataset lives alone in its system (R3) and its `ValueUnit` is the clock's unit |
-| spike train | `dataset`, `waveformsDataset`, `tStart`, `tStop` | the dataset has exactly one axis and it is `INDEX` (its name is read, not assumed) |
-| simulation | `recordings` / `stimuli` `{dataset, kind, site…}`, `timeDataset` **xor** `sampling` | every dataset has a `TIME` axis and the same sample count |
+**Pickers are mikro's COLUMN entries**, stored in the same JSON shape (`core/render/pickers.py`):
+a table, a column, a `joinPath` of `Column.references` hops, a colormap and its window. An
+events layer's rows are its table's rows; a spikes layer's units are the rows of the table
+identifying its unit axis (`SpikesLayer.unitTable`). A categorical column takes a qualitative
+colormap, a measure a continuous one, checked at the boundary (`core/logic/ephys_pickers.py`).
 
-And in every case: **one dataset is timed once on one clock**. Two edges between the same
-two spaces are rivals the path search chooses between, so naming a dataset twice against
-one clock is refused (`clocks.TimedOnce`).
+**CS first.** A session is built as mikro builds a staging: spaces and edges first, then the
+composition read off them.
 
-Deleting an interpretation deletes the interpretation: `deleteBlock` and `deleteSimulation`
-remove their rows and sweep the clocks left empty — which takes the timing edges onto those
-clocks, and the offsets out of them, along — and leave every dataset where it was.
-Deleting a single signal, recording or stimulus removes its own timing edge with it.
-The other direction does cascade: `deleteArrayDataset` takes the signals and recordings
-that named it, because an interpretation of data that no longer exists is one of nothing.
+1. `createCoordinateSystem` -- the session clock, one TIME axis, `epoch` = when it started;
+2. `createArrayDataset` / `createTableDataset` / `createSparseDataset` -- the data;
+3. `createSamplingLaw` for every regularly sampled dataset *and* every raster, a FIELD
+   `createTransformation` for an irregularly sampled one, `createClockOffset` for a segment's
+   clock onto the session's, or an event table's space onto either;
+4. `createExperimentFromCoordinateSystem(session clock)` -- a layer for everything that reaches
+   the clock (`core/logic/experiment.py`, mikro's `bootstrap_scene_from_system`): TRACE for an
+   array dataset with a TIME axis (never a times dataset -- that is a lookup's map), SPIKES for
+   a raster, EVENTS for a table with a TIME column, ANNOTATION for a collection. It authors no
+   edges; `skipUnplaceable` leaves out what does not reach rather than refusing.
+
+`createSamplingLaw` and `createClockOffset` are the only elektro-only timing mutations, and they
+write nothing `createTransformation` could not: they exist because a rate and a start arrive as
+kanne quantities and the edge wants float64 numbers in the *clock's* unit, a period rather than
+a rate. Both refuse a rival -- a second law of one grid onto one clock, a second offset of one
+clock onto another -- because two edges between the same two spaces are rivals the path search
+chooses between, not a correction (`clocks.TimedOnce`).
+
+There is **no `offset` on a layer**, and no longer one on anything but the edge. It used to be a
+column on every view, and a stimulus view and a recording view of one run could state two
+offsets and silently misalign stimulus and response. An offset is a fact about a clock, shared
+by everything timed on it, and stated once. `createTraceLayer` keeps one piece of input sugar,
+`window`: a stretch of time on the dataset's own clock, lowered to a lens by inverting its
+sampling law (refused over a lookup, which has no closed-form inverse; a dataset timed on two
+clocks needs the `clock` named).
+
+**A simulation** is a run of a neuron model: `model`, the integrator's `dt` and `duration`, and a
+`clock`. What was recorded where is **not** a row of it: it is a `RecordingSite` or
+`StimulusSite` spoke on the dataset's own anchor (`{}` for the dataset, `{c: i}` per channel),
+beside the rig state, written by `createArrayDataset` -- a site is a fact of the measurement,
+not of the run, and the data layer does not point at the interpretation layer.
+`createSimulation(datasets, sampling | timeDataset)` writes the clock and one timing edge per
+named dataset; with no datasets it mints the clock alone, and datasets are timed on it later,
+one `createSamplingLaw` at a time. `Simulation.datasets` / `.recordings` / `.stimuli` are read
+off the graph: the datasets with a timing edge onto its clock, and among them those whose
+anchors carry the matching spoke.
+
+Deleting an interpretation deletes the interpretation. `deleteExperiment` and `deleteLayer`
+leave every dataset where it was; `deleteSimulation` sweeps its clock once nothing is laid out on
+it, which takes the timing edges onto it along. The other direction cascades: deleting a dataset
+takes the layers that drew it, because a layer of data that no longer exists is a layer of nothing.
 
 ## What was mapped onto what
 
-| Was a column | Is now |
+Two passes. The first turned every time column into an edge; the second turned every row that
+*named* a dataset -- a signal, a recording, a view -- into a layer, a spoke, or nothing.
+
+| Was | Is now |
 |---|---|
-| `AnalogSignal.sampling_rate`, `.t_start` | the **sampling law**: one `BY_DIMENSION` edge carrying a 1×2 affine, sample grid → segment clock |
-| `AnalogSignal.time_trace` | gone — it was a second copy of the same fact, free to disagree with the first |
-| `IrregularlySampledSignal.time_trace` | the field of a **time lookup**: a `FIELD` edge, signal grid → segment clock |
-| *(spike times had no relation to time at all)* | a self-field `FIELD` edge, spike grid → segment clock |
-| `Block.recording_time` | the `epoch` of the block's `clock` |
-| `BlockSegment.start_time` / `.end_time` | an offset edge, segment clock → session clock; `endTime` is gone |
+| `AnalogSignal` (+ `.sampling_rate`, `.t_start`) | an `ArrayDataset` and its **sampling law** (one `BY_DIMENSION` edge, grid → clock, `createSamplingLaw`); drawn as a TRACE layer |
+| `IrregularlySampledSignal` (+ `.time_trace`) | an `ArrayDataset` and a **time lookup** (a FIELD edge whose field is a times dataset); drawn as a TRACE layer |
+| `SpikeTrain` (one unit's spike times, `t_start` / `t_stop`, `waveforms`) | one row of a **spike raster**: a `SparseDataset` over `(unit, t)`, its `t` placed by a sampling law, its `unit` identified by a units table; drawn as a SPIKES layer. The observation window is the raster's extent along `t`; templates are an `ArrayDataset (unit, c, w)` derived from the raster |
+| Neo `Event` / `Epoch` (were annotations on a segment clock) | a `TableDataset` with a TIME column (and a stop column for an epoch), placed on the clock by an offset; drawn as an EVENTS layer. Annotations remain for hand-drawn marks |
+| `Block` (+ `.recording_time`, `.clock`, `.folder`, `.origin`) | a session **clock** -- a `CoordinateSystem` whose `epoch` is the recording time -- plus the datasets timed on it, filed in a `Folder` and linked to their file by `sourceFiles` |
+| `BlockSegment` (+ `.start_time`) | a segment clock and an offset edge onto the session clock (`createClockOffset`) |
+| `BlockGroup` | gone: a channel group is `ChannelLabel` anchors; a unit group is a column of the units table |
+| `Recording` / `Stimulus` rows (`cell`, `location`, `position`, `kind`) | a `RecordingSite` / `StimulusSite` **spoke** on the dataset's anchor |
 | `Simulation.time_trace` | the field of the run's time lookups (`timeDataset`) — or absent, when the run has sampling laws |
 | `Experiment.time_trace` | `Experiment.world`, a space it adopts and never owns |
-| `ExperimentRecordingView.offset`, `ExperimentStimulusView.offset` | **one** offset edge per simulation clock → world |
-| `…View.duration` | the slices of the view's `Lens` |
+| `ExperimentRecordingView` / `ExperimentStimulusView` / `ExperimentAnnotationView` | one `ExperimentLayer` table, kinds TRACE / SPIKES / EVENTS / ANNOTATION |
+| `…View.offset` | **one** offset edge per clock → world (`createClockOffset`), shared by every layer over that clock |
+| `…View.duration` | `TraceLayer.duration`: the lens' extent over the sampling law's rate |
 | `AnalogSignal.unit`, `AnalogSignalChannel.unit`, `SpikeTrain.unit` | a `ValueUnit` anchor on the dataset (`{}`, or `{c: i}` per channel) |
 | `AnalogSignalChannel` (`index`, `name`) | a `ChannelLabel` anchor at `{c: index}` |
 | `Trace` (one store) | `ArrayDataset` + a `DataArray` per level |
@@ -166,9 +266,9 @@ that named it, because an interpretation of data that no longer exists is one of
 | `FileView` | `FileLink` — a link to a file is not a selection over a dataset |
 | `ROI` (`trace` FK, `min_t` / `max_t` in samples, kinds `LINE` `POINT` `SPIKE` `SLICE`) | `Annotation` in an `AnnotationCollection` — see below |
 
-Everything in the right-hand column that a client used to read is still readable, under the
-same name where there was one (`samplingRate`, `tStart`, `recordingTime`, `startTime`,
-`offset`, `duration`; `timeTrace` is `timeDataset`) — derived on read, from the edge.
+What a client used to read off a signal row is read off the graph now: a dataset's rate on a
+clock is its sampling law (`Transformation.affine`, or `TraceLayer.duration` for the shown
+stretch); a run's `samplingRate` and `timeDataset` are derived from its edges, as before.
 
 ### Why one edge and not two
 
@@ -189,8 +289,9 @@ optical acquisitions and are gone.
 The sample axis of a signal is **`TIME` with no unit, never `INDEX`** — even when sampling is
 irregular, the way a timelapse frame index is `TIME` in mikro. An `INDEX` axis has no
 metric, so the graph refuses any `SCALE` / `TRANSLATION` / `AFFINE` over it, and a sampling
-law could not be stated. `INDEX` is for what genuinely has none: a sweep, a trial, a spike
-number — which is exactly why a spike train reaches time through a lookup and not a rate.
+law could not be stated. `INDEX` is for what genuinely has none: a sweep, a trial, a unit.
+A spike raster's sample axis is TIME for the same reason a recording's is -- it is placed by
+a sampling law -- and its unit axis is INDEX.
 
 ### Annotations
 
@@ -202,13 +303,19 @@ system its shapes are drawn in**, and what that space is related to — by an ed
 a second FK on the shape — decides what the marks mean:
 
 - drawn over a **dataset's sample grid**, a collection marks that dataset, in samples;
-- drawn on a **segment's clock**, it marks *every signal of the segment at once*, in the
-  clock's unit. This is what Neo's events and epochs are: they belong to the segment;
+- drawn on a **segment's clock**, it marks *every dataset timed on the clock at once*, in the
+  clock's unit;
 - drawn on an **experiment's world**, it marks the timeline and everything laid out on it.
   `createAnnotation(experiment:)` is the sugar for this: the first mark mints the
   experiment's collection — a space copying the world's axes, an identity edge into the
-  world, and one `ExperimentAnnotationView` — and later marks append to it. Deleting the
-  experiment keeps what was drawn; only the view cascades.
+  world, and one ANNOTATION layer — and later marks append to it. Deleting the experiment
+  keeps what was drawn; only the layer cascades.
+
+Annotations are **hand-drawn marks**: an artifact someone flagged, a measurement drawn on a
+trace. Events and epochs that arrive in bulk -- a TTL channel's edges, a trial table, Neo's
+`Event` and `Epoch` read out of a file -- are rows, and rows are a `TableDataset` with a TIME
+column, drawn as an EVENTS layer. The two are different facts (a person's judgement, an
+acquisition's record) and keep different homes.
 
 A collection is a registered container (`graph.CONTAINERS`, `is_collection=True`), so it is
 a `Resident`, a derivation source, something that can be registered into a space, and a
@@ -248,15 +355,15 @@ value unit to be the clock's unit (see below).
 ### What stays a quantity column, and why
 
 kanne's canonical integers (picoseconds, nanohertz) remain the wire and column format.
-Three things stay columns although they are about time:
+Two things stay columns although they are about time:
 
 - `Simulation.dt` and `.duration` are the **integrator's** parameters (NEURON's `h.dt`,
   `h.tstop`). A run can record at a coarser interval than it integrates, so `dt` is not the
   sampling period and must not be read as one. `dt` is nullable: its old default was one
   *second*.
-- `SpikeTrain.t_start` and `.t_stop` are the **observation window**, which the spike times
-  cannot reproduce: no spikes over ten seconds is a different measurement from no spikes
-  over a hundred.
+- *(`SpikeTrain.t_start` / `.t_stop`, the observation window, went with the spike train: a
+  raster's window is its extent along `t`, which a zero column cannot shrink -- no spikes
+  over ten seconds and no spikes over a hundred are two rasters of different shape.)*
 
 Numbers *on an edge* are float64 in the output clock's unit. float64 seconds are exact to
 the picosecond for about 2.5 hours and good to ~15 ps over a day. `rate → period → rate`
@@ -281,8 +388,9 @@ expect — and it meant a simulation had to *create* its arrays to control where
 A run now writes one timing edge per dataset, all onto its one clock; that stimulus and
 response line up is a fact about those edges, and correcting one is correcting one.
 
-Signals, recordings and stimuli are **not** residents. They name a dataset; making them
-containers would give one array two homes.
+Layers and site spokes are **not** residents. A layer names data and a spoke describes it;
+making either a container would give one dataset two homes. Tables and sparse datasets *are*
+residents -- each lives in the space it owns (R1, as a collection does).
 
 ## Where this port differs from mikro
 
@@ -297,11 +405,12 @@ Each of these is deliberate, and each is marked where it happens in the code.
    `placeableIn` picker, and unplaceable past two hops. A search therefore also owns the
    frames chained *into* its root — backwards only, so a session clock shared by two
    experiments does not leak one's layout into the other.
-2. **Views over lookup-timed data are admitted.** mikro's [rfc10](../docs/rfc10-affine-placement-gate.md)
-   refuses a layer whose route does not condense into one affine map. A spike train, an
+2. **Layers over lookup-timed data are admitted.** mikro's [rfc10](../docs/rfc10-affine-placement-gate.md)
+   refuses a layer whose route does not condense into one affine map. An
    irregular signal and a variable-step simulation all reach time across a `FIELD`, which
-   never condenses, and a timeline can draw them without a matrix. `createExperiment` gates
-   on *reachability*; such a view reports `placement: PLACED`,
+   never condenses, and a timeline can draw them without a matrix. Every layer create and
+   rebind gates on *reachability* (`core/logic/experiment.py::assert_reaches`); such a layer
+   reports `placement: PLACED`,
    `placementInvariance: DIFFEOMORPHIC`, and `asAffine` errors, naming the edge that stopped
    it. The `placeableIn` **filters** and `placedSystems` stay strict, as in mikro: they
    answer "what can be laid out with one map". `inView` is not a picker -- it answers "what is
@@ -315,14 +424,15 @@ Each of these is deliberate, and each is marked where it happens in the code.
    unscoped; every type here mixes in `OrgScoped` and every id a client sends goes through
    `scoping.get_for_org`.
 6. **`WORLD_RELATIONS`.** mikro has one kind of composition (`scenes`) and spells it inline.
-   Four things are laid out over a space here — an experiment, a block, a segment, a
-   simulation — so it is a registry, read by the delete guard, the orphan sweep and
+   Two things are laid out over a space here — an experiment over its world, a simulation over
+   its clock — so it is a registry, read by the delete guard, the orphan sweep and
    `sweep_empty_systems`. `tests/test_architecture.py` derives it from the foreign keys, so
    a fifth composition is a failing test rather than a clock swept out from under it.
 7. **A space leaves with what it was for.** Nothing owns a space, and a dataset's FK to its
-   grid is `PROTECT`, so neither can cascade. `deleteArrayDataset`, `deleteDataArray` and
-   `deleteLens` delete the data and then sweep the grids left empty; `deleteBlock` and
-   `deleteSimulation` sweep the *clocks* left empty (`spaces.sweep_empty_systems`). mikro
+   grid is `PROTECT`, so neither can cascade. `deleteArrayDataset`, `deleteDataArray`,
+   `deleteLens`, `deleteTableDataset` and `deleteSparseDataset` delete the data and then sweep
+   the spaces left empty (`_generic.make_owned_space_delete` for the last two);
+   `deleteSimulation` sweeps the *clock* left empty (`spaces.sweep_empty_systems`). mikro
    leaves both to an orphan sweep. A *world* is never swept by deleting what was laid out
    over it.
 8. **Filters state what `null` means.** This service runs strawberry-django with
@@ -341,12 +451,40 @@ Each of these is deliberate, and each is marked where it happens in the code.
     query per system. `OrgScopedOrNested` scopes root reads and leaves the relation of an
     already-scoped parent alone. (Found by mikro's ported query-count test.)
 
-12. **The data layer's three additions**, listed under "The data layer" above: an atomic
-    `createArrayDataset`, anchors checked against the axes, and a `ValueUnit` spoke. And one
+12. **The data layer's additions**, listed under "The data layer" above: an atomic
+    `createArrayDataset`, anchors checked against the axes, a `ValueUnit` spoke, and the
+    `RecordingSite` / `StimulusSite` spokes (one per anchor, never both). And one
     substitution: `rigkit` for `optikit`, `AcquisitionMetadata` for `OmeMetadata`.
 13. **One delete predicate.** mikro passes an `owner` callable per model; this service has
     `core/guards.py` (`ANCHOR_PATHS`), so `core/mutations/_generic.py::make_delete` takes no
     `owner`. The store straddle — collect, delete, flag — is mikro's.
+14. **Two ways to identify an axis, not five.** `IdentificationKind` is `DATASET` and `TABLE`:
+    mikro's `MESH_COLLECTION`, `NETWORK_COLLECTION` and `NETWORK_COLLECTION_NODES` name
+    collections this service does not have, and `Column.nodeReferences` went with them
+    (`core/inputs/identification.py`, `core/logic/identification.py`, which returns two
+    things rather than three). `tests/test_print_schema.py` pins every other field against mikro's.
+15. **A sparse axis may be TIME** (`core/inputs/sparse.py`, `core/mutations/sparse_dataset.py`,
+    `graph.self_placed_axes`) -- see "Tables and sparse matrices". The one additive field of the
+    port; `identifiedBy` defaults to `[]` so a TIME axis can omit it. `identified_axes` is
+    mikro's, unchanged: the raster's TIME axis is *optional* for a keying FIELD, which is a
+    different rule from *identified* (an identified axis may not be named by the edge at all).
+16. **A layer's source is a database constraint** (`experiment_layer_has_the_source_its_kind_names`).
+    mikro checks "exactly one source, the one the kind draws" in its mutations only. And a
+    SPIKES kind exists where mikro deliberately has no sparse layer (a mikro matrix only
+    colours): here a raster *is* the thing drawn, a tick per nonzero. Layers default to
+    NORMAL blending, not ADDITIVE: a trace is a line in a lane, and summing two voltages'
+    pixels means nothing.
+17. **Pickers are COLUMN-only**, and their validation is a table walk, not a FIELD walk
+    (`core/logic/ephys_pickers.py`). An events layer's rows are its table's rows and a spikes
+    layer's units are its unit table's, so no picker crosses an edge -- which is why mikro's
+    `assert_edge_not_stranding_a_picker`, `attributePlans` and the options queries have no
+    counterpart. The stored JSON is mikro's COLUMN entry, field for field.
+18. **A sparse dataset is a file-link container.** mikro's `write_file_links` refuses one.
+19. **Two timing mutations**, `createSamplingLaw` and `createClockOffset`, which write nothing
+    `createTransformation` could not (see "The interpretation layer"), and
+    `createExperimentFromCoordinateSystem` seeds from the loose reachable set (divergences 1
+    and 2) rather than mikro's one-hop scan, so a raster timed on a segment clock chained
+    into a session clock is staged over the session.
 
 One thing was ported **verbatim although it looks wrong**: `_assert_epochs_agree` refuses
 *every* edge between two clocks anchored to different instants — `TRANSLATION` included —
@@ -376,38 +514,55 @@ mutation {
 }
 ```
 
+A session, CS-first -- a clock, the data timed on it, then the experiment read off it:
+
 ```graphql
 mutation {
-  createBlock(input: {
-    name: "session 12", recordingTime: "2026-09-17T09:00:00Z",
-    segments: [{ name: "baseline", startTime: "0 s", analogSignals: [{
-      dataset: "41", samplingRate: "30 kHz", tStart: "2 s" }] }]
-  }) {
-    clock { epoch }
-    segments { analogSignals {
-      samplingRate tStart                       # derived from ↓
-      samplingLaw { kind validity ... on ByDimensionTransformation { transformations { ... on AffineTransformation { affine } } } }
-      dataset { valueUnit intrinsicSystem { axes { name type unit } } }
-    } }
+  session: createCoordinateSystem(input: { name: "session 12", epoch: "2026-09-17T09:00:00Z",
+    axes: [{name: "t", type: TIME, unit: "second"}] }) { id }
+}
+# ... createArrayDataset (the recording, above), createTableDataset (units: unit_id INDEX, depth, quality;
+#     events: t TIME in seconds, stop, label), then the raster over the sorter's output:
+mutation {
+  createSparseDataset(input: { name: "sorted spikes", store: "<sporadik store>",
+    axes: [{name: "unit", identifiedBy: [{kind: TABLE, table: "<units>"}]}, {name: "t", type: TIME}] }) { id coordinateSystem { id } }
+}
+mutation {
+  a: createSamplingLaw(input: { source: "<recording grid>", clock: "<session>", samplingRate: "30 kHz", tStart: "2 s" }) { id }
+  b: createSamplingLaw(input: { source: "<raster space>",   clock: "<session>", samplingRate: "30 kHz", tStart: "2 s" }) { id }
+  c: createClockOffset(input: { clock: "<events space>", onto: "<session>", offset: "0 s" }) { id }
+}
+mutation {
+  createExperimentFromCoordinateSystem(input: { coordinateSystem: "<session>" }) {
+    layers {
+      kind placement placementInvariance pathToWorld { transformation { kind } }
+      ... on TraceLayer   { lens { dataset { name valueUnit } } duration }
+      ... on SpikesLayer  { sparseDataset { name } unitTable { name } }
+      ... on EventsLayer  { tableDataset { name } timeColumn stopColumn }
+    }
   }
 }
 ```
 
+A layer by hand, over a world of its own:
+
 ```graphql
 mutation {
-  createExperiment(input: { name: "paired pulse",
-    recordingViews: [{ recording: "7", offset: "50 ms", window: { start: "0 ms", stop: "200 ms" } }],
-    stimulusViews:  [{ stimulus:  "9", offset: "50 ms" }] }) {
-    world { registrations { kind } }            # ONE edge, shared by both views
-    recordingViews { placement placementValidity asAffine { matrix } pathToWorld { transformation { kind } } lens { activeAnchors { channelLabel { label } } } }
+  experiment: createExperiment(input: { name: "paired pulse" }) { id world { id } }
+}
+mutation {
+  createClockOffset(input: { clock: "<run clock>", onto: "<world>", offset: "50 ms" }) { id }   # ONE edge, shared by every layer of the run
+  createTraceLayer(input: { experiment: "<experiment>", dataset: "7", window: { start: "0 ms", stop: "200 ms" }, channelIndex: 0 }) {
+    placement placementValidity asAffine { matrix } duration lens { slices { axis start stop } }
   }
+  createSpikesLayer(input: { experiment: "<experiment>", sparseDataset: "3", rowOrderColumn: "depth",
+    colorBys: [{ table: "<units>", column: "quality", colormap: HUES }], activeColorBy: 0 }) { id }
 }
 ```
 
-`offset` and `window` are *input sugar*, lowered once: `offset` to one edge per clock (two
-views of one simulation stating different offsets are refused, by name), `window` to a lens
-in sample indices by inverting the sampling law (refused over a lookup, which has no
-closed-form inverse — cut a lens in samples with `createLens` instead).
+`window` is *input sugar*, lowered once to a lens in sample indices by inverting the sampling
+law (refused over a lookup, which has no closed-form inverse — cut a lens in samples with
+`createLens` instead). There is no `offset` sugar: an offset is `createClockOffset`, once per clock.
 
 ## Migrations
 
@@ -417,11 +572,47 @@ design forbids — and could never be tested, because the test settings disable 
 It creates the Postgres `cube` extension first (hand-added, as in mikro: `makemigrations`
 cannot emit it), so the database role needs the right to `CREATE EXTENSION`.
 Deploying this requires resetting the elektro database; stores whose rows are dropped become
-orphaned objects in S3. The datalayer app gained one ordinary migration
-(`0002_datalayerstore_orphaned_at`). `tests/test_architecture.py` checks that the models and the
+orphaned objects in S3. The datalayer app gained two ordinary migrations
+(`0002_datalayerstore_orphaned_at`, `0003_sparsestore_parquetstore_columns`), and the core
+migration was regenerated once more for layers, tables, sparse datasets and site spokes --
+another reset. `tests/test_architecture.py` checks that the models and the
 migration agree, and that the migration actually runs on an empty Postgres.
 
 ## Breaking changes for API clients
+
+**Layers, tables and sparse datasets** (the second pass):
+
+- **Removed:** `Block`, `BlockSegment`, `BlockGroup`, `AnalogSignal`,
+  `IrregularlySampledSignal`, `SpikeTrain`, `Recording`, `Stimulus` -- types, queries
+  (`blocks`, `block`, `blockStats`, `analogSignals`, `analogSignal`, `recordings`,
+  `recording`, `stimuli`, `stimulus`), `createBlock` and every `delete*` of them,
+  `put/releaseBlocks{In,From}Folder`, `File.blocks`, `Folder.blocks`, the `Block` member of
+  `FolderChild`, and `ArrayDataset.analogSignals` / `.irregularlySampledSignals` /
+  `.spikeTrains` / `.recordings` / `.stimuli` (→ `ArrayDataset.experimentLayers`,
+  `.simulations`, and the site spokes on `anchors`).
+- **Experiment views → layers:** `ExperimentView`, `ExperimentLensView`,
+  `ExperimentRecordingView`, `ExperimentStimulusView`, `ExperimentAnnotationView` and their
+  deletes → the `ExperimentLayer` interface (`TraceLayer`, `SpikesLayer`, `EventsLayer`,
+  `AnnotationLayer`), `Experiment.layers`, `layers` / `layer` queries, `createLayer`,
+  `updateLayer`, `deleteLayer`, `create{Trace,Spikes,Events,Annotation}Layer`,
+  `update{Trace,Spikes,Events}Layer`. `AnnotationCollection.experimentViews` →
+  `experimentLayers`. A view's `label` is a layer's `name`; `offset` is gone from every layer
+  (→ `createClockOffset`); `duration` is `TraceLayer.duration`.
+- **`createExperiment`** takes `coordinateSystem` (was `world`), `axes` and `epoch`, and no
+  views; new `createExperimentFromCoordinateSystem` and `updateExperiment`.
+- **`createSimulation`** takes `datasets: [ID]` (was `recordings` / `stimuli` with sites);
+  sites are `anchors: [{recordingSite: {...}}]` / `{stimulusSite: {...}}` on
+  `createArrayDataset`; `sampling` / `timeDataset` are required only with `datasets`.
+  `Simulation.recordings` / `.stimuli` return `ArrayDataset`s; new `Simulation.datasets`.
+- **New:** `createTableDataset` / `updateTableDataset` / `deleteTableDataset`,
+  `createSparseDataset` / `updateSparseDataset` / `deleteSparseDataset`, the sparse store's
+  `request/finish/refreshSparseUpload` and `request(General)SparseAccess`, `tableDatasets` /
+  `sparseDatasets` queries, `put/release{Table,Sparse}Datasets{In,From}Folder`,
+  `createSamplingLaw`, `createClockOffset`; `TABLE_DATASET` / `SPARSE_DATASET` file-link
+  containers; `TABLE_DATASET` derivation source; `Resident` and `InViewSource` gain
+  `TableDataset` and `SparseDataset`. The enums `ColorMap` and `Blending` are back (mikro's).
+
+**The first pass** (time columns → edges):
 
 - **The data layer is mikro's, by name.** `Trace` → `ArrayDataset` (+ `DataArray` levels);
   `fromTraceLike` → `createArrayDataset` with mikro's input (`data`, `scales`, `name`,
@@ -467,11 +658,19 @@ migration agree, and that the migration actually runs on an empty Postgres.
 ## Not done
 
 - **Spatial residents.** `SPACE` axes and spatial systems can be authored and registered
-  into, but nothing lives in one: no probe, electrode or morphology model.
-  `Recording.cell` / `.location` / `.position` stay descriptive. A collection is one line in
+  into, but nothing lives in one: no probe, electrode or morphology model. A site's `cell` /
+  `location` / `position` stay descriptive, and a units table's depth is an attribute column,
+  not a coordinate -- a probe space would make it one. A collection is one line in
   `graph.CONTAINERS` with `is_collection=True`; the dormant collection machinery is untouched.
-- **Waveform timing.** A spike train's `waveforms` dataset is named, but `leftSweep` and the
-  waveform sampling rate are not yet lowered to an edge into a peri-spike clock.
+- **Waveforms.** Per-unit templates are an array dataset `(unit, c, w)` derived from the raster
+  (UNMAPPABLE); its `w` axis is not lowered to a peri-spike clock, and per-*spike* waveforms
+  are not modelled -- a raster enumerates no spikes an array axis could be keyed by.
+- **Sparse colourings.** mikro colours a label layer by one slice of a matrix (`kind: SPARSE`);
+  here pickers are COLUMN-only, so a unit cannot yet be coloured by, say, its firing rate in a
+  window. `pickers.assert_sparse_dataset_not_in_a_picker` already guards the JSON for it.
+- **Server-side windows over spikes and events.** A spikes or events layer shows its whole
+  dataset; the viewer windows it. A raster's CSC layout makes a window one contiguous read
+  for a client that asks.
 - **Unit-converting lookups.** A times dataset must be in the clock's unit. `SEQUENCE[FIELD, SCALE]`
   would lift that.
 - **Non-contiguous selections.** A lens slices `start:stop:step`; channels `[0, 3, 7]` are
@@ -479,11 +678,12 @@ migration agree, and that the migration actually runs on an empty Postgres.
 - **Attaching an anchor after ingest.** Anchors are written by `createArrayDataset` only;
   mikro has the same gap outside its phasor spokes. A series resistance measured afterwards
   has no mutation yet.
-- **mikro's scene-only fields** have no counterpart: `ArrayDataset.scenes`, `defaultScene`,
-  `latestSnapshot`, `Lens.renderAxes`. What interprets a dataset is asked the other way:
-  `ArrayDataset.analogSignals`, `.recordings`, `.stimuli`, ….
+- **mikro's scene-only fields** have no counterpart: `defaultScene`, `latestSnapshot`,
+  `Lens.renderAxes`, snapshots, animations. What draws a dataset is asked the other way:
+  `ArrayDataset.experimentLayers`, `.simulations`.
 - **Annotation subscriptions.** mikro has none and neither does this; the `rois`
   subscription went with the ROI.
 - **Subscriptions.** `arrayDatasets` is scoped by organization channel and works. `files` reads
   its rows scoped, but nothing broadcasts to it yet.
-- **The Python client** (`packages/elektro`) is not updated by this change.
+- **The Python client** (`packages/elektro`) is not updated by this change, nor by the first
+  pass: it still speaks `createBlock` and the view inputs.

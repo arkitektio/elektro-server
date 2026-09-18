@@ -1,9 +1,9 @@
 """What is in a space, and how a space leaves: `inView` over lookup-timed data, `clearCoordinateSystem`, and the orphan sweep.
 
-The first is a decision this service made against mikro: a spike train or a variable-step run
-reaches its clock across a FIELD, which no single matrix expresses. mikro's pickers leave such
-data out, and so did `inView` here -- a recording absent from its own clock while
-`createExperiment` would happily show it. It is listed now, badged, and only the *pickers*
+The first is a decision this service made against mikro: an irregularly sampled signal or a
+variable-step run reaches its clock across a FIELD, which no single matrix expresses. mikro's
+pickers leave such data out, and so did `inView` here -- a recording absent from its own clock
+while an experiment would happily draw it. It is listed now, badged, and only the *pickers*
 stay strict.
 
 The other two are mikro's ``tests/test_space_helpers.py``, which had no counterpart: both
@@ -94,14 +94,14 @@ async def test_a_space_data_lives_in_cannot_be_cleared(aexecute, authenticated_c
 # --- the orphan sweep -------------------------------------------------------------------------------
 
 
-async def test_the_sweep_takes_only_spaces_that_are_nobodys(aexecute, authenticated_context, make_simulation_chain):
+async def test_the_sweep_takes_only_spaces_that_are_nobodys(aexecute, authenticated_context, make_simulation_chain, make_neuron_model):
     """Nothing living in it, nothing laid out over it, no edge touching it, nothing naming it."""
     ctx = seed._creation(authenticated_context)
     orphan = await seed.create_world(authenticated_context, "forgotten")
     dataset = await seed.create_dataset(authenticated_context, "Vm", seed.T_AXES, [100])
     chain = await make_simulation_chain()  # a clock something is laid out on, and a grid data lives in
-    block_clock = await sync_to_async(clocks.create_clock)(name="block clock", ctx=ctx)
-    await models.Block.objects.acreate(name="B", organization=authenticated_context.request.organization, clock=block_clock)
+    run_clock = await sync_to_async(clocks.create_clock)(name="run clock", ctx=ctx)
+    await models.Simulation.objects.acreate(name="R", model=await make_neuron_model(), duration=0, clock=run_clock)
     lonely_experiment_world = await seed.create_world(authenticated_context, "empty experiment")
     await models.Experiment.objects.acreate(name="E", organization=authenticated_context.request.organization, world=lonely_experiment_world)
 
@@ -109,8 +109,8 @@ async def test_the_sweep_takes_only_spaces_that_are_nobodys(aexecute, authentica
     assert not res.errors, res.errors
     assert res.data["deleteOrphanedCoordinateSystems"] == [str(orphan.pk)]
 
-    survivors = {dataset.coordinate_system_id, chain.clock.pk, chain.grid.pk, block_clock.pk, lonely_experiment_world.pk}
-    assert await models.CoordinateSystem.objects.filter(pk__in=survivors).acount() == len(survivors), "a clock with no edges is still a block's clock; a world with no views is still an experiment's"
+    survivors = {dataset.coordinate_system_id, chain.clock.pk, chain.grid.pk, run_clock.pk, lonely_experiment_world.pk}
+    assert await models.CoordinateSystem.objects.filter(pk__in=survivors).acount() == len(survivors), "a clock with no edges is still a run's clock; a world with no layers is still an experiment's"
 
 
 async def test_the_sweep_leaves_a_space_a_lookup_still_reads_through(aexecute, authenticated_context):

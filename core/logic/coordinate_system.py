@@ -1,8 +1,9 @@
 """Creating coordinate systems: shared spaces, the edges into them, and a lens' own space.
 
 **Vendored from mikro** (``mikro/core/logic/coordinate_system.py``). A source here is a
-dataset, a lens or a bare coordinate system; ``write_key_edges`` (a table keyed by a label
-mask) is gone with the tables it wrote edges for. The clocks and sampling laws this
+dataset, a lens, a table or sparse dataset, an annotation collection or a bare coordinate
+system; ``write_key_edges`` is mikro's, keyed by a DATASET only (mesh and network collections
+have no counterpart here). The clocks and sampling laws this
 service writes on top of these primitives live in :mod:`core.logic.clocks`.
 
 A SHARED system is the one coordinate system with no owner (see
@@ -115,21 +116,25 @@ def resolve_source_system(
     *,
     dataset: "models.ArrayDataset | None" = None,
     lens: "models.Lens | None" = None,
+    table_dataset: "models.TableDataset | None" = None,
+    sparse_dataset: "models.SparseDataset | None" = None,
     annotation_collection: "models.AnnotationCollection | None" = None,
     coordinate_system: "models.CoordinateSystem | None" = None,
 ) -> "models.CoordinateSystem":
     """The coordinate system a source is placed by, given the already-fetched owner.
 
     Exactly one owner must be non-null. A dataset is reached through its sample grid, a lens
-    through its own space, an annotation collection through the space it owns, a coordinate
-    system directly.
+    through its own space, a table dataset, a sparse dataset or an annotation collection
+    through the space it owns, a coordinate system directly. (elektro: mikro has no
+    ``sparse_dataset`` keyword -- a derivation cannot name one there -- but a spike raster is a
+    thing waveforms are computed from, so here it can.)
 
     Shared by registrations and derivations: both name "some container", and the answer to
     "which space stands for it" cannot sensibly differ between them.
     """
-    provided = [value for value in (dataset, lens, annotation_collection, coordinate_system) if value is not None]
+    provided = [value for value in (dataset, lens, table_dataset, sparse_dataset, annotation_collection, coordinate_system) if value is not None]
     if len(provided) != 1:
-        raise ValueError("A registration must name exactly one source: a dataset, a lens, an annotation collection, or a coordinate system.")
+        raise ValueError("A registration must name exactly one source: a dataset, a lens, a table dataset, a sparse dataset, an annotation collection, or a coordinate system.")
 
     if coordinate_system is not None:
         return coordinate_system
@@ -140,6 +145,18 @@ def resolve_source_system(
         system = graph_logic.lens_source_system(lens)
         if system is None:
             raise ValueError(f"Lens {lens.pk} has no coordinate system, so there is no space to derive from. Its dataset was created without axes: give the dataset its sample grid first.")
+        return system
+
+    if table_dataset is not None:
+        system = table_dataset.coordinate_system_or_none
+        if system is None:
+            raise ValueError(f"Table dataset '{table_dataset.name}' has no coordinate system to register.")
+        return system
+
+    if sparse_dataset is not None:
+        system = sparse_dataset.coordinate_system_or_none
+        if system is None:
+            raise ValueError(f"Sparse dataset '{sparse_dataset.name}' has no coordinate system to register.")
         return system
 
     if annotation_collection is not None:
@@ -161,6 +178,7 @@ def resolve_source_system(
 _DERIVATION_SOURCES: dict[str, tuple[type, str]] = {
     enums.DerivationSourceKind.LENS.value: (models.Lens, "lens"),
     enums.DerivationSourceKind.DATASET.value: (models.ArrayDataset, "dataset"),
+    enums.DerivationSourceKind.TABLE_DATASET.value: (models.TableDataset, "table_dataset"),
     enums.DerivationSourceKind.ANNOTATION_COLLECTION.value: (models.AnnotationCollection, "annotation_collection"),
     enums.DerivationSourceKind.COORDINATE_SYSTEM.value: (models.CoordinateSystem, "coordinate_system"),
 }
@@ -252,6 +270,167 @@ def write_derivation_edges(info, *, name: str, own_system: "models.CoordinateSys
                     field=field,
                     reason=transform.reason,
                     value_relation=low.value_relation,
+                    ctx=ctx,
+                )
+            )
+    return edges
+
+
+def write_key_edges(info, *, name: str, own_system: "models.CoordinateSystem", keyed_by: Sequence, ctx: CreationContext, produces: Sequence[str] | None = None) -> list["models.Transformation"]:  # noqa: ANN001 - kante's Info, and a list of KeyedByInput members
+    """Write one FIELD edge per source keying this table, source space -> table space.
+
+    The sibling of :func:`write_derivation_edges`, and deliberately not folded into it: a
+    derivation runs child -> source, and this runs the other way. Both sentences are true
+    of the same pair -- the table was computed from the mask, *and* the mask's pixels index
+    into the table -- and they are two edges because they are two directions. A FIELD has
+    no closed-form inverse, so neither can stand in for the other, and only the source ->
+    table one is an edge ``attributePlans`` can find: it looks for FIELD edges *landing on*
+    a table.
+
+    **Two kinds of source, one relation.** A label mask is the case where the array being
+    mapped is the array doing the mapping, so the mask's own grid is both the edge's input
+    and its field. A mesh collection is the same sentence over a different substrate: the
+    ids ride on its geometry rows rather than in pixels, so its own vertex space is input
+    and field alike. What both share -- and what earns a FIELD its place as an edge -- is
+    that standing somewhere in the source's space yields an id. A relation that needs a
+    *row* first is not this; it is ``Column.references``.
+    :func:`core.logic.graph.build_registration_edge` stores that self-field as NULL, which
+    is what keeps a dereferenced source deletable.
+
+    **The axis split is derived, not stated.** The rank rule
+    (:func:`core.logic.graph.assert_edge_rank`) says the axes a FIELD does not consume pass
+    through by name, and that leaves exactly one split for a given pair of systems::
+
+        consumed = source axes - table axes
+        produced = table axes - source axes
+
+    so a ``(t, y, x)`` mask keying a ``(t, instance)`` table consumes ``(y, x)``, produces
+    ``instance`` and passes ``t`` through, with no caller having had to work it out. The
+    same rule reads a collection correctly without a special case: a ``(z, y, x)`` mesh
+    keying an ``(object)`` table consumes all three -- it shares no axis with the table, so
+    nothing passes through -- while a per-frame ``(t, y, x)`` one keying ``(t, object)``
+    consumes ``(y, x)`` and passes ``t``. Asking a caller for the split would only be an
+    opportunity to state it wrong -- and a FIELD whose axes are wrong is not refused at
+    read, it is silently skipped, because a plan is discovered by the shape of its edge
+    rather than looked up by name.
+
+    ``produces``, when given, is the axis each entry's caller *said* the source keys, one per
+    entry and in the same order. It is checked against the derivation above rather than replacing
+    it: a sparse dataset carries identification on the axis, so the caller already knows which one
+    a mask supplies and saying so lets the refusal name both halves -- "you said the mask keys
+    `gene`" instead of "one place holds one id". Tables pass nothing and derive as they always did,
+    which is the right default: asking a caller for `consumed` would be asking them to restate the
+    two systems' axes at each other, and that is only an opportunity to state it wrong.
+
+    Everything is resolved before anything is written, for the same reason
+    :func:`write_derivation_edges` does it: a bad second entry must not leave the first
+    behind as a half-written dereference.
+    """
+    if not keyed_by:
+        return []
+
+    resolved = []
+    for entry in keyed_by:
+        kind = entry.kind.value if hasattr(entry.kind, "value") else entry.kind
+        try:
+            model, keyword = _DERIVATION_SOURCES[kind]
+        except KeyError:
+            # A bare lookup here was a 500. It is reachable only through a bug -- every
+            # caller filters on `AUTHORS_EDGE` first -- but the kinds that key and the
+            # kinds that identify are two overlapping vocabularies, and the one that is
+            # in both under a *different* spelling is the table: `TABLE_DATASET` here,
+            # `TABLE` there. A refusal that says why beats a traceback that says KeyError.
+            raise ValueError(
+                f"'{kind}' cannot key '{name}'. A source keys by having contents that *are* the ids -- a mask's pixel "
+                f"values, a collection's geometry -- which is a claim about space, and therefore an edge. A table is "
+                f"already in record-land: an axis whose positions are a table's rows states a foreign key instead, and "
+                f"authors no edge. Keyable kinds are {', '.join(sorted(_DERIVATION_SOURCES))}."
+            ) from None
+        source = get_for_org(model, info, id=entry.source_id)
+        resolved.append((entry, source_label(model, source), resolve_source_system(**{keyword: source})))
+
+    named = [system.pk for _, _, system in resolved]
+    duplicates = sorted({label for (_, label, system) in resolved if named.count(system.pk) > 1})
+    if duplicates:
+        raise ValueError(f"Each keyedBy entry must name a distinct source, but {', '.join(duplicates)} appears more than once. A second edge between the same pair says nothing the first did not")
+
+    table_axes = [axis.name for axis in own_system.axes.all()]
+    own_axes = set(table_axes)
+    # Hoisted out of the per-entry loop below: two ORM traversals, and the answer is a
+    # property of `own_system` alone -- nothing in the loop touches it. It was recomputed
+    # once per keying source.
+    identified = graph_logic.identified_axes(own_system)
+    # elektro: a spike raster's TIME axis is placed by its own sampling law, so a keying
+    # source passes it through or leaves it alone -- it never *produces* it.
+    self_placed = graph_logic.self_placed_axes(own_system)
+
+    stated = list(produces) if produces is not None else [None] * len(resolved)
+    if len(stated) != len(resolved):
+        raise ValueError(f"'{name}' names {len(resolved)} keying sources but {len(stated)} produced axes; they are one per entry, in the same order")
+
+    edges: list[models.Transformation] = []
+    with transaction.atomic():
+        for (entry, label, source_system), wanted in zip(resolved, stated):
+            source_axes = [axis.name for axis in source_system.axes.all()]
+            supplied = set(source_axes)
+            # Axes the table identifies itself are accounted for without the source supplying
+            # them, so they are neither consumed nor produced -- they are the product-space
+            # half of a table indexed by a pair. One definition, shared with the rank check;
+            # computed once above, since it depends on `own_system` and nothing else.
+            consumed = [axis for axis in source_axes if axis not in own_axes]
+            produced = [axis for axis in table_axes if axis not in supplied and axis not in identified and axis not in self_placed]
+
+            if not consumed:
+                raise ValueError(
+                    f"'{label}' cannot key '{name}': its axes {source_axes} are all axes of the table {table_axes} as well, so the edge would consume nothing and there is no map. "
+                    "A source keys a table by collapsing some of its axes into an id the table is indexed by; the axes the two share pass through instead"
+                )
+            if wanted is not None and produced != [wanted] and len(produced) <= 1:
+                # The caller named the axis and the derivation disagrees. Checked before
+                # "produces nothing" below because it is the more specific failure -- that is
+                # what this looks like from the derivation's side, and says nothing about which
+                # axis the caller meant. Not before the *two ids* refusal, though: `len(produced)
+                # > 1` is a fact about the table's shape and has prose of its own that took real
+                # argument to write, and now that the table path states `produces` too, this
+                # branch would otherwise shadow it on every product-space mistake.
+                because = (
+                    f"'{label}' has an axis of that name too, so '{wanted}' passes through rather than being supplied"
+                    if wanted in supplied
+                    else f"the axes it does supply are {produced}"
+                )
+                raise ValueError(
+                    f"'{label}' was declared to key '{wanted}' of '{name}', but the axes say otherwise -- {because}. "
+                    f"'{label}' spans {source_axes} and '{name}' spans {table_axes}; a source supplies the axes the target has and it does not."
+                )
+            if not produced:
+                raise ValueError(
+                    f"'{label}' cannot key '{name}': the table's axes {table_axes} are all axes of '{label}' {source_axes} as well, so the edge would produce nothing. "
+                    "The table needs a coordinate the source's ids supply -- an INDEX column of object ids"
+                )
+            # One place holds one id, whether it is a pixel or a surface, so one source
+            # supplies one id. `assert_field_produces` refuses this too, but from the
+            # field's side -- it reads as though the source were at fault and suggests
+            # giving it a value axis, which turns a label mask into a warp field and is not
+            # what anyone keying a table wants. The table's second id column is the thing to
+            # fix, so say that instead.
+            if len(produced) > 1:
+                raise ValueError(
+                    f"'{label}' cannot key '{name}': one place holds one id, so a source supplies one, but the table has {produced} that '{label}' has no axis for and would need it to supply {len(produced)}. "
+                    "Every axis a source does not produce has to be one it shares with the table, which passes through by name, or one the table identifies itself. "
+                    "Two shapes do work, and they say different things: declare the second id as a data column identified by the other table (`identifiedBy: [{kind: TABLE, table: ...}]`), when it is an attribute *of* a row; "
+                    "or, when a row is identified by the *pair*, keep it an axis -- `axisType: INDEX` with the same TABLE identification -- which says its positions are that table's rows and leaves this edge only one id to supply"
+                )
+
+            edges.append(
+                graph_logic.build_registration_edge(
+                    input_system=source_system,
+                    output_system=own_system,
+                    kind=enums.TransformKind.FIELD.value,
+                    name=entry.name or f"{label} -> {name}",
+                    input_axes=consumed,
+                    output_axes=produced,
+                    field=source_system,
+                    validity=entry.validity,
                     ctx=ctx,
                 )
             )

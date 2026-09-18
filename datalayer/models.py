@@ -225,7 +225,8 @@ class ZarrStore(DatalayerStore):
     is_prefix: ClassVar[bool] = True
 
     shape = models.JSONField(null=True, blank=True, help_text="The shape of the Zarr array stored at this location.")
-    chunks = models.JSONField(null=True, blank=True, help_text="The chunk size of the Zarr array stored at this location.")
+    chunks = models.JSONField(null=True, blank=True, help_text="The effective inner chunk shape of the Zarr array — the unit a reader can decode. For sharded arrays this is the sharding codec's inner chunk shape, not the chunk grid's.")
+    shards = models.JSONField(null=True, blank=True, help_text="The shard (outer storage object) shape when the array uses zarr v3 sharding_indexed; null for unsharded arrays. When set, `chunks` holds the inner chunk shape.")
     version = models.CharField(max_length=10, null=True, blank=True, help_text="The Zarr format version of the array stored at this location.")
     dtype = models.CharField(max_length=255, null=True, blank=True, help_text="The dtype of the Zarr array stored at this location.")
     dimension_names = models.JSONField(null=True, blank=True, help_text="The dimension names declared by the Zarr array.")
@@ -256,6 +257,7 @@ class ZarrStore(DatalayerStore):
         metadata = layer.get_zarr_metadata(self)
         self.shape = metadata.shape
         self.chunks = metadata.chunks
+        self.shards = metadata.shards
         self.dtype = metadata.dtype
         self.dimension_names = metadata.dimension_names
         self.fill_value = metadata.fill_value
@@ -270,6 +272,7 @@ class ZarrStore(DatalayerStore):
                 "path",
                 "shape",
                 "chunks",
+                "shards",
                 "dtype",
                 "dimension_names",
                 "fill_value",

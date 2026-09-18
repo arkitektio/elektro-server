@@ -338,7 +338,7 @@ class Datalayer:
         if shape is None or chunk_shape is None:
             raise ValueError("Malformed zarr.json metadata: missing shape or chunk shape.")
 
-        return base_models.ZarrMetadata(
+        parsed = base_models.ZarrMetadata(
             zarr_format=metadata["zarr_format"],
             node_type=metadata["node_type"],
             shape=shape,
@@ -351,6 +351,15 @@ class Datalayer:
             storage_transformers=metadata.get("storage_transformers"),
             dimension_names=metadata.get("dimension_names"),
         )
+
+        # Refused here, at finish, rather than by the reader that meets it: a sharded layout
+        # the frontend cannot decode would otherwise be stored and drawn as fill value.
+        try:
+            parsed.validate_sharding()
+        except ValueError as exc:
+            raise ValueError(f"The Zarr metadata of store {store.id} declares an unreadable sharding layout: {exc}") from exc
+
+        return parsed
 
     @staticmethod
     def prefix_bucket_keys() -> frozenset[str]:

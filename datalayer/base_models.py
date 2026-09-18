@@ -231,9 +231,13 @@ class ZarrMetadata(BaseModel):
 
         return self.data_type if isinstance(self.data_type, str) else None
 
-    @property
-    def chunks(self) -> list[int] | None:
-        """Return the regular chunk shape for callers using the legacy field name."""
+    def _chunk_grid_shape(self) -> list[int] | None:
+        """Return the chunk-grid shape from ``chunk_grid.configuration.chunk_shape``.
+
+        For a sharded array this is the *shard* shape — zarr v3 puts the outer
+        (storage-object) shape in the chunk grid and hides the readable inner
+        chunk shape inside the sharding codec's configuration.
+        """
 
         if not isinstance(self.chunk_grid, dict):
             return None
@@ -247,6 +251,93 @@ class ZarrMetadata(BaseModel):
             return None
 
         return cast(list[int], chunk_shape)
+
+    def _sharding_configuration(self) -> dict[str, JsonValue] | None:
+        """Return the ``sharding_indexed`` codec configuration, or None when unsharded.
+
+        Only ``codecs[0]`` is considered: readers require the sharding codec to sit
+        first (and alone) at the top level, and :meth:`validate_sharding` rejects any
+        other placement, so a sharding codec elsewhere must not silently flip the
+        chunks/shards split here.
+        """
+
+        if not self.codecs:
+            return None
+        first = self.codecs[0]
+        if not isinstance(first, dict) or first.get("name") != "sharding_indexed":
+            return None
+        configuration = first.get("configuration")
+        return configuration if isinstance(configuration, dict) else None
+
+    @property
+    def shards(self) -> list[int] | None:
+        """Return the shard (outer storage-object) shape, or None for unsharded arrays."""
+
+        if self._sharding_configuration() is None:
+            return None
+        return self._chunk_grid_shape()
+
+    @property
+    def chunks(self) -> list[int] | None:
+        """Return the effective inner chunk shape — the unit a reader can decode.
+
+        For a sharded array that is the sharding codec's inner ``chunk_shape``,
+        not the chunk grid's (which is the shard shape); unsharded arrays fall
+        back to the chunk grid.
+        """
+
+        configuration = self._sharding_configuration()
+        if configuration is not None:
+            inner = configuration.get("chunk_shape")
+            if isinstance(inner, list) and all(isinstance(item, int) for item in inner):
+                return cast(list[int], inner)
+            return None
+        return self._chunk_grid_shape()
+
+    def validate_sharding(self) -> None:
+        """Reject sharded layouts the platform's readers cannot decode.
+
+        Mirrors the frontend's sharding contract: ``sharding_indexed`` must be the
+        sole top-level codec, ranks must match, the shard must be an exact per-axis
+        multiple of the inner chunk, sharding must not nest, and the index location
+        must be a known value. Unsharded arrays pass untouched.
+
+        Raises:
+            ValueError: If a sharding codec is present but the layout is unreadable.
+        """
+
+        sharding_positions = [
+            i
+            for i, codec in enumerate(self.codecs)
+            if isinstance(codec, dict) and codec.get("name") == "sharding_indexed"
+        ]
+        if not sharding_positions:
+            return
+        if sharding_positions != [0] or len(self.codecs) != 1:
+            raise ValueError(f"'sharding_indexed' must be the sole top-level codec (found it at position {sharding_positions[0]} of {len(self.codecs)}); readers reject any other layout.")
+
+        configuration = self._sharding_configuration()
+        inner = configuration.get("chunk_shape") if configuration else None
+        inner_codecs = configuration.get("codecs") if configuration else None
+        if not isinstance(inner, list) or not inner or not all(isinstance(item, int) and item > 0 for item in inner) or not isinstance(inner_codecs, list):
+            raise ValueError("Malformed 'sharding_indexed' configuration: missing or invalid chunk_shape or codecs.")
+
+        shard = self._chunk_grid_shape()
+        if shard is None:
+            raise ValueError("Malformed zarr.json metadata: sharded array without a regular chunk grid shape.")
+        if len(inner) != len(shard):
+            raise ValueError(f"Sharding inner chunk rank {len(inner)} does not match the shard rank {len(shard)}.")
+        for axis, (shard_size, inner_size) in enumerate(zip(shard, inner)):
+            if shard_size % inner_size != 0:
+                raise ValueError(f"Shard shape {shard} is not an exact multiple of the inner chunk shape {inner} on axis {axis}.")
+
+        for codec in inner_codecs:
+            if isinstance(codec, dict) and codec.get("name") == "sharding_indexed":
+                raise ValueError("Nested 'sharding_indexed' codecs are not supported by readers.")
+
+        index_location = configuration.get("index_location") if configuration else None
+        if index_location is not None and index_location not in ("start", "end"):
+            raise ValueError(f"Unknown sharding index_location {index_location!r}; readers only support 'start' and 'end'.")
 
 
 class RequestParquetUploadInput(BaseModel):

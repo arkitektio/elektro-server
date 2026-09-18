@@ -267,7 +267,8 @@ class ZarrStore:
     bucket: str
     key: str
     shape: list[int]
-    chunks: list[int]
+    chunks: list[int] = strawberry.field(description="Effective inner chunk shape — the brick/residency unit a reader can decode. For sharded arrays this is the sharding codec's inner chunk_shape, not the chunk-grid (shard) shape.")
+    shards: list[int] | None = strawberry.field(description="Shard (outer storage object) shape for zarr v3 sharding_indexed arrays; null when unsharded. Shards exist to cut object count — readers should still treat `chunks` as the brick unit.")
     version: str | None
     dtype: str | None
     dimension_names: list[str | None] | None

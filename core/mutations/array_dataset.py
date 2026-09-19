@@ -4,11 +4,11 @@
 takes mikro's input and writes what mikro writes -- the dataset, its grid, a data array per
 level, the level edges, the derivation edges, the file links, the anchors. What differs is
 the anchor's spokes (a rig state, a value unit and acquisition metadata where mikro has a
-microscope state, a light path and phasors), that anchors are checked against the axes, and
-that deleting sweeps the spaces left empty. What a dataset *means* -- a signal of a block, a
-recording of a simulation -- is not said here at all: that is the interpretation layer
-(``core/mutations/block.py``, ``simulation.py``, ``experiment.py``), which names datasets by
-id exactly as mikro's scenes and layers do.
+microscope state, a light path and phasors -- and, for a simulated trace, its sites and its
+simulation state), that anchors are checked against the axes, and that deleting sweeps the
+spaces left empty. How a dataset is *drawn* is not said here at all: that is the
+interpretation layer (``experiment.py``), which names datasets by id exactly as mikro's
+scenes and layers do.
 """
 
 from kante.types import Info
@@ -135,6 +135,25 @@ class StimulusSiteInput:
     label: str | None = strawberry.field(default=None, description="A display label. Defaults to 'cell: location(position)'")
 
 
+class SimulationStateInputModel(BaseModel):
+    model: str
+    duration: int
+    dt: int | None = None
+
+
+@kante.pydantic_input(
+    SimulationStateInputModel,
+    description=(
+        "The anchored values were COMPUTED, by integrating a neuron model: the model that was run and NEURON's dt and tstop. elektro's own spoke -- the synthetic rig, "
+        "a simulated output's counterpart of `rig`. A run is its clock: the outputs timed onto one clock are one run, and must agree on it. An input (a stimulus waveform) carries none"
+    ),
+)
+class SimulationStateInput:
+    model: strawberry.ID = strawberry.field(description="The neuron model that was integrated. Every recording or stimulus site of the same dataset is part of this model")
+    duration: kanne_scalars.Duration = strawberry.field(description="How long the model was run for (NEURON's tstop)")
+    dt: kanne_scalars.Duration | None = strawberry.field(default=None, description="The integration time step (NEURON's dt). An integrator parameter, not the sampling period: a run can record more coarsely than it integrates")
+
+
 class CoordinateAnchorInputModel(BaseModel):
     axis_anchors: list[AxisAnchorInputModel]
     rig: RigStateModel | None = None
@@ -144,6 +163,7 @@ class CoordinateAnchorInputModel(BaseModel):
     value_unit: ValueUnitInputModel | None = None
     recording_site: RecordingSiteInputModel | None = None
     stimulus_site: StimulusSiteInputModel | None = None
+    simulation: SimulationStateInputModel | None = None
 
 
 @kante.pydantic_input(CoordinateAnchorInputModel, description="Input type for a coordinate anchor, which specifies a list of dimension anchors to anchor to")
@@ -156,6 +176,7 @@ class CoordinateAnchorInput:
     value_unit: ValueUnitInput | None = strawberry.field(default=None, description="Optional unit of the array's values at this coordinate. Anchor it to no axis at all to state it for the whole dataset (what `ArrayDataset.valueUnit` reads); anchor it per channel when the channels measure different things")
     recording_site: RecordingSiteInput | None = strawberry.field(default=None, description="(simulation) Where on the model the values at this coordinate were recorded. The whole dataset at `{}`, one channel at `{c: i}`. Not together with `stimulusSite`")
     stimulus_site: StimulusSiteInput | None = strawberry.field(default=None, description="(simulation) Where on the model the values at this coordinate were injected. The whole dataset at `{}`, one channel at `{c: i}`. Not together with `recordingSite`")
+    simulation: SimulationStateInput | None = strawberry.field(default=None, description="(simulation) The model and integrator parameters that computed the values at this coordinate. Usually once, at `{}`, for the whole dataset")
 
 
 class ScaleInputModel(BaseModel):
@@ -335,6 +356,22 @@ def assert_anchors_name_axes(anchors: list, axes: list[AxisInputModel]) -> None:
                 f"The anchor at {coordinates or '{} (the whole dataset)'} carries both a recording site and a stimulus site. One value was either recorded or injected: "
                 "a clamp's command and its measured response are two channels, each with a site of its own."
             )
+    assert_one_model_per_dataset(anchors)
+
+
+def assert_one_model_per_dataset(anchors: list) -> None:
+    """Refuse a dataset whose sites and simulation state name different models, or whose simulation states disagree.
+
+    A dataset was computed by one run of one model: its sites are places *in* that model, and
+    its integrator facts are that run's. Two answers on two anchors of one dataset would be
+    rivals, not detail.
+    """
+    runs = {(spoke.model, spoke.dt, spoke.duration) for anchor in anchors if (spoke := getattr(anchor, "simulation", None)) is not None}
+    if len(runs) > 1:
+        raise ValueError(f"The anchors of one dataset state {len(runs)} different simulation states. A dataset was computed by one run: one model, one dt, one duration.")
+    named = {spoke.model for anchor in anchors for spoke in (getattr(anchor, "recording_site", None), getattr(anchor, "stimulus_site", None), getattr(anchor, "simulation", None)) if spoke is not None}
+    if len(named) > 1:
+        raise ValueError(f"The sites and simulation state of one dataset name different neuron models ({sorted(named)}). A dataset was computed by one model, and its sites are places in that model.")
 
 
 def assert_axes_describe_the_store(axes: list, store: "models.ZarrStore") -> None:
@@ -561,6 +598,14 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
 
         if anchor.stimulus_site:
             models.StimulusSite.objects.create(anchor=coordinate_anchor, **_site_fields(info, anchor.stimulus_site))
+
+        if anchor.simulation:
+            models.SimulationState.objects.create(
+                anchor=coordinate_anchor,
+                model=get_for_org(models.NeuronModel, info, id=anchor.simulation.model),
+                duration=anchor.simulation.duration,
+                dt=anchor.simulation.dt,
+            )
 
     return dataset
 

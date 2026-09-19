@@ -18,6 +18,7 @@ from django.contrib.auth import get_user_model
 from core import enums
 from koherent.fields import ProvenanceField
 from django_choices_field import TextChoicesField
+from kanne_server.fields import QuantityField
 from authentikate.models import Organization
 from django.db.models import Q
 from datalayer.models import ZarrStore
@@ -428,6 +429,39 @@ class StimulusSite(SiteBase):
         help_text="What was clamped: current or voltage",
     )
 
+
+
+class SimulationState(models.Model):
+    """1:1 Spoke (Integrator Truth): these values were *computed*, by integrating a neuron model.
+
+    The synthetic rig. Where a wet recording carries its :class:`RigState` -- clamp mode,
+    temperature, the amplifier's settings -- a simulated output carries the integrator's: the
+    model that was run (``model``), NEURON's ``dt`` and ``tstop`` (``duration``). A fact of the
+    data, like every spoke, so it lives with the data.
+
+    **A run is its clock.** There is no run row: the clock minted for a run is a node with an
+    identity of its own, which run a trace belongs to is its timing edge onto that clock, and
+    what the run was is this spoke on each output, checked to agree on every clock
+    (``clocks.assert_one_run``). An input -- a stimulus waveform -- carries no spoke and may be
+    timed onto many runs' clocks. The sites of the same dataset name the same model
+    (`core/mutations/array_dataset.py`).
+
+    ``dt`` is not the sampling period: a run can record more coarsely than it integrates, and
+    how its samples are timed is the dataset's sampling law or time lookup onto the clock.
+    """
+
+    anchor = models.OneToOneField(CoordinateAnchor, related_name="simulation", on_delete=models.CASCADE)
+    # After ``anchor``: the org path follows the first required FK, and the spoke's
+    # organization is its dataset's, not its model's.
+    model = models.ForeignKey(
+        "core.NeuronModel",
+        on_delete=models.CASCADE,
+        related_name="simulation_states",
+        help_text="The neuron model that was integrated to compute these values",
+    )
+    duration = QuantityField(base_unit="picosecond", help_text="How long the model was run for (NEURON's tstop), stored in picoseconds")
+    # Nullable, with no default: an unstated time step is unknown, and says so.
+    dt = QuantityField(base_unit="picosecond", null=True, blank=True, help_text="The integration time step (NEURON's dt), stored in picoseconds. Not the sampling period")
 
 
 class Lens(models.Model):

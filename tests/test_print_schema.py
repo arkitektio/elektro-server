@@ -17,7 +17,7 @@ def test_provenance_filter_fields_exposed():
 
     These lookups only fail at query time (a FieldError on a bad relation path),
     so a build-time assertion is the cheapest guard that the mixins stay wired
-    into SimulationFilter/ExperimentFilter.
+    into the filters (ExperimentFilter, NeuronModelFilter, ...).
     """
     sdl = str(schema)
     for field in [

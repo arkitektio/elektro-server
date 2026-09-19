@@ -94,23 +94,22 @@ async def test_a_space_data_lives_in_cannot_be_cleared(aexecute, authenticated_c
 # --- the orphan sweep -------------------------------------------------------------------------------
 
 
-async def test_the_sweep_takes_only_spaces_that_are_nobodys(aexecute, authenticated_context, make_simulation_chain, make_neuron_model):
+async def test_the_sweep_takes_only_spaces_that_are_nobodys(aexecute, authenticated_context, make_simulation_chain):
     """Nothing living in it, nothing laid out over it, no edge touching it, nothing naming it."""
     ctx = seed._creation(authenticated_context)
     orphan = await seed.create_world(authenticated_context, "forgotten")
     dataset = await seed.create_dataset(authenticated_context, "Vm", seed.T_AXES, [100])
-    chain = await make_simulation_chain()  # a clock something is laid out on, and a grid data lives in
-    run_clock = await sync_to_async(clocks.create_clock)(name="run clock", ctx=ctx)
-    await models.Simulation.objects.acreate(name="R", model=await make_neuron_model(), duration=0, clock=run_clock)
+    chain = await make_simulation_chain()  # a clock data is timed onto, and a grid data lives in
+    unused_clock = await sync_to_async(clocks.create_clock)(name="run clock", ctx=ctx)
     lonely_experiment_world = await seed.create_world(authenticated_context, "empty experiment")
     await models.Experiment.objects.acreate(name="E", organization=authenticated_context.request.organization, world=lonely_experiment_world)
 
     res = await aexecute(SWEEP)
     assert not res.errors, res.errors
-    assert res.data["deleteOrphanedCoordinateSystems"] == [str(orphan.pk)]
+    assert sorted(res.data["deleteOrphanedCoordinateSystems"]) == sorted([str(orphan.pk), str(unused_clock.pk)]), "a clock nothing is timed onto is nobody's: a run is its clock only once an output is timed onto it"
 
-    survivors = {dataset.coordinate_system_id, chain.clock.pk, chain.grid.pk, run_clock.pk, lonely_experiment_world.pk}
-    assert await models.CoordinateSystem.objects.filter(pk__in=survivors).acount() == len(survivors), "a clock with no edges is still a run's clock; a world with no layers is still an experiment's"
+    survivors = {dataset.coordinate_system_id, chain.clock.pk, chain.grid.pk, lonely_experiment_world.pk}
+    assert await models.CoordinateSystem.objects.filter(pk__in=survivors).acount() == len(survivors), "a clock with timed data is in use; a world with no layers is still an experiment's"
 
 
 async def test_the_sweep_leaves_a_space_a_lookup_still_reads_through(aexecute, authenticated_context):

@@ -232,6 +232,22 @@ class SectionDominance:
     is_reference: bool
 
 
+def sessions_of(info: Info, datasets: "models.QuerySet") -> List["NeuronModelSession"]:
+    """The viewer's datasets among ``datasets``, grouped by the clock they are timed onto (`sites.sessions_of`)."""
+    from core.logic import sites
+
+    scoped = list(scoping.for_org(models.ArrayDataset, info).filter(pk__in=datasets.values("pk")).order_by("pk"))
+    return [NeuronModelSession(clock=clock, datasets=grouped) for clock, grouped in sites.sessions_of(scoped)]
+
+
+@strawberry.type(description="One session of a neuron model: a clock, and the model's datasets timed onto it -- one run, since a run is its clock")
+class NeuronModelSession:
+    clock: Optional[Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")]] = strawberry.field(
+        description="The clock the datasets are timed onto: the run. Null for the model's simulated datasets timed onto no clock yet"
+    )
+    datasets: List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]] = strawberry.field(description="The datasets timed onto this clock, in creation order")
+
+
 @strawberry_django.type(models.NeuronModel, filters=filters.NeuronModelFilter, pagination=True, ordering=filters.NeuronModelOrder)
 class NeuronModel(OrgScoped):
     id: auto
@@ -241,8 +257,23 @@ class NeuronModel(OrgScoped):
     environment: ModEnvironment
     model_collections: list[ModelCollection] | None
     mappings: List["WorkspaceMapping"] = strawberry_django.field()
-    simulations: List["Simulation"] = strawberry_django.field()
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+
+    @strawberry_django.field(
+        description="The array datasets computed by integrating this model: those carrying a `simulation` anchor on it, in the viewer's organization. A run is its clock: the outputs of one run are those timed onto one clock"
+    )
+    def simulated_datasets(self, info: Info) -> List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
+        return list(scoping.for_org(models.ArrayDataset, info).filter(anchors__simulation__model=self).distinct().order_by("pk"))
+
+    @strawberry_django.field(
+        description=(
+            "The model's simulated datasets grouped by the clock they are timed onto: one session per run, since a run is its clock. Read off the graph, never stored. "
+            "A dataset timed onto two clocks is in both; the datasets timed onto none come last, under a null clock"
+        )
+    )
+    def sessions(self, info: Info) -> List[NeuronModelSession]:
+        """Group :meth:`simulated_datasets` by the clock they are timed onto, in clock order."""
+        return sessions_of(info, models.ArrayDataset.objects.filter(anchors__simulation__model=self))
 
     @strawberry_django.field(description="The recording sites that are part of this model: every place on it some dataset's values were recorded from, in the viewer's organization")
     def recording_sites(self, info: Info) -> List[Annotated["RecordingSite", strawberry.lazy("core.types.array_dataset")]]:
@@ -252,9 +283,11 @@ class NeuronModel(OrgScoped):
     def stimulus_sites(self, info: Info) -> List[Annotated["StimulusSite", strawberry.lazy("core.types.array_dataset")]]:
         return list(scoping.for_org(models.StimulusSite, info).filter(model=self))
 
-    @strawberry_django.field(only=["json_model"])
+    @strawberry_django.field(only=["id", "json_model"])
     def config(self, info: Info) -> "ModelConfig":
-        return ModelConfigModel(**self.json_model)
+        from core.logic import sites
+
+        return sites.config_of(cast(models.NeuronModel, self))
 
     @strawberry_django.field(only=["json_model"])
     def changes(self, info: Info, to: strawberry.ID | None = None) -> List[Change]:
@@ -352,86 +385,6 @@ class NeuronModel(OrgScoped):
         ]
 
 
-@strawberry_django.type(models.Simulation, filters=filters.SimulationFilter, ordering=filters.SimulationOrder, pagination=True)
-class Simulation(OrgScoped):
-    """One run of a neuron model: the model, the integrator's parameters, and the clock it ran on."""
-
-    id: auto
-    name: str
-    description: str | None
-    creator: User | None
-    model: NeuronModel
-    duration: quantities.Duration = strawberry_django.field(description="How long the model was run for (NEURON's tstop)")
-    dt: quantities.Duration | None = strawberry_django.field(description="The integration time step (NEURON's dt). An integrator parameter, not the sampling period: a run can record more coarsely than it integrates. Null when unstated")
-    created_at: datetime.datetime
-    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
-    clock: Optional[Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")]] = strawberry_django.field(
-        description="The clock the run's datasets are timed against: a coordinate system with one TIME axis, in milliseconds by default. Laying a run into an experiment is one edge from this clock into the experiment's world"
-    )
-
-    @strawberry_django.field(
-        select_related=["clock"],
-        description="The array datasets timed on this run's clock -- recordings and stimuli alike, each by its own sampling law or time lookup. Read off the graph, never stored: timing a dataset on the clock is what makes it part of the run",
-    )
-    def datasets(self, info: Info) -> List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
-        """The datasets whose grid has a timing edge onto the clock."""
-        from core.logic import clocks
-
-        return clocks.datasets_timed_on(cast(models.Simulation, self).clock)
-
-    @strawberry_django.field(select_related=["clock"], description="The datasets of this run carrying a `recordingSite` on some anchor: what was recorded, and where")
-    def recordings(self, info: Info) -> List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
-        """The run's datasets with a recording site."""
-        return _with_site(cast(models.Simulation, self), "recording_site")
-
-    @strawberry_django.field(select_related=["clock"], description="The datasets of this run carrying a `stimulusSite` on some anchor: what was injected, and where")
-    def stimuli(self, info: Info) -> List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
-        """The run's datasets with a stimulus site."""
-        return _with_site(cast(models.Simulation, self), "stimulus_site")
-
-    @strawberry_django.field(
-        select_related=["clock"],
-        description=(
-            "The dataset whose values are the instants the run's samples were recorded at. Derived: it is the field of the time lookups from the run's datasets onto its clock. "
-            "Null for a run recorded at a fixed interval, which has a sampling law instead -- see `samplingRate`"
-        ),
-    )
-    def time_dataset(self, info: Info) -> Optional[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
-        """The times dataset, read off a lookup edge."""
-        from core.logic import clocks
-
-        simulation = cast(models.Simulation, self)
-        for grid in clocks.grids_timed_on(simulation.clock):
-            times = clocks.times_dataset_of(grid, simulation.clock)
-            if times is not None:
-                return times
-        return None
-
-    @strawberry_django.field(
-        select_related=["clock"],
-        description=(
-            "The rate the run's samples were recorded at, when every dataset timed on its clock agrees on one. Derived from their sampling laws -- each has its own edge onto the "
-            "clock, and this is their common value. Null for a run timed by `timeDataset`, and null when the edges have been corrected apart"
-        ),
-    )
-    def sampling_rate(self, info: Info) -> quantities.Frequency | None:
-        """The rate every sampling law of the run states, if they state one."""
-        from core.logic import clocks
-
-        simulation = cast(models.Simulation, self)
-        rates = {clocks.sampling_of(grid, simulation.clock)[0] for grid in clocks.grids_timed_on(simulation.clock)}
-        return rates.pop() if len(rates) == 1 else None
-
-
-def _with_site(simulation: "models.Simulation", spoke: str) -> list:
-    """The run's datasets with an anchor carrying ``spoke``, in timing order."""
-    from core.logic import clocks
-
-    datasets = clocks.datasets_timed_on(simulation.clock)
-    sited = set(models.CoordinateAnchor.objects.filter(dataset__in=datasets, **{f"{spoke}__isnull": False}).values_list("dataset_id", flat=True))
-    return [dataset for dataset in datasets if dataset.pk in sited]
-
-
 # The coordinate graph lives in its own module, at the path mikro keeps it. Imported last:
 # its lazy annotations point back at the types above.
 from core.types.coords import (  # noqa: E402,F401
@@ -459,6 +412,7 @@ from core.types.array_dataset import (  # noqa: E402,F401
     ValueUnit,
     RecordingSite,
     StimulusSite,
+    SimulationState,
     AcquisitionMetadata,
     Lens,
     Slice,

@@ -45,7 +45,9 @@ def _links_to_coordinate_systems() -> list[tuple[str, str, str]]:
         # The historical twins carry the same FKs and are rows about rows.
         if not model.__name__.startswith("Historical")
         for field in model._meta.get_fields()
-        if field.is_relation and field.many_to_one and field.related_model is CoordinateSystem
+        # A one-to-one is a link too (a simulation run's own clock); `concrete` keeps it to the
+        # forward side, not a reverse accessor some other model declares.
+        if field.is_relation and field.concrete and (field.many_to_one or field.one_to_one) and field.related_model is CoordinateSystem
     ]
 
 

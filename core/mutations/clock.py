@@ -6,7 +6,7 @@ elektro's own, and deliberately thin. Both edges can be written with mikro's
 could not. What these add is the arithmetic a client should not have to do: a rate and a start
 arrive as kanne quantities ("30 kHz", "2 s"), and the edge wants float64 numbers in the *clock's*
 unit, a period rather than a rate. :mod:`core.logic.clocks` is the one writer, shared with
-``createSimulation``.
+``createSession``.
 
 They are what replaced ``createBlock``. A recording session is built CS-first:
 

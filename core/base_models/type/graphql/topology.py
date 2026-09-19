@@ -1,7 +1,8 @@
 import uuid
-from typing import Optional, List, Dict, Set
+from typing import Annotated, Optional, List, Dict, Set
 from strawberry.experimental import pydantic
 import strawberry
+from kante.types import Info
 import re
 from kanne_server import scalars as quantities
 from ..topology import TopologyModel, CoordModel, ConnectionModel, SectionModel
@@ -31,6 +32,60 @@ class Section:
     cm: Optional[quantities.SpecificCapacitance] = strawberry.field(default=None, description="Specific membrane capacitance (NEURON cm). Unset inherits the model-wide default, then NEURON's built-in 1 µF/cm².")
     coords: List[Coord] | None = strawberry.field(default=None, description="The 3D coordinates (NEURON pt3d) describing the section's geometry. Required if length is not provided; when supplied they take precedence over length/diam. At least two points are needed to define a cable.")
     parent: Optional[Connection] = strawberry.field(default=None, description="The connection to this section's parent section. None for the root section of the cell.")
+
+    @strawberry.field(
+        description=(
+            "Where this section was recorded: the datasets with a recording site on it, grouped by the clock they are timed onto -- one session per run. "
+            "Read from the model's recording sites, in the viewer's organization; untimed datasets come last, under a null clock. Empty when the section was not read from a stored model"
+        )
+    )
+    async def sessions(self, info: Info) -> List[Annotated["NeuronModelSession", strawberry.lazy("core.types")]]:
+        # A plain strawberry resolver, not a strawberry_django one: nothing runs it off the
+        # event loop for us, and it reads the ORM.
+        from asgiref.sync import sync_to_async
+
+        from core import models
+        from core.logic import sites
+        from core.types import sessions_of
+
+        model_id = self._neuron_model_id
+        if model_id is None:
+            return []
+        recorded = sites.recorded_dataset_ids(model_id, cell=self._cell_id, location=self.id, sole_cell=self._sole_cell)
+        return await sync_to_async(sessions_of)(info, models.ArrayDataset.objects.filter(pk__in=recorded))
+
+    @strawberry.field(description="This section's id from outside its model, 'model:cell:section' (each part percent-encoded): what the `section` query takes. `id` is only unique within its cell. Null when the section was not read from a stored model")
+    def compound_id(self) -> strawberry.ID | None:
+        from core.logic import sites
+
+        if self._neuron_model_id is None or self._cell_id is None:
+            return None
+        return strawberry.ID(sites.compound_id(self._neuron_model_id, self._cell_id, self.id))
+
+    @strawberry.field(description="The neuron model this section is part of. Null when the section was not read from a stored model")
+    async def model(self, info: Info) -> Annotated["NeuronModel", strawberry.lazy("core.types")] | None:
+        from asgiref.sync import sync_to_async
+
+        from core import models, scoping
+
+        if self._neuron_model_id is None:
+            return None
+        return await sync_to_async(scoping.get_for_org)(models.NeuronModel, info, id=self._neuron_model_id)
+
+    @strawberry.field(description="The cell this section belongs to. Null when the section was not read from a stored model")
+    async def cell(self, info: Info) -> Annotated["Cell", strawberry.lazy("core.base_models.type.graphql.cell")] | None:
+        from asgiref.sync import sync_to_async
+
+        from core import models, scoping
+        from core.logic import sites
+
+        if self._neuron_model_id is None or self._cell_id is None:
+            return None
+
+        def _cell():  # noqa: ANN202 - a stamped CellModel
+            return sites.cell_of(scoping.get_for_org(models.NeuronModel, info, id=self._neuron_model_id), self._cell_id)
+
+        return await sync_to_async(_cell)()
 
 
 @pydantic.type(TopologyModel, description="Represents the topology of a cell, which defines its structure as a set of connected sections.")

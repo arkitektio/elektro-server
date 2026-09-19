@@ -35,6 +35,7 @@ from core import enums, guards, models, types
 from core.creation import CreationContext
 from core.inputs.coords import SelectorInput, SelectorInputModel, TransformInput, TransformSpec
 from core.logic import coordinate_system as coordinate_system_logic
+from core.logic import clocks
 from core.logic import graph as graph_logic
 from core.scoping import get_for_org
 
@@ -94,6 +95,7 @@ def create_transformation(info: Info, input: CreateTransformationInput) -> types
     input_system = get_for_org(models.CoordinateSystem, info, id=model.input)
     output_system = get_for_org(models.CoordinateSystem, info, id=model.output)
     field = get_for_org(models.CoordinateSystem, info, id=lowered.field) if lowered.field else None
+    clocks.assert_one_run(input_system, output_system)
 
     return graph_logic.build_registration_edge(
         input_system=input_system,

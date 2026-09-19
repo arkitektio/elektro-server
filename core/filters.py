@@ -236,18 +236,6 @@ class WorkspaceMappingFilter(IDFilterMixin):
     id: auto
 
 
-@strawberry_django.filter_type(models.Simulation)
-class SimulationFilter(
-    IDFilterMixin,
-    SearchFilterMixin,
-    CreatedAtFilterMixin,
-    CreatorFilterMixin,
-    ProvenanceFilterMixin,
-):
-    id: auto
-    name: Optional[FilterLookup[str]]
-
-
 @strawberry_django.filter_type(models.NeuronModel)
 class NeuronModelFilter(
     IDFilterMixin,
@@ -300,12 +288,6 @@ class ModelWorkspaceOrder:
 
 @strawberry_django.order_type(models.WorkspaceMapping)
 class WorkspaceMappingOrder:
-    id: auto
-    created_at: auto
-
-
-@strawberry_django.order_type(models.Simulation)
-class SimulationOrder:
     id: auto
     created_at: auto
 
@@ -402,6 +384,13 @@ class PlaceableFilter:
         default=None,
         description="Keep only what *needed* a lineage tree to get here: the filtered, decimated and sorted datasets placed by an ancestor's registration. What the space registers directly is dropped",
     )
+    require_affine: bool | None = strawberry.field(
+        default=None,
+        description=(
+            "(elektro) Set false to ask *what is in this space* rather than *what can be drawn in it*: also admit what reaches it across a FIELD -- a variable-step run timed onto its "
+            "clock by a lookup, a spike train. What is in a session is what is placed onto its clock; a picker keeps the strict default, which only offers what one affine map can draw"
+        ),
+    )
 
 
 @kante.filter_type(models.CoordinateSystem)
@@ -424,7 +413,7 @@ class CoordinateSystemFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterM
             return Q()
         return Q(**{f"{prefix}datasets__id": value}) | Q(**{f"{prefix}lenses__dataset_id": value}) | Q(**{f"{prefix}data_arrays__dataset_id": value})
 
-    @kante.filter_field(description="Filter to the spaces something composes over without living in them: an experiment's world, a block's or a segment's or a simulation's clock. False finds the spaces nothing is laid out in")
+    @kante.filter_field(description="Filter to the spaces something composes over without living in them: an experiment's world. False finds the spaces nothing is laid out in")
     def composed_over(self, info: Info, value: bool | None, prefix: str) -> Q:
         if value is None or not graph_logic.WORLD_RELATIONS:
             return Q()
@@ -490,7 +479,7 @@ class LensFilter(IdsFilterMixin):
         # Placeability is a property of the *dataset*, so every lens of a placeable dataset is
         # placeable and this stays a plain indexed `dataset_id__in` with no `distinct()`.
         # `bool(...)`: an omitted nested field can arrive as `strawberry.UNSET`, which is not None.
-        return Q(**{f"{prefix}dataset_id__in": graph_logic.placeable_lens_dataset_ids(space, derived_only=bool(value.derived_only))})
+        return Q(**{f"{prefix}dataset_id__in": graph_logic.placeable_lens_dataset_ids(space, derived_only=bool(value.derived_only), require_affine=value.require_affine is not False)})
 
 
 # --- Annotations (vendored from mikro's core/filters.py) ---------------------------------------
@@ -1013,7 +1002,7 @@ class ArrayDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin
         space = _placeable_destination(info, value.space)
         if space is None:
             return Q(pk__in=[])
-        return Q(**{f"{prefix}id__in": graph_logic.placeable_lens_dataset_ids(space, derived_only=bool(value.derived_only))})
+        return Q(**{f"{prefix}id__in": graph_logic.placeable_lens_dataset_ids(space, derived_only=bool(value.derived_only), require_affine=value.require_affine is not False)})
 
     @kante.filter_field(description="Filter to the datasets living in this coordinate system. Usually one; several when datasets genuinely share a frame")
     def coordinate_system(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
@@ -1257,7 +1246,7 @@ class SparseDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixi
         space = _placeable_destination(info, value.space)
         if space is None:
             return Q(pk__in=[])
-        placeable = graph_logic.placeable_system_ids_in(space, derived_only=bool(value.derived_only))
+        placeable = graph_logic.placeable_system_ids_in(space, derived_only=bool(value.derived_only), require_affine=value.require_affine is not False)
         return Q(**{f"{prefix}coordinate_system_id__in": placeable})
 
 
@@ -1301,7 +1290,7 @@ class TableDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin
         space = _placeable_destination(info, value.space)
         if space is None:
             return Q(pk__in=[])
-        return Q(**{f"{prefix}id__in": graph_logic.placeable_table_dataset_ids(space)})
+        return Q(**{f"{prefix}id__in": graph_logic.placeable_table_dataset_ids(space, require_affine=value.require_affine is not False)})
 
 
 def _systems_derived_from_dataset(dataset_id: strawberry.ID):

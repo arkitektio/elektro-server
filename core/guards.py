@@ -42,7 +42,6 @@ ANCHOR_PATHS: dict[type, tuple[str, ...]] = {
     models.ArrayDataset: (),
     models.TableDataset: (),
     models.SparseDataset: (),
-    models.Simulation: (),
     models.AnnotationCollection: (),
     # An annotation carries its own creator and provenance: whoever drew a shape may delete it,
     # whoever owns the collection it was drawn into.
@@ -72,6 +71,7 @@ ANCHOR_PATHS: dict[type, tuple[str, ...]] = {
     models.ValueUnit: ("anchor", "dataset"),
     models.RecordingSite: ("anchor", "dataset"),
     models.StimulusSite: ("anchor", "dataset"),
+    models.SimulationState: ("anchor", "dataset"),
 }
 
 

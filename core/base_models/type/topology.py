@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from typing import Dict, List, Optional
 from kanne_server import quantities as pq
 
@@ -31,6 +31,10 @@ class SectionModel(BaseModel):
     cm: Optional[pq.SpecificCapacitance] = Field(default=None, description="Specific membrane capacitance (NEURON cm). Unset inherits the model-wide default, then NEURON's built-in 1 µF/cm².")
     coords: List[CoordModel] | None = Field(default=None, description="The 3D coordinates (NEURON pt3d) describing the section's geometry. Required if length is not provided; when supplied they take precedence over length/diam. At least two points are needed to define a cable.")
     parent: Optional[ConnectionModel] = Field(default=None, description="The connection to this section's parent section. None for the root section of the cell.")
+    # Where this section was read from, stamped by `core.logic.sites.config_of` (see CellModel).
+    _neuron_model_id: int | None = PrivateAttr(default=None)
+    _cell_id: str | None = PrivateAttr(default=None)
+    _sole_cell: bool = PrivateAttr(default=False)
 
 
 

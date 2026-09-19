@@ -92,10 +92,11 @@ CONTAINERS: tuple[Container, ...] = (
 #: The reverse accessors from ``CoordinateSystem`` to the *compositions* over it: the rows
 #: that name a space as the one they are laid out in, without living in it. mikro has one
 #: (``scenes``) and spells it inline in three places -- the delete guard, the orphan sweep
-#: and the ``scene`` filter. There are two here -- an experiment over its world, a simulation
-#: over its clock -- so it is a registry: a space any of these points at is in use even when no
-#: data lives in it. (A recording session is not one: it *is* its clock, and nothing else.)
-WORLD_RELATIONS: tuple[str, ...] = ("experiments", "simulations")
+#: and the ``scene`` filter. There is one here too -- an experiment over its world -- kept a
+#: registry so a new kind of composition is protected by the line that declares it: a space any
+#: of these points at is in use even when no data lives in it. (A session is not one, recorded
+#: or simulated: it *is* its clock, and what was run is a spoke on its outputs.)
+WORLD_RELATIONS: tuple[str, ...] = ("experiments",)
 
 #: The model a container key resolves back to. A key names one *node*, so the three models
 #: sharing the ``dataset`` key resolve to the one that is the node: the dataset itself.
@@ -2694,16 +2695,16 @@ def placeable_system_ids_in(space: "models.CoordinateSystem", *, derived_only: b
     return {system_id for system_id in reachable if keys.get(system_id) in descendants}
 
 
-def _placeable_systems(space: "models.CoordinateSystem", *, derived_only: bool = False) -> list["models.CoordinateSystem"]:
+def _placeable_systems(space: "models.CoordinateSystem", *, derived_only: bool = False, require_affine: bool = True) -> list["models.CoordinateSystem"]:
     """The placeable coordinate systems as rows.
 
     No `select_related` of owners any more: a space has none. Callers that need to know what
     lives in these spaces ask :func:`residence_map` over their ids, in three queries.
     """
-    return list(models.CoordinateSystem.objects.filter(pk__in=placeable_system_ids_in(space, derived_only=derived_only)))
+    return list(models.CoordinateSystem.objects.filter(pk__in=placeable_system_ids_in(space, derived_only=derived_only, require_affine=require_affine)))
 
 
-def placeable_lens_dataset_ids(space: "models.CoordinateSystem", *, derived_only: bool = False) -> set[int]:
+def placeable_lens_dataset_ids(space: "models.CoordinateSystem", *, derived_only: bool = False, require_affine: bool = True) -> set[int]:
     """The datasets every one of whose lenses is placeable in this space.
 
     Placeability is a property of the *dataset*, not the individual lens: an unsliced lens'
@@ -2712,20 +2713,22 @@ def placeable_lens_dataset_ids(space: "models.CoordinateSystem", *, derived_only
     if any of a dataset's systems reaches it, every lens of it does. Keying on ``dataset_id``
     is therefore both correct and indexed, and needs no ``distinct()``.
 
-    ``derived_only`` passes straight through to :func:`placeable_system_ids_in`: the
-    question is asked of the container, and a dataset's lenses and levels share its
-    container, so the reduction is the same either way.
+    ``derived_only`` and ``require_affine`` pass straight through to
+    :func:`placeable_system_ids_in`: the question is asked of the container, and a dataset's
+    lenses and levels share its container, so the reduction is the same either way.
+    ``require_affine=False`` is elektro's, and only the *opt-in* ``placeableIn.requireAffine``
+    passes it: "what is in this session", which a variable-step run answers across a FIELD.
     """
-    return {dataset_id for system in _placeable_systems(space, derived_only=derived_only) if (dataset_id := _fk_dataset_id(system)) is not None}
+    return {dataset_id for system in _placeable_systems(space, derived_only=derived_only, require_affine=require_affine) if (dataset_id := _fk_dataset_id(system)) is not None}
 
 
-def placeable_table_dataset_ids(space: "models.CoordinateSystem") -> set[int]:
+def placeable_table_dataset_ids(space: "models.CoordinateSystem", *, require_affine: bool = True) -> set[int]:
     """The table datasets whose own coordinate system is placeable in this space.
 
     A table owns its system one-to-one, so there is no dataset reduction as there is for a
     lens: the placeable table datasets are exactly those whose system is in the placeable set.
     """
-    placeable = {system.pk for system in _placeable_systems(space)}
+    placeable = {system.pk for system in _placeable_systems(space, require_affine=require_affine)}
     return set(models.TableDataset.objects.filter(coordinate_system_id__in=placeable).values_list("pk", flat=True)) if placeable else set()
 
 

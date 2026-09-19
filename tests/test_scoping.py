@@ -81,7 +81,7 @@ ORGANIZATION_PATHS = {
     "NeuronModel": "environment__organization",
     "RecordingSite": "anchor__dataset__organization",
     "RigState": "anchor__dataset__organization",
-    "Simulation": "model__environment__organization",
+    "SimulationState": "anchor__dataset__organization",
     "SparseArray": "dataset__organization",
     "SparseAxisReference": "dataset__organization",
     "SparseDataset": "organization",

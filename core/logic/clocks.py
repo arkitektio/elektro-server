@@ -118,6 +118,7 @@ def write_sampling_law(
         )
     if sampling_rate <= 0:
         raise ValueError("A sampling rate is positive: a zero or negative rate maps every sample onto one instant, or runs time backwards.")
+    assert_one_run(grid, clock)
 
     unit = clock_unit(clock)
     period = seconds_in(unit, _NANOHERTZ_PER_HERTZ / sampling_rate)
@@ -134,6 +135,38 @@ def write_sampling_law(
         validity=validity or enums.PlacementValidity.INFERRED,
         ctx=ctx,
     )
+
+
+def _run_facts(grids) -> dict[tuple, list[str]]:  # noqa: ANN001 - any iterable of system ids
+    """The integrator facts the datasets living in ``grids`` carry, each with the datasets stating it."""
+    facts: dict[tuple, list[str]] = {}
+    spokes = models.SimulationState.objects.filter(anchor__dataset__coordinate_system_id__in=grids).select_related("model", "anchor__dataset").order_by("pk")
+    for spoke in spokes:
+        facts.setdefault((spoke.model_id, spoke.model.name, spoke.dt, spoke.duration), []).append(spoke.anchor.dataset.name)
+    return facts
+
+
+def assert_one_run(grid: "models.CoordinateSystem", clock: "models.CoordinateSystem") -> None:
+    """Refuse timing ``grid`` onto ``clock`` when their outputs disagree about what was run.
+
+    A simulated run is its clock: the outputs timed onto one clock are one run, and each says
+    what that run was in its :class:`~core.models.SimulationState` -- the model, ``dt``,
+    ``duration``. Stated per output, so free to disagree, and this is where a disagreement would
+    come into being: the moment an output joins a clock whose other outputs say otherwise.
+    Traces that say nothing -- a wet recording, a derived dataset, a stimulus waveform used as
+    the *input* of many runs -- join any clock.
+    """
+    own = _run_facts([grid.pk])
+    if not own:
+        return
+    others = _run_facts([pk for pk in (g.pk for g in grids_timed_on(clock)) if pk != grid.pk])
+    stated = {**others, **own}
+    if len(stated) > 1:
+        spelled = "; ".join(f"model '{name}', dt {dt}, duration {duration} ps ({', '.join(datasets)})" for (_, name, dt, duration), datasets in stated.items())
+        raise ValueError(
+            f"The outputs timed onto '{clock.name}' are one run, and would disagree about what was run: {spelled}. "
+            "A run integrated one model at one dt for one duration; time an output of another run onto a clock of its own."
+        )
 
 
 def assert_is_times_dataset(times: "models.ArrayDataset", clock: "models.CoordinateSystem") -> None:
@@ -172,6 +205,7 @@ def write_time_lookup(
     the field's PROTECT.
     """
     assert_is_times_dataset(times, clock)
+    assert_one_run(grid, clock)
     field = times.coordinate_system
     if field is None:
         raise ValueError(f"'{times.name}' has no coordinate system, so it cannot be the field of a time lookup.")
@@ -350,7 +384,7 @@ def grids_timed_on(clock: "models.CoordinateSystem | None") -> "list[models.Coor
     A timing edge is any top-level edge landing on the clock whose input something *lives*
     in -- a sampling law or a time lookup out of a sample grid, or out of a spike raster's
     space. An offset from another clock lands here too, and is left out: nothing lives in a
-    clock. The reading ``Simulation.datasets`` and the experiment bootstrap share.
+    clock. The reading ``createSession`` and the experiment bootstrap share.
     """
     if clock is None:
         return []
@@ -380,15 +414,24 @@ def timing_clocks_of(grid: "models.CoordinateSystem | None") -> "list[models.Coo
     """
     if grid is None:
         return []
+    return timing_clocks_by_grid([grid.pk]).get(grid.pk, [])
+
+
+def timing_clocks_by_grid(grid_ids) -> "dict[int, list[models.CoordinateSystem]]":  # noqa: ANN001 - any iterable of system ids
+    """:func:`timing_clocks_of` for many grids in one query: each grid's clocks, in edge order."""
+    ids = {pk for pk in grid_ids if pk is not None}
+    if not ids:
+        return {}
     edges = (
-        models.Transformation.objects.filter(input=grid, parent__isnull=True, output__axes__type=enums.AxisTypeChoices.TIME.value, output__axes__unit__isnull=False)
+        models.Transformation.objects.filter(input_id__in=ids, parent__isnull=True, output__axes__type=enums.AxisTypeChoices.TIME.value, output__axes__unit__isnull=False)
         .select_related("output")
         .order_by("pk")
+        .distinct()
     )
-    seen: dict[int, "models.CoordinateSystem"] = {}
+    by_grid: dict[int, dict[int, "models.CoordinateSystem"]] = {}
     for edge in edges:
-        seen.setdefault(edge.output_id, edge.output)
-    return list(seen.values())
+        by_grid.setdefault(edge.input_id, {}).setdefault(edge.output_id, edge.output)
+    return {grid: list(clocks.values()) for grid, clocks in by_grid.items()}
 
 
 def drift_of(source: "models.CoordinateSystem | None", target: "models.CoordinateSystem | None") -> float | None:

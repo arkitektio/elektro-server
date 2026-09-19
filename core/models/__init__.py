@@ -390,52 +390,6 @@ class ExperimentLayer(models.Model):
         return f"{self.kind} layer {self.pk} in experiment {self.experiment_id}"
 
 
-class Simulation(models.Model):
-    """One run of a neuron model: what was injected, what was recorded, and the clock it ran on.
-
-    Every recording and stimulus of a run is an array dataset of its own, living in its own
-    sample grid, and each is timed against the simulation's one ``clock`` by an edge of its
-    own: a sampling law when the run recorded at a fixed interval, a time lookup through a
-    times dataset when it did not (NEURON's variable time step). That they line up is a fact
-    about those edges -- all onto one clock -- not about sharing a grid.
-
-    ``dt`` and ``duration`` stay columns, and are not that edge: they are the *integrator's*
-    parameters (NEURON's ``h.dt`` and ``h.tstop``). A run can record at a coarser interval
-    than it integrates, so ``dt`` is not the sampling period.
-    """
-
-    model = models.ForeignKey(NeuronModel, on_delete=models.CASCADE, related_name="simulations")
-    duration = QuantityField(base_unit="picosecond", help_text="How long the model was run for (NEURON's tstop), stored in picoseconds")
-    # Nullable, with no default: the old default was one *second*, which no integrator ever
-    # used. An unstated time step is unknown, and says so.
-    dt = QuantityField(base_unit="picosecond", null=True, blank=True, help_text="The integration time step (NEURON's dt), stored in picoseconds. Not the sampling period")
-    clock = models.ForeignKey(
-        "core.CoordinateSystem",
-        on_delete=models.RESTRICT,
-        # Nullable only for the `historical*` twin. Every write path sets it.
-        null=True,
-        blank=True,
-        related_name="simulations",
-        help_text="The clock the run's recordings and stimuli are timed against",
-    )
-    name = models.CharField(max_length=1000, help_text="The name of the run")
-    description = models.CharField(max_length=1000, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    creator = models.ForeignKey(
-        get_user_model(),
-        on_delete=models.CASCADE,
-        help_text="The user that created the run",
-        null=True,
-    )
-    provenance = ProvenanceField()
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    def __str__(self) -> str:
-        return f"Simulation {self.pk}: {self.name}"
-
-
 from core.models.coords import CoordinateSystem, Axis, Transformation  # noqa: E402,F401  (re-exported via core.models)
 from core.models.folder import Folder, FolderManager, File, FileLink  # noqa: E402,F401
 from core.models.array_dataset import (  # noqa: E402,F401
@@ -449,6 +403,7 @@ from core.models.array_dataset import (  # noqa: E402,F401
     ValueUnit,
     RecordingSite,
     StimulusSite,
+    SimulationState,
     Lens,
 )
 from core.models.annotation import AnnotationCollection, Annotation  # noqa: E402,F401

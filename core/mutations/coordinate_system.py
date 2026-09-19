@@ -189,7 +189,10 @@ def delete_coordinate_system(info: Info, input: DeleteCoordinateSystemInput) -> 
     # Every composition's FK is RESTRICT, so the database would refuse this anyway -- but it
     # would refuse with an IntegrityError naming a constraint, and this names what is in the way.
     for relation in graph_logic.WORLD_RELATIONS:
-        composed = list(getattr(system, relation).all()[:5])
+        # Asked through the related model rather than the accessor: a one-to-one's reverse
+        # accessor (a run's own clock) has no manager, and raises when there is no row.
+        link = models.CoordinateSystem._meta.get_field(relation)
+        composed = list(link.related_model.objects.filter(**{link.field.name: system})[:5])
         if composed:
             noun = type(composed[0]).__name__
             raise ValueError(

@@ -51,7 +51,7 @@ from .transformation import (
 from .lens import create_lens, delete_lens
 from .annotation import create_annotation, create_annotations, update_annotation, delete_annotation
 from .annotation_collection import create_annotation_collection, delete_annotation_collection
-from .simulation import *
+from .session import create_session
 from .experiment import create_experiment, create_experiment_from_coordinate_system, update_experiment
 from .experiment_layer import (
     create_layer,

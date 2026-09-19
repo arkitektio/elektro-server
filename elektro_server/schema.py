@@ -15,6 +15,7 @@ from datalayer.duck import DuckExtension
 from typing import Annotated
 from core.base_models.type.graphql.model import SynapticConnection, Exp2Synapse
 from core.base_models.type.graphql.model import ModelConfigModel
+from core.logic import sites as sites_logic
 from core.base_models.type.graphql.topology import Section
 from authentikate.strawberry.extension import AuthentikateExtension
 from strawberry_django.optimizer import DjangoOptimizerExtension
@@ -89,7 +90,6 @@ class Query:
     workspace_mappings: list[types.WorkspaceMapping] = strawberry_django.field()
 
     files: list[types.File] = strawberry_django.field()
-    simulations: list[types.Simulation] = strawberry_django.field()
     myfiles: list[types.File] = strawberry_django.field()
     children = strawberry_django.field(resolver=queries.children, description="List everything filed in a folder: its sub-folders, files, array, table and sparse datasets and annotation collections")
 
@@ -107,7 +107,7 @@ class Query:
         search: str | None = None,
     ) -> list[types.Cell]:
         model = scoping.get_for_org(models.NeuronModel, info, id=modelId)
-        l = ModelConfigModel(**model.json_model)
+        l = sites_logic.config_of(model)
 
         if search:
             return [cell for cell in l.cells if search in cell.id]
@@ -115,6 +115,16 @@ class Query:
             return [cell for cell in l.cells if cell.id in ids]
 
         return l.cells
+
+    @strawberry_django.field(description="Get one cell of a neuron model by its compound id, 'model:cell' (see `Cell.compoundId`)")
+    def cell(self, info: Info, id: ID) -> types.Cell:
+        model_id, cell_id = sites_logic.parse_compound_id(id, parts=2)
+        return sites_logic.cell_of(scoping.get_for_org(models.NeuronModel, info, id=model_id), cell_id)
+
+    @strawberry_django.field(description="Get one section of a cell of a neuron model by its compound id, 'model:cell:section' (see `Section.compoundId`)")
+    def section(self, info: Info, id: ID) -> Section:
+        model_id, cell_id, section_id = sites_logic.parse_compound_id(id, parts=3)
+        return sites_logic.section_of(scoping.get_for_org(models.NeuronModel, info, id=model_id), cell_id, section_id)
 
     @strawberry_django.field(permission_classes=[], description="The sections of one cell of a neuron model, read from the model's config")
     def sections(
@@ -127,7 +137,7 @@ class Query:
     ) -> List["Section"]:
         """Get all cells"""
         model = scoping.get_for_org(models.NeuronModel, info, id=modelId)
-        l = ModelConfigModel(**model.json_model)
+        l = sites_logic.config_of(model)
 
         for cell in l.cells:
             if cell.id == cellId:
@@ -171,11 +181,6 @@ class Query:
     def workspace_mapping(self, info: Info, id: ID) -> types.WorkspaceMapping:
         """Get a single workspace mapping by id"""
         return scoping.get_for_org(models.WorkspaceMapping, info, id=id)
-
-    @strawberry_django.field()
-    def simulation(self, info: Info, id: ID) -> types.Simulation:
-        """Get all simulations"""
-        return scoping.get_for_org(models.Simulation, info, id=id)
 
     @strawberry_django.field(permission_classes=[], description="Get a single array dataset by ID")
     def array_dataset(self, info: Info, id: ID) -> types.ArrayDataset:
@@ -373,6 +378,13 @@ class Mutation:
         resolver=mutations.create_sampling_law,
         description="Time a sample grid (an array dataset's, or a spike raster's) on a clock: one BY_DIMENSION edge stating `t = sample / samplingRate + tStart`, in the clock's unit. Refused when the grid is already timed on that clock",
     )
+    create_session = strawberry_django.mutation(
+        resolver=mutations.create_session,
+        description=(
+            "Time the named array datasets onto one clock -- a new one, or an existing one for a second batch -- one sampling law (or time lookup) each: a recording session, or one run "
+            "of a neuron model. Refused unless every dataset has a TIME axis with the same number of samples, and unless the simulated outputs on the clock agree on what was run"
+        ),
+    )
     create_clock_offset = strawberry_django.mutation(
         resolver=mutations.create_clock_offset,
         description="Place one clock on another -- a segment in its session, a session or a run in an experiment's world -- with one offset edge shared by everything timed on it. Refused when the two are already related",
@@ -385,10 +397,6 @@ class Mutation:
 
 
     create_neuron_model = strawberry_django.mutation(resolver=mutations.create_neuron_model, description="Create a new neuron model")
-    create_simulation = strawberry_django.mutation(
-        resolver=mutations.create_simulation,
-        description="Create a simulation: a run of a neuron model, its integrator parameters and its clock, and a timing edge onto that clock for each array dataset named. Creates no data; what was recorded where is each dataset's `recordingSite` / `stimulusSite`",
-    )
 
     # --- Guarded deletes ---------------------------------------------------
     # One delete per model. Each enforces the deletion guard (core.guards):
@@ -401,7 +409,6 @@ class Mutation:
     delete_mechanism = strawberry_django.mutation(resolver=mutations.delete_mechanism, description="Delete an existing mechanism")
     delete_neuron_model = strawberry_django.mutation(resolver=mutations.delete_neuron_model, description="Delete an existing neuron model")
     delete_experiment = strawberry_django.mutation(resolver=mutations.delete_experiment, description="Delete an experiment and its layers. Its world and everything drawn in it stay")
-    delete_simulation = strawberry_django.mutation(resolver=mutations.delete_simulation, description="Delete a simulation and its clock, which takes the timing edges onto it along. The array datasets it timed stay")
 
     from_file_like = strawberry_django.mutation(
         resolver=mutations.from_file_like,
@@ -544,7 +551,7 @@ class Mutation:
     )
     delete_coordinate_system = strawberry_django.mutation(
         resolver=mutations.delete_coordinate_system,
-        description="Delete an unused shared coordinate system. Refused while data lives in it, while anything is laid out over it (an experiment, a simulation), or while any transformation edge touches it. This is the only door a shared space leaves through -- deleting an experiment never deletes one",
+        description="Delete an unused shared coordinate system. Refused while data lives in it, while anything is laid out over it (an experiment), or while any transformation edge touches it. This is the only door a shared space leaves through -- deleting an experiment never deletes one",
     )
     clear_coordinate_system = strawberry_django.mutation(
         resolver=mutations.clear_coordinate_system,

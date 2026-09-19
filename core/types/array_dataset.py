@@ -2,7 +2,7 @@
 
 **Vendored from mikro** (``mikro/core/types/array_dataset.py``), at the same path, which is
 where ``core.types.coords`` expects to find what lives in a space. mikro keeps its scenes and
-layers in this module too; the interpretation layer here (simulations, experiments and their
+layers in this module too; the interpretation layer here (experiments and their
 layers) lives in ``core/types/__init__.py``, ``core/types/experiment.py`` and
 ``core/types/layers.py`` instead. What a dataset
 gains over mikro's is ``valueUnit`` / ``valueDimension`` and the reverse accessors to what
@@ -34,7 +34,7 @@ from datalayer.types import ZarrStore
 
 if TYPE_CHECKING:
     # Only for the lazy annotations below: each of these modules imports this one back.
-    from core.types import NeuronModel, Simulation
+    from core.types import NeuronModel
     from core.types.layers import ExperimentLayer
     from core.types.annotation import AnnotationCollection
     from core.types.file_link import FileLink
@@ -199,11 +199,12 @@ class ArrayDataset(OrgScoped):
         """The layers whose lens selects over this dataset."""
         return list(scoping.for_org(models.ExperimentLayer, info).filter(lens__dataset_id=self.pk).order_by("experiment_id", "order", "pk"))
 
-    @kante.django_field(description="The simulation runs this dataset is timed on: those whose clock its sample grid has a sampling law or a time lookup onto. Read off the graph, never stored")
-    def simulations(self, info: Info) -> List[Annotated["Simulation", strawberry.lazy("core.types")]]:
-        """The runs whose clock this dataset's grid is timed onto."""
-        clocks = models.Transformation.objects.filter(input_id=self.coordinate_system_id, parent__isnull=True).values("output_id")
-        return list(scoping.for_org(models.Simulation, info).filter(clock_id__in=clocks).order_by("pk"))
+    @kante.django_field(
+        description="What computed this dataset, if it was simulated: the `simulation` spoke of its whole-dataset anchor -- the model that was integrated, its dt and duration. Null for a recording, and for a run's input"
+    )
+    def simulation(self, info: Info) -> Optional["SimulationState"]:
+        """The simulation state anchored at ``{}``."""
+        return models.SimulationState.objects.filter(anchor__dataset_id=self.pk, anchor__coordinates={}).select_related("model").first()
 
 
 @kante.django_type(
@@ -368,6 +369,23 @@ class StimulusSite(OrgScoped):
 
 
 @kante.django_type(
+    models.SimulationState,
+    pagination=True,
+    description=(
+        "The integrator truth: the anchored values were computed by integrating a neuron model -- the model, NEURON's dt and tstop. elektro's own spoke, the synthetic rig. "
+        "A run is its clock: the outputs timed onto one clock are one run, and agree on it"
+    ),
+)
+class SimulationState(OrgScoped):
+    """What computed the anchored values."""
+
+    id: auto
+    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(description="The neuron model that was integrated")
+    duration: kanne_scalars.Duration = kante.django_field(description="How long the model was run for (NEURON's tstop)")
+    dt: kanne_scalars.Duration | None = kante.django_field(description="The integration time step (NEURON's dt). Not the sampling period: a run can record more coarsely than it integrates. Null when unstated")
+
+
+@kante.django_type(
     models.CoordinateAnchor,
     filters=filters.CoordinateAnchorFilter,
     pagination=True,
@@ -386,6 +404,7 @@ class CoordinateAnchor(OrgScoped):
     acquisition_metadata: AcquisitionMetadata | None
     recording_site: Optional["RecordingSite"] = kante.django_field(description="(simulation) Where on the model the values at this coordinate were recorded")
     stimulus_site: Optional["StimulusSite"] = kante.django_field(description="(simulation) Where on the model the values at this coordinate were injected")
+    simulation: Optional[SimulationState] = kante.django_field(description="(simulation) The model and integrator parameters that computed the values at this coordinate")
 
     @kante.django_field(
         description="The coordinates this anchor is pinned to, e.g. {'c': 0, 'sweep': 5}. Level-0 sample indices, i.e. coordinates of the dataset's INTRINSIC system. An anchor that omits an axis is global along it; an empty object is the whole dataset"

@@ -22,9 +22,8 @@ mikro is split:
 - **The interpretation layer is elektro's, and it is mikro's shape.** mikro reads data as a
   *layer of a scene*; elektro reads it as a *layer of an experiment* -- a trace, a spike
   raster, an event table, hand-drawn marks. Like a scene, an experiment **names data by id and
-  owns none of it**: it never creates data, and deleting it never deletes any. The one other
-  interpretation is a `Simulation` (a run of a neuron model), and it is thinner still: a model,
-  the integrator's parameters and a clock.
+  owns none of it**: it never creates data, and deleting it never deletes any. It is the only
+  interpretation: a simulated run is not one (it is its clock, and a spoke on its outputs, below).
 
 **CS first.** There is no `Block`, `BlockSegment`, `AnalogSignal`, `IrregularlySampledSignal`,
 `SpikeTrain`, `Recording` or `Stimulus` any more. A recording *session* is a clock (a
@@ -64,8 +63,8 @@ Four rules carry over from mikro unchanged:
    would be wrong in one of them. Composing on read is fine (`asAffine`); storing the result
    is what is forbidden. Refine one edge and everything that looks through it moves.
 2. **Store what was authored or measured; derive everything else.** A sampling rate was
-   measured, so it is stored — once, on the edge. `Simulation.samplingRate` and
-   `TraceLayer.duration` are *readings* of that edge. A lens' shape follows from its dataset and its slices, so it is not a column.
+   measured, so it is stored — once, on the edge. `TraceLayer.duration` is a
+   *reading* of that edge. A lens' shape follows from its dataset and its slices, so it is not a column.
 3. **The sample grid is structural; physical time is an interpretation.** A dataset's grid is
    always known, never wrong and never revised, which is why marks drawn over a dataset resolve against it.
    Physical time enters exactly once, as a clock plus one edge. Correcting a sampling rate
@@ -99,6 +98,8 @@ mikro's mutation, input for input, and it is **the one way data enters**. It wri
 | `RigState` | the hardware truth, typed by [`rigkit`](../rigkit/): clamp mode, holding level, series resistance, membrane capacitance, temperature, then per-device named settings | `OptikitState` / `optikit` |
 | `ValueHistogram` | the distribution of values, for a display range without reading the array | the same |
 | `AcquisitionMetadata` | whatever the source format said, as a JSON object | `OmeMetadata` |
+| `RecordingSite` / `StimulusSite` | (simulated) where on a neuron model the values were recorded or injected: a cell, a section and a position of that model | — |
+| `SimulationState` | (simulated) what computed the values: the neuron model, NEURON's `dt` and `tstop` — the synthetic `RigState` | — |
 
 Everything that says where the data *is* is written at creation and never after: only
 `name` and `description` are editable (`updateArrayDataset`, audited). A recomputation is a
@@ -241,28 +242,74 @@ by everything timed on it, and stated once. `createTraceLayer` keeps one piece o
 sampling law (refused over a lookup, which has no closed-form inverse; a dataset timed on two
 clocks needs the `clock` named).
 
-**A simulation** is a run of a neuron model: `model`, the integrator's `dt` and `duration`, and a
-`clock`. What was recorded where is **not** a row of it: it is a `RecordingSite` or
-`StimulusSite` spoke on the dataset's own anchor (`{}` for the dataset, `{c: i}` per channel),
-beside the rig state, written by `createArrayDataset` -- a site is a fact of the measurement,
-not of the run, and the data layer does not point at the interpretation layer.
+**A run is its clock.** A run of a neuron model is a recording session whose rig is an
+integrator, and it is modelled exactly as one: a clock, the traces timed onto it, and on each
+output the facts of how it was produced. A clock is a node with an identity of its own, minted
+once per run, so it already *is* the run's identity; which traces belong to the run is their
+timing edge onto it -- the same statement that places them in time, made once; and what was
+run is a spoke on each output, like a wet trace's `RigState`: `SimulationState` (the model that
+was integrated, NEURON's `dt` and `duration`) beside a `RecordingSite` or `StimulusSite` (where
+on the model), on the dataset's own anchor (`{}` for the dataset, `{c: i}` per channel),
+written by `createArrayDataset`. An *input* -- a stimulus waveform -- carries no simulation
+spoke, so one waveform drives many runs by being timed onto each run's clock.
+
+The checks, each where its violation would come into being:
+
+- within a dataset, its sites and its simulation state name **one** model, and its simulation
+  states agree (`assert_one_model_per_dataset`);
+- on a clock, the outputs agree on what was run: timing an output onto a clock whose other
+  outputs state another model, `dt` or `duration` is refused -- by `createSession`,
+  `createSamplingLaw` or a `createTransformation` alike (`clocks.assert_one_run`, called by the
+  edge writers). A trace that states no run (a wet recording, a derived dataset, an input)
+  joins any clock.
+
+*Two detours, recorded because both look right.* First the run was a row (`Simulation`) whose
+membership was read off the clock anyway, with the model stated again beside the sites'. Then,
+for one pass, a `SimulationRun` row every output *pointed at*, to give runs with equal facts an
+identity. The clock already was that identity: the "merge" it guarded against -- an output of
+run B timed onto run A's clock -- is a trace timed onto the wrong clock, the same mistake as a
+wet recording timed onto the wrong session, and the row caught it only by stating membership a
+second time (pointer and edge) and checking the two agree. It also made a simulated session the
+only session with a row, and pinned a shared stimulus to one run.
+
+**What is in a session** is read as placement, not residence. `residents` answers what *lives*
+in a space, and a clock has none by design: a trace lives in its sample grid and is placed onto
+the clock by its timing edge, as a mikro image lives in its pixel grid and is registered onto a
+stage. So a session's traces -- a run's outputs among them -- are
+`arrayDatasets(filters: {placeableIn: {space: clock}})`, or `clock.placedSystems { residents }`,
+transitively: a segment clock offset onto the session brings its traces along. Those are
+pickers and strict (one affine map), which leaves out a variable-step run timed by a lookup;
+`requireAffine: false` (elektro's, on both) asks what is *in* the space instead, across a FIELD.
+
 A site is **part of a neuron model**: it names its `NeuronModel` (`model`, required) and the place
 in it -- a cell of the model's config, a section of that cell (`location`), a position along
 it -- and `cell` / `location` are checked against the model's `json_model` on write
-(`core/logic/sites.py`; a section alone is read on a one-cell model's only cell). The model is
-not the run: it is what was run, so the spoke points at it and still not at a `Simulation`.
-`createSimulation` refuses a dataset carrying a site on another model than the run's, and
-`NeuronModel.recordingSites` / `.stimulusSites` read the sites back from the model's side.
-`createSimulation(datasets, sampling | timeDataset)` writes the clock and one timing edge per
-named dataset; with no datasets it mints the clock alone, and datasets are timed on it later,
-one `createSamplingLaw` at a time. `Simulation.datasets` / `.recordings` / `.stimuli` are read
-off the graph: the datasets with a timing edge onto its clock, and among them those whose
-anchors carry the matching spoke.
+(`core/logic/sites.py`; a section alone is read on a one-cell model's only cell).
+`NeuronModel.simulatedDatasets` / `.recordingSites` / `.stimulusSites` read them back from the
+model's side, and `ArrayDataset.simulation` from the trace's. `NeuronModel.sessions` groups the
+simulated datasets by the clock they are timed onto -- one session per run, read off the timing
+edges in one query (`clocks.timing_clocks_by_grid`), untimed outputs last under a null clock. The
+same grouping hangs off the model's config: `Cell.sessions` and `Section.sessions` are the
+sessions the cell or section was *recorded* in -- the datasets with a `RecordingSite` on it (a site
+naming no cell counts for a one-cell model's only cell). Config cells and sections are pydantic
+objects with no way back to their row, so `sites.config_of` stamps the model (and cell) onto them
+as private attributes when a stored model's config is served (`config`, `cells`, `sections`,
+`cell`, `section`). The same stamp gives them a **compound id** -- `model:cell`,
+`model:cell:section`, each part percent-encoded (`sites.compound_id`) -- since a cell or section
+id is only unique within its model: `Cell.compoundId` / `Section.compoundId` are what the detail
+queries `cell(id)` / `section(id)` take, and `id` stays the config's own, which sites name.
+
+`createSession(name | clock, datasets, sampling | timeDataset)` is what `createSimulation` was,
+minus the run: it writes one timing edge per dataset onto a clock -- a new one, or an existing
+one for a second batch -- after checking every dataset has a TIME axis with one sample count.
+It is sugar -- one `createSamplingLaw` (or FIELD `createTransformation`) per dataset writes the
+same -- and serves a wet session as well as a run. So a run is built:
+`createArrayDataset(anchors: [{simulation: {model, duration, dt}, recordingSite}])` per output →
+`createSession(name, datasets, sampling)`, whose clock is the run.
 
 Deleting an interpretation deletes the interpretation. `deleteExperiment` and `deleteLayer`
-leave every dataset where it was; `deleteSimulation` sweeps its clock once nothing is laid out on
-it, which takes the timing edges onto it along. The other direction cascades: deleting a dataset
-takes the layers that drew it, because a layer of data that no longer exists is a layer of nothing.
+leave every dataset where it was. The other direction cascades: deleting a dataset takes the
+layers that drew it, because a layer of data that no longer exists is a layer of nothing.
 
 ## What was mapped onto what
 
@@ -385,7 +432,7 @@ value unit to be the clock's unit (see below).
 kanne's canonical integers (picoseconds, nanohertz) remain the wire and column format.
 Two things stay columns although they are about time:
 
-- `Simulation.dt` and `.duration` are the **integrator's** parameters (NEURON's `h.dt`,
+- `SimulationState.dt` and `.duration` are the **integrator's** parameters (NEURON's `h.dt`,
   `h.tstop`). A run can record at a coarser interval than it integrates, so `dt` is not the
   sampling period and must not be read as one. `dt` is nullable: its old default was one
   *second*.
@@ -452,17 +499,17 @@ Each of these is deliberate, and each is marked where it happens in the code.
    unscoped; every type here mixes in `OrgScoped` and every id a client sends goes through
    `scoping.get_for_org`.
 6. **`WORLD_RELATIONS`.** mikro has one kind of composition (`scenes`) and spells it inline.
-   Two things are laid out over a space here — an experiment over its world, a simulation over
-   its clock — so it is a registry, read by the delete guard, the orphan sweep and
-   `sweep_empty_systems`. `tests/test_architecture.py` derives it from the foreign keys, so
+   One thing is laid out over a space here too — an experiment over its world; a session,
+   recorded or simulated, *is* its clock — and it stays a registry, read by the delete guard, the orphan sweep and
+   `sweep_empty_systems`. `tests/test_architecture.py` derives it from the foreign keys (and
+   one-to-ones), so
    a fifth composition is a failing test rather than a clock swept out from under it.
 7. **A space leaves with what it was for.** Nothing owns a space, and a dataset's FK to its
    grid is `PROTECT`, so neither can cascade. `deleteArrayDataset`, `deleteDataArray`,
    `deleteLens`, `deleteTableDataset` and `deleteSparseDataset` delete the data and then sweep
-   the spaces left empty (`_generic.make_owned_space_delete` for the last two);
-   `deleteSimulation` sweeps the *clock* left empty (`spaces.sweep_empty_systems`). mikro
-   leaves both to an orphan sweep. A *world* is never swept by deleting what was laid out
-   over it.
+   the spaces left empty (`_generic.make_owned_space_delete` for the last two). mikro leaves
+   that to an orphan sweep, and so does this service for a clock nothing is timed onto. A
+   *world* is never swept by deleting what was laid out over it.
 8. **Filters state what `null` means.** This service runs strawberry-django with
    `USE_DEPRECATED_FILTERS`, where an explicit `null` reaches a filter resolver. mikro's
    `uninhabited` is `condition if value else ~condition`, which would read `null` as `false`.
@@ -670,6 +717,21 @@ is now accepted (it was refused).
 is refused. `RecordingSite.model` / `StimulusSite.model` and `NeuronModel.recordingSites` /
 `.stimulusSites` are new.
 
+**The fifth pass** (a run is its clock) removes `Simulation` -- the type, the `simulations` /
+`simulation` queries, `SimulationFilter` / `SimulationOrder`, `createSimulation`,
+`deleteSimulation`, `ArrayDataset.simulations`, `NeuronModel.simulations`:
+- what was run is `CoordinateAnchorInput.simulation: {model, duration, dt}` on each output
+  (`CoordinateAnchor.simulation`, `ArrayDataset.simulation`, `NeuronModel.simulatedDatasets`);
+- timing is `createSession(name | clock, datasets, sampling | timeDataset)`, which returns the
+  clock -- the run;
+- a run's outputs are `arrayDatasets(filters: {placeableIn: {space: clock}})`, and a model's
+  runs are `NeuronModel.sessions { clock datasets }`;
+  `placeableIn.requireAffine` and `placedSystems(requireAffine:)` are new, for a variable-step
+  run. The readings `Simulation.samplingRate` / `.timeDataset` have no replacement field: they
+  are the timing edges onto the clock, read as any clock's are.
+
+`core/0004` drops the table (no data migration).
+
 **The first pass** (time columns → edges):
 
 - **The data layer is mikro's, by name.** `Trace` → `ArrayDataset` (+ `DataArray` levels);
@@ -743,7 +805,7 @@ is refused. `RecordingSite.model` / `StimulusSite.model` and `NeuronModel.record
   has no mutation yet.
 - **mikro's scene-only fields** have no counterpart: `defaultScene`, `latestSnapshot`,
   `Lens.renderAxes`, snapshots, animations. What draws a dataset is asked the other way:
-  `ArrayDataset.experimentLayers`, `.simulations`.
+  `ArrayDataset.experimentLayers`.
 - **Annotation subscriptions.** mikro has none and neither does this; the `rois`
   subscription went with the ROI.
 - **Subscriptions.** `arrayDatasets` is scoped by organization channel and works. `files` reads

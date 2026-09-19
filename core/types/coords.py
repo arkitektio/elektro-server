@@ -102,7 +102,7 @@ Resident = Annotated[
 _PLACEABLE_KEY = "placeable_system_ids"
 
 
-def _placeable_ids(info: Info, system) -> set[int]:
+def _placeable_ids(info: Info, system, *, require_affine: bool = True) -> set[int]:
     """The systems placeable in this one, computed once per space per request.
 
     `placeable_system_ids_in` is not cheap -- a registrations fetch, a residence map (three
@@ -118,11 +118,12 @@ def _placeable_ids(info: Info, system) -> set[int]:
     """
     loaders = getattr(info.context, "_loaders", None)
     if loaders is None:
-        return graph_logic.placeable_system_ids_in(system)
+        return graph_logic.placeable_system_ids_in(system, require_affine=require_affine)
     by_system = loaders.setdefault(_PLACEABLE_KEY, {})
-    if system.pk not in by_system:
-        by_system[system.pk] = graph_logic.placeable_system_ids_in(system)
-    return by_system[system.pk]
+    key = (system.pk, require_affine)
+    if key not in by_system:
+        by_system[key] = graph_logic.placeable_system_ids_in(system, require_affine=require_affine)
+    return by_system[key]
 
 
 @kante.django_type(
@@ -188,14 +189,15 @@ class CoordinateSystem(OrgScoped):
         description=(
             "Every space whose data can be composed here: those reaching this one across steps that compose into one affine map, walking the transformation edges. Composed, not merely connected -- a space reaching this one only across a FIELD relates to it by the values of an array and yields no matrix to draw with, so it is not here. The same set the `placeableIn` "
             "filters answer from, so a picker and a layer mutation cannot disagree. Distinct from `coordinateGraph`, which walks the undirected *neighbourhood* -- this is "
-            "directed, and asks who can get in"
+            "directed, and asks who can get in. With `requireAffine: false` (elektro's) it answers *what is in* this space instead: a variable-step run timed onto a clock by a lookup "
+            "is in the clock's session though no matrix draws it"
         ),
     )
-    def placed_systems(self, info: Info) -> List["CoordinateSystem"]:
+    def placed_systems(self, info: Info, require_affine: bool = True) -> List["CoordinateSystem"]:
         """The spaces with an affinely composable path into this one; see `graph_logic.placeable_system_ids_in`."""
         # The residents come along: a plain list is opaque to the optimizer, so a client
         # selecting `residents` would otherwise pay six reverse queries per space.
-        return list(models.CoordinateSystem.objects.filter(pk__in=_placeable_ids(info, self)).prefetch_related(*graph_logic.RESIDENT_RELATIONS))
+        return list(models.CoordinateSystem.objects.filter(pk__in=_placeable_ids(info, self, require_affine=require_affine)).prefetch_related(*graph_logic.RESIDENT_RELATIONS))
 
     @kante.django_field(
         description=(

@@ -398,7 +398,7 @@ def create_array_dataset(aexecute, zarr_store):
     """Factory: an array dataset made the way a client makes one -- a real zarr.json in RustFS, then ``createArrayDataset``.
 
     The first of the two steps every interpretation test takes: data enters here, and
-    ``createSamplingLaw`` / ``createSimulation`` / a layer mutation then name it by id. Returns the mutation's payload,
+    ``createSamplingLaw`` / ``createSession`` / a layer mutation then name it by id. Returns the mutation's payload,
     or the raw result when ``raw=True`` (for a test about a refusal).
     """
 
@@ -501,16 +501,16 @@ def make_neuron_model(authenticated_context):
 
 @pytest.fixture
 def make_simulation_chain(authenticated_context):
-    """Factory: NeuronModel -> Simulation on its clock -> a recorded and an injected dataset, each timed onto it.
+    """Factory: a run of a NeuronModel -- a clock, and a recorded and an injected output, each timed onto it.
 
-    Built the way ``createSimulation`` builds it, without an object store (see
+    Built the way ``createArrayDataset`` + ``createSession`` build it, without an object store (see
     ``tests/seed.py``): every dataset owns its sample grid and gets its own timing edge onto
     the run's one clock. ``timing`` picks how -- ``"sampling"`` for a sampling law (a fixed
     recording interval, the default) or ``"lookup"`` for a times dataset (a variable time step).
 
-    Returns a namespace with .neuron_model/.simulation/.clock, .recording and .stimulus (the two
-    array datasets, carrying a ``RecordingSite`` / ``StimulusSite`` on their whole-dataset
-    anchor), .grid (the recording's sample grid), .stimulus_grid, and .time_dataset, which is
+    Returns a namespace with .neuron_model/.clock, .recording and .stimulus (the two array
+    datasets, carrying a ``SimulationState`` and a ``RecordingSite`` / ``StimulusSite`` on their
+    whole-dataset anchor), .grid (the recording's sample grid), .stimulus_grid, and .time_dataset, which is
     None unless the run is timed by a lookup.
     """
     from core import models
@@ -531,15 +531,16 @@ def make_simulation_chain(authenticated_context):
         nm = models.NeuronModel.objects.create(name="NeuronModel", hash=uuid.uuid4().hex, json_model=seed.SOMA_MODEL, creator=ctx.request.user, environment=environment)
 
         clock = clocks.create_clock(name=f"{name}/clock", unit=unit, ctx=creation)
-        sim = models.Simulation.objects.create(model=nm, clock=clock, name=name, duration=parse(quantities.Duration, "40 ms"), creator=ctx.request.user)
 
         rec_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/soma.v", seed.T_AXES, [[samples]], None, "mV", None)
         stim_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/iclamp", seed.T_AXES, [[samples]], None, "nA", None)
-        # The sites are spokes on the datasets' own whole-dataset anchors, as createArrayDataset writes them, each part of the run's model.
+        # What was run and where it was recorded are spokes on the datasets' own whole-dataset anchors, as createArrayDataset writes them.
         rec_anchor = models.CoordinateAnchor.objects.get_or_create(dataset=rec_dataset, coordinates={})[0]
         models.RecordingSite.objects.create(anchor=rec_anchor, model=nm, kind="VOLTAGE", cell="soma", location="0", position=0.5)
         stim_anchor = models.CoordinateAnchor.objects.get_or_create(dataset=stim_dataset, coordinates={})[0]
         models.StimulusSite.objects.create(anchor=stim_anchor, model=nm, kind="CURRENT", cell="soma", location="0", position=0.5)
+        for anchor in (rec_anchor, stim_anchor):
+            models.SimulationState.objects.create(anchor=anchor, model=nm, duration=parse(quantities.Duration, "40 ms"))
         rec, stim = rec_dataset, stim_dataset
 
         time_dataset = None
@@ -554,7 +555,6 @@ def make_simulation_chain(authenticated_context):
 
         return SimpleNamespace(
             neuron_model=nm,
-            simulation=sim,
             clock=clock,
             grid=rec_dataset.coordinate_system,
             stimulus_grid=stim_dataset.coordinate_system,

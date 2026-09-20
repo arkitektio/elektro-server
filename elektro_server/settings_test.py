@@ -1,3 +1,4 @@
+import os
 from .settings import *  # noqa
 from .settings import DATABASES, AUTHENTIKATE
 import logging
@@ -8,7 +9,10 @@ DATABASES["default"] = {
     "USER": "test",
     "PASSWORD": "test",
     "HOST": "localhost",
-    "PORT": "5555",
+    # A placeholder for a hand-started stack; under pytest `django_db_modify_db_settings`
+    # overwrites it with the port docker picked (see tests/conftest.py). Point
+    # ELEKTRO_TEST_DB_PORT at `docker compose port db 5432` to run against your own stack.
+    "PORT": os.environ.get("ELEKTRO_TEST_DB_PORT", "5555"),
 }
 # Django forces DEBUG=False under the test runner, and authentikate 3.0 refuses static
 # tokens when DEBUG is False. These are deliberate test fixtures, so opt in explicitly.
@@ -64,7 +68,7 @@ DATALAYER = {
     "access_key": "mikro_access_key",
     "secret_key": "mikro_secret_key",
     "host": "localhost",
-    "port": 6890,
+    "port": int(os.environ.get("ELEKTRO_TEST_RUSTFS_PORT", "6890")),  # overwritten under pytest, like PORT above
     "protocol": "http",
     "region": "us-east-1",
     "zarr": {"bucket": "zarr"},

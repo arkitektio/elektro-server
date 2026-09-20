@@ -13,8 +13,11 @@ services:
          POSTGRES_USER: test
       labels:
          - fakts.service=live.arkitekt.postgres
+      # No host port: docker picks a free one and `backend_stack` asks the running stack
+      # which, via `get_port`. A pinned host port defeats dokker's per-run project
+      # isolation -- two projects still fight over the one host port.
       ports:
-        - 5555:5432
+        - 5432
    rustfs:
       environment:
          RUSTFS_VOLUMES: /data
@@ -23,7 +26,7 @@ services:
          RUSTFS_ACCESS_KEY: crappygreysetter
       image: rustfs/rustfs:latest
       ports:
-         - 6890:9000
+         - 9000
    initc:
       depends_on:
          rustfs:
@@ -41,5 +44,5 @@ services:
          REDIS_PORT: 6379
       image: redis
       ports:
-         - 6666:6379
+         - 6379
 

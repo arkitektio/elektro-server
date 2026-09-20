@@ -6,7 +6,8 @@ from typing import ClassVar, Optional
 from strawberry_django.filters import FilterLookup
 import strawberry_django
 import kante
-from django.db.models import Q, F, Value, FloatField
+from django.db.models import F, FloatField, Q, QuerySet, Value
+from embeddings.search import hybrid_search
 from django.db.models.functions import Coalesce, Greatest
 from django.contrib.postgres.search import (
     SearchQuery,
@@ -341,6 +342,24 @@ class NameSearchFilterMixin:
     @kante.filter_field(description="Search by name (case-insensitive substring)")
     def search(self, info: Info, value: str | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}name__icontains": value})
+
+
+@strawberry.input
+class SemanticNameSearchFilterMixin:
+    """``search`` = substring of the name OR semantic similarity to name + description.
+
+    For the models that carry an embedding (``embeddings.models.EmbeddedDescriptionMixin``:
+    the array, table and sparse datasets). Substring hits rank first, then by similarity;
+    nested use (``prefix``) stays lexical. An explicit ``null`` reaches this resolver under
+    USE_DEPRECATED_FILTERS and means no constraint.
+    """
+
+    @kante.filter_field(description="Search by name (case-insensitive substring) or by the meaning of the query against name and description. Substring matches rank first, then by similarity; an explicit `ordering` replaces that ranking")
+    def search(self, info: Info, queryset: QuerySet, value: str | None, prefix: str) -> tuple[QuerySet, Q]:
+        """Annotate the distance and OR the semantic predicate onto the substring one."""
+        if value is None:
+            return queryset, Q()
+        return hybrid_search(queryset, prefix, value, Q(**{f"{prefix}name__icontains": value}))
 
 
 @strawberry.input
@@ -912,7 +931,7 @@ class FileLinkFilter(IdsFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin
 
 
 @kante.filter_type(models.ArrayDataset)
-class ArrayDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
     description: Optional[FilterLookup[str]]
@@ -1214,7 +1233,7 @@ def _annotate_axis_type_count(queryset: QuerySet, prefix: str, types: set[str]) 
 
 
 @kante.filter_type(models.SparseDataset)
-class SparseDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+class SparseDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
     description: Optional[FilterLookup[str]]
@@ -1251,7 +1270,7 @@ class SparseDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixi
 
 
 @kante.filter_type(models.TableDataset)
-class TableDatasetFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+class TableDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
     id: auto
     name: Optional[FilterLookup[str]]
     description: Optional[FilterLookup[str]]

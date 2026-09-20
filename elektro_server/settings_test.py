@@ -75,3 +75,7 @@ DATALAYER = {
     # quietly return the static key above. Tests exercising a grant care about its shape.
     "allow_unscoped_fallback": True,
 }
+
+# The embedding healer re-embeds stale rows in the background. Tests call
+# ``embeddings.healer.reembed_stale`` explicitly instead, so a pass can never race an assertion.
+EMBEDDINGS_HEALER_ENABLED = False

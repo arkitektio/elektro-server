@@ -77,3 +77,10 @@ def test_the_vendored_table_and_sparse_types_are_mikros():
 
     kinds = set(built.type_map["IdentificationKind"].values)
     assert kinds == {"DATASET", "TABLE"}, "mikro's MESH_COLLECTION / NETWORK_COLLECTION / NETWORK_COLLECTION_NODES have nothing to name here"
+
+
+def test_embedding_columns_stay_out_of_the_schema():
+    """The vector columns are storage, not API: no type or input may expose them."""
+    from elektro_server.schema import schema
+
+    assert "embedding" not in str(schema).lower()

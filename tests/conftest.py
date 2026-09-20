@@ -97,8 +97,23 @@ def backend_stack():
         for dbname in ("template1", "testdb"):
             with psycopg.connect(dbname=dbname, user="test", password="test", host="localhost", port=5555, autocommit=True) as connection:
                 connection.execute("CREATE EXTENSION IF NOT EXISTS cube")
+                # Likewise `vector`: the dataset models' embedding columns need pgvector.
+                connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
         yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def embedding_model_warm():
+    """Load the embedding model once per session, outside any test's DB transaction.
+
+    Every save of a dataset embeds its text, so the first one would otherwise pay the model
+    load (a one-time download into the Hugging Face cache on a cold box) inside a test.
+    """
+    from embeddings import engine
+
+    engine.warm_up()
+    yield
 
 
 @pytest.fixture(scope="session")

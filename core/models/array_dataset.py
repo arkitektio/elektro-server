@@ -17,6 +17,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from core import enums
 from koherent.fields import ProvenanceField
+from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 from django_choices_field import TextChoicesField
 from kanne_server.fields import QuantityField
 from authentikate.models import Organization
@@ -28,7 +29,7 @@ from core.logic import coords as coords_logic
 from core.models.coords import CoordinateSystem, Transformation  # noqa: F401  (re-exported via core.models)
 
 
-class ArrayDataset(models.Model):
+class ArrayDataset(EmbeddedDescriptionMixin, models.Model):
     """A multi-dimensional array of data, with one or more pyramid levels attached as DataArrays.
 
     The dataset's dimensions and their types live on the axes of its INTRINSIC
@@ -111,7 +112,8 @@ class ArrayDataset(models.Model):
         related_name="assigned_%(class)ss",
         help_text="The assigner of the creating task, denormalized for fast filtering",
     )
-    provenance = ProvenanceField()
+    # The embedding columns are storage, not an edit: keep them out of the history rows.
+    provenance = ProvenanceField(excluded_fields=["embedding", "embedding_model"])
 
     stored_spec = models.JSONField(
         default=list,
@@ -125,7 +127,11 @@ class ArrayDataset(models.Model):
     )
 
     class Meta:
-        indexes = [GinIndex(fields=["stored_spec"], name="array_dataset_spec_gin")]
+        indexes = [
+            GinIndex(fields=["stored_spec"], name="array_dataset_spec_gin"),
+            # The embedding healer's "any row not by the current model?" probe.
+            *embedding_indexes("array_dataset"),
+        ]
 
     @property
     def intrinsic_coordinate_system(self):

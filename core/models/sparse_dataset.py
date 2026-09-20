@@ -52,12 +52,13 @@ from django.db import models
 from authentikate.models import Organization
 from datalayer.models import SparseStore
 from koherent.fields import ProvenanceField
+from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 
 if TYPE_CHECKING:
     from core.models.coords import CoordinateSystem
 
 
-class SparseDataset(models.Model):
+class SparseDataset(EmbeddedDescriptionMixin, models.Model):
     """A sparse matrix over two enumerated axes, stored in one or both layouts."""
 
     name = models.CharField(max_length=1000, help_text="The name of this sparse dataset")
@@ -103,12 +104,15 @@ class SparseDataset(models.Model):
         related_name="assigned_%(class)ss",
         help_text="The assigner of the creating task, denormalized for fast filtering",
     )
-    provenance = ProvenanceField()
+    # The embedding columns are storage, not an edit: keep them out of the history rows.
+    provenance = ProvenanceField(excluded_fields=["embedding", "embedding_model"])
 
     class Meta:
         """Meta options for the sparse dataset."""
 
         ordering = ["-created_at"]
+        # The embedding healer's "any row not by the current model?" probe.
+        indexes = [*embedding_indexes("sparse_dataset")]
 
     def __str__(self) -> str:
         """Return the dataset's name."""

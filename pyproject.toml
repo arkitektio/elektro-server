@@ -39,6 +39,8 @@ dependencies = [
     "opentelemetry-instrumentation-psycopg>=0.62b1",
     "pint>=0.25.3",
     "whitenoise>=6.6",
+    "pgvector>=0.5",
+    "model2vec>=0.9",
 ]
 
 [dependency-groups]

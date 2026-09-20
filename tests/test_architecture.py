@@ -187,21 +187,23 @@ def test_the_migrations_actually_run(backend_stack) -> None:  # noqa: ANN001 - t
     """
     import psycopg
 
-    with psycopg.connect(dbname="testdb", user="test", password="test", host="localhost", port=5555, autocommit=True) as connection:
+    with psycopg.connect(dbname="testdb", user="test", password="test", host="localhost", port=backend_stack["db"], autocommit=True) as connection:
         connection.execute("DROP DATABASE IF EXISTS migrate_check")
         connection.execute("CREATE DATABASE migrate_check")
     try:
         result = subprocess.run(
             [sys.executable, "-c", _MIGRATE_IN_A_SCRATCH_DATABASE],
             cwd=REPO,
-            env={**os.environ, "DJANGO_SETTINGS_MODULE": "elektro_server.settings_test"},
+            # The stack's host port is ephemeral (see conftest); the child process reads it from the
+            # env var settings_test honours.
+            env={**os.environ, "DJANGO_SETTINGS_MODULE": "elektro_server.settings_test", "ELEKTRO_TEST_DB_PORT": str(backend_stack["db"])},
             capture_output=True,
             text=True,
         )
         assert result.returncode == 0, f"`migrate` failed on an empty database:\n{result.stdout[-2000:]}\n{result.stderr[-4000:]}"
         assert "migrated" in result.stdout
     finally:
-        with psycopg.connect(dbname="testdb", user="test", password="test", host="localhost", port=5555, autocommit=True) as connection:
+        with psycopg.connect(dbname="testdb", user="test", password="test", host="localhost", port=backend_stack["db"], autocommit=True) as connection:
             connection.execute("DROP DATABASE IF EXISTS migrate_check WITH (FORCE)")
 
 

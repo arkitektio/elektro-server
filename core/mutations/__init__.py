@@ -34,6 +34,7 @@ from .file import (
 from .file_link import link_file, unlink_file
 from .sparse_dataset import create_sparse_dataset, update_sparse_dataset, delete_sparse_dataset
 from .table_dataset import create_table_dataset, update_table_dataset, delete_table_dataset
+from .coordinate_anchor import create_coordinate_anchor
 from .clock import create_sampling_law, create_clock_offset
 from .coordinate_system import (
     create_coordinate_system,

@@ -77,7 +77,7 @@ class Query:
         description="List the layers of experiments: traces, spike rasters, event tables and annotation collections, each drawn in one experiment",
     )
     data_arrays: list[types.DataArray] = strawberry_django.field(description="List data arrays: the multiscale zarr arrays backing array datasets")
-    coordinate_anchors: list[types.CoordinateAnchor] = strawberry_django.field(description="List coordinate anchors: the hubs pinning a value unit, a channel label or the rig state to coordinates of a dataset")
+    coordinate_anchors: list[types.CoordinateAnchor] = strawberry_django.field(description="List coordinate anchors: the hubs pinning a value unit, a channel label or the rig state to coordinates of an array dataset or a table dataset")
     file_links: list[types.FileLink] = strawberry_django.field(description="List file links: which file a container was read from, or written to")
     annotation_collections: list[types.AnnotationCollection] = strawberry_django.field(description="List annotation collections: named sets of marks, each owning the coordinate system they are drawn in")
     annotations: list[types.Annotation] = strawberry_django.field(description="List annotations: events, epochs and measurements, each in its collection's coordinate system")
@@ -345,6 +345,14 @@ class Mutation:
         description="Delete an existing array dataset, with its levels, its lenses, every interpretation of it, and the coordinate systems nothing else lives in. Its stores are flagged, not deleted: `purge_orphaned_stores` collects them after a grace period",
     )
     delete_data_array = strawberry_django.mutation(resolver=mutations.delete_data_array, description="Delete one downsampled level of a dataset. Level 0 cannot be deleted: it is the dataset")
+    create_coordinate_anchor = strawberry_django.mutation(
+        resolver=mutations.create_coordinate_anchor,
+        description=(
+            "Attach metadata spokes to an array dataset or a table dataset after ingest: the rig state, acquisition metadata, a value histogram, a channel label, a recording or "
+            "stimulus site, or the simulation state, pinned to some of its coordinates. Get-or-create on (container, coordinates): a second call at the same coordinates adds its "
+            "spokes to the one anchor, and a spoke stated twice is replaced. A value unit is array-only: a table's units are its columns'"
+        ),
+    )
 
     # --- Tables and sparse matrices (vendored from mikro) ---------------------------------
     create_table_dataset = strawberry_django.mutation(

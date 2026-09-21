@@ -104,6 +104,17 @@ def test_anchor_defers_a_site_spoke_to_its_dataset(authenticated_context):
     assert guards.resolve_anchor(site) == dataset
 
 
+def test_anchor_defers_a_spoke_to_its_table(authenticated_context):
+    """An anchor on a table is part of the table: whoever may delete the table may delete its spokes."""
+    ctx = authenticated_context
+    store = models.ParquetStore.objects.create(organization=ctx.request.organization, key="units.parquet", bucket="parquet", populated=True)
+    table = models.TableDataset.objects.create(name="units", store=store, creator=ctx.request.user, organization=ctx.request.organization)
+    anchor = models.CoordinateAnchor.objects.create(table=table, coordinates={})
+    label = models.ChannelLabel.objects.create(anchor=anchor, label="pyramidal")
+    assert guards.resolve_anchor(anchor) == table
+    assert guards.resolve_anchor(label) == table
+
+
 # --- schema-level: generated delete mutations --------------------------------
 
 

@@ -63,15 +63,17 @@ ANCHOR_PATHS: dict[type, tuple[str, ...]] = {
     # A level, a lens and an anchor are parts of their dataset; a spoke hangs off an anchor.
     models.DataArray: ("dataset",),
     models.Lens: ("dataset",),
-    models.CoordinateAnchor: ("dataset",),
-    models.RigState: ("anchor", "dataset"),
-    models.AcquisitionMetadata: ("anchor", "dataset"),
-    models.ValueHistogram: ("anchor", "dataset"),
-    models.ChannelLabel: ("anchor", "dataset"),
-    models.ValueUnit: ("anchor", "dataset"),
-    models.RecordingSite: ("anchor", "dataset"),
-    models.StimulusSite: ("anchor", "dataset"),
-    models.SimulationState: ("anchor", "dataset"),
+    # An anchor is part of its container -- an array dataset or a table dataset -- and a
+    # spoke hangs off an anchor; `container` is whichever of the two is set.
+    models.CoordinateAnchor: ("container",),
+    models.RigState: ("anchor", "container"),
+    models.AcquisitionMetadata: ("anchor", "container"),
+    models.ValueHistogram: ("anchor", "container"),
+    models.ChannelLabel: ("anchor", "container"),
+    models.ValueUnit: ("anchor", "container"),
+    models.RecordingSite: ("anchor", "container"),
+    models.StimulusSite: ("anchor", "container"),
+    models.SimulationState: ("anchor", "container"),
 }
 
 

@@ -30,6 +30,9 @@ if TYPE_CHECKING:
     # Same reason: `core.types.folder` imports this module for the layer types.
     from core.types.folder import Folder
 
+    # And again, for the anchors: `core.types.array_dataset` imports the folder types too.
+    from core.types.array_dataset import CoordinateAnchor
+
 
 @kante.django_type(
     models.Column,
@@ -103,6 +106,13 @@ class TableDataset(OrgScoped):
     columns: List[Column] = kante.django_field(description="The declared column schema, in order. The COORDINATE columns are the axes of this table's coordinate system")
     coordinate_system: CoordinateSystem = kante.django_field(description="The coordinate system this table owns. Its axes are the table's coordinate columns (or a single INDEX axis for a pure measurement table)")
     created_through: Task | None = kante.django_field(description="The task this table was created through, if any")
+    anchors: List[Annotated["CoordinateAnchor", strawberry.lazy("core.types.array_dataset")]] = kante.django_field(
+        description=(
+            "The coordinate anchors of this table, each pinning metadata spokes -- the rig state, acquisition metadata, a channel label, a recording site -- to values of its "
+            "coordinate columns keyed by column name, or to the whole table when its coordinates are empty. The same hub an array dataset uses, so a per-unit table carries the "
+            "acquisition facts of the recording it was computed from"
+        )
+    )
     created_through_by: User | None = kante.django_field(description="The assigner of the creating task, if any")
     referenced_by: List[Column] = kante.django_field(
         description="Every column, in any table, that declares this table as its reference target -- the reverse of `Column.references`. This table cannot be deleted while any of them exist"

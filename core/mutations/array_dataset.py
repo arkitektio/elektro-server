@@ -330,16 +330,19 @@ def parse_value_unit(unit: str) -> str:
     return kanne_scalars.parse_unit(unit)
 
 
-def assert_anchors_name_axes(anchors: list, axes: list[AxisInputModel]) -> None:
-    """Refuse an anchor pinned along an axis the dataset does not have, or pinned twice.
+def assert_anchors_name_axes(anchors: list, axis_names: list[str], *, what: str = "dataset") -> None:
+    """Refuse an anchor pinned along an axis the container does not have, or pinned twice.
 
     Elektro's addition. An anchor's ``coordinates`` are keyed by axis name and read back by
     name (`Lens.activeAnchors`, `inView`), so ``{"ch": 3}`` on a ``(t, c)`` dataset is not an
     error anywhere downstream -- it is a channel label that silently labels nothing. Two
     anchors with the same coordinates are refused for the same reason a spoke is one-to-one:
     the second would be a rival answer to the first.
+
+    ``axis_names`` are the array's axes or the table's coordinate columns; ``what`` names
+    the container in the refusal.
     """
-    known = [axis.name for axis in axes]
+    known = list(axis_names)
     seen: list[dict] = []
     for anchor in anchors:
         coordinates = {entry.axis: entry.value for entry in anchor.axis_anchors}
@@ -347,9 +350,11 @@ def assert_anchors_name_axes(anchors: list, axes: list[AxisInputModel]) -> None:
             raise ValueError(f"An anchor names an axis once, but {[entry.axis for entry in anchor.axis_anchors]} repeats one. One position per axis; a second position is a second anchor.")
         unknown = sorted(set(coordinates) - set(known))
         if unknown:
-            raise ValueError(f"An anchor pins the axes its dataset has, but {unknown} {'is' if len(unknown) == 1 else 'are'} not among {known}.")
+            if not known:
+                raise ValueError(f"This {what} has no coordinate columns, so its anchors can only be global ({{}}), but an anchor pins {unknown}.")
+            raise ValueError(f"An anchor pins the axes its {what} has, but {unknown} {'is' if len(unknown) == 1 else 'are'} not among {known}.")
         if coordinates in seen:
-            raise ValueError(f"Two anchors are pinned to the same coordinates {coordinates or '{} (the whole dataset)'}. One anchor per coordinate: put every spoke for it on the one anchor.")
+            raise ValueError(f"Two anchors are pinned to the same coordinates {coordinates or '{} (the whole ' + what + ')'}. One anchor per coordinate: put every spoke for it on the one anchor.")
         seen.append(coordinates)
         if getattr(anchor, "recording_site", None) is not None and getattr(anchor, "stimulus_site", None) is not None:
             raise ValueError(
@@ -453,7 +458,7 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
 
     # Before anything is written: a pyramid the values forbid must not leave a dataset behind.
     assert_pyramid_is_label_compliant(model.name, model.scales, model.axes, model.derived_from)
-    assert_anchors_name_axes(model.anchors or [], model.axes)
+    assert_anchors_name_axes(model.anchors or [], [axis.name for axis in model.axes])
 
     datalayer = get_current_datalayer()
 
@@ -550,64 +555,92 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
     file_link_logic.write_file_links(info, container=dataset, source_files=model.source_files or [], ctx=ctx)
 
     for anchor in model.anchors or []:
-        coordinate_anchor = models.CoordinateAnchor.objects.create(
-            dataset=dataset,
-            coordinates={axis_anchor.axis: axis_anchor.value for axis_anchor in anchor.axis_anchors},
-        )
-
-        if anchor.rig:
-            # The typed model's dump IS the stored JSON, so the column never grows a shape
-            # the types cannot express.
-            models.RigState.objects.create(
-                anchor=coordinate_anchor,
-                state=anchor.rig.model_dump(mode="json"),
-            )
-
-        if anchor.acquisition_metadata:
-            logger.debug("Creating acquisition metadata for coordinate anchor with coordinates %s", coordinate_anchor.coordinates)
-            models.AcquisitionMetadata.objects.create(
-                anchor=coordinate_anchor,
-                metadata=_parse_json_object(anchor.acquisition_metadata.metadata_string, "anchor.acquisitionMetadata.metadataString"),
-            )
-
-        if anchor.value_histogram:
-            models.ValueHistogram.objects.create(
-                anchor=coordinate_anchor,
-                histogram=anchor.value_histogram.histogram,
-                bins=anchor.value_histogram.bins,
-                min=anchor.value_histogram.min,
-                max=anchor.value_histogram.max,
-                p1=anchor.value_histogram.p1,
-                p99=anchor.value_histogram.p99,
-            )
-
-        if anchor.label:
-            models.ChannelLabel.objects.create(
-                anchor=coordinate_anchor,
-                label=anchor.label.label,
-            )
-
-        if anchor.value_unit:
-            models.ValueUnit.objects.create(
-                anchor=coordinate_anchor,
-                unit=parse_value_unit(anchor.value_unit.unit),
-            )
-
-        if anchor.recording_site:
-            models.RecordingSite.objects.create(anchor=coordinate_anchor, **_site_fields(info, anchor.recording_site))
-
-        if anchor.stimulus_site:
-            models.StimulusSite.objects.create(anchor=coordinate_anchor, **_site_fields(info, anchor.stimulus_site))
-
-        if anchor.simulation:
-            models.SimulationState.objects.create(
-                anchor=coordinate_anchor,
-                model=get_for_org(models.NeuronModel, info, id=anchor.simulation.model),
-                duration=anchor.simulation.duration,
-                dt=anchor.simulation.dt,
-            )
+        coordinate_anchor = _get_or_create_anchor(dataset, anchor.axis_anchors)
+        _write_anchor_spokes(info, coordinate_anchor, anchor)
 
     return dataset
+
+
+#: The spokes that describe an *array* and nothing else. A table's value units are its
+#: columns' (`Column.unit`), and `ArrayDataset.valueUnit` reads this spoke, so allowing it on
+#: a table anchor would be a second copy of one truth.
+_ARRAY_ONLY_SPOKES: tuple[str, ...] = ("value_unit",)
+
+
+def _get_or_create_anchor(container: "models.ArrayDataset | models.TableDataset", axis_anchors: list[AxisAnchorInputModel] | None) -> "models.CoordinateAnchor":
+    """Get-or-create rather than create: two spokes at one coordinate are two spokes of *one* anchor.
+
+    Keyed on the container -- an array dataset or a table dataset -- and the coordinates; the
+    two namespaces cannot collide because an anchor has exactly one container.
+    """
+    coordinates = {axis_anchor.axis: axis_anchor.value for axis_anchor in axis_anchors or []}
+    key = {"dataset": container} if isinstance(container, models.ArrayDataset) else {"table": container}
+    anchor, _ = models.CoordinateAnchor.objects.get_or_create(coordinates=coordinates, **key)
+    return anchor
+
+
+def _write_anchor_spokes(info: Info, anchor: "models.CoordinateAnchor", input: CoordinateAnchorInputModel) -> None:
+    """Write every spoke the input states onto ``anchor``, replacing one already there.
+
+    The one write path for anchor metadata, whether stated at ingest (``createArrayDataset``,
+    ``createTableDataset``) or attached afterwards (``createCoordinateAnchor``). Each spoke is
+    ``update_or_create``: a later statement replaces the earlier one, which is what "attach
+    after the fact" needs to be idempotent.
+
+    A table-anchored simulation state is stored but not clock-checked: ``clocks.assert_one_run``
+    walks ``anchor__dataset``, and a table has no sampling law to reconcile against.
+    """
+    if anchor.table_id is not None:
+        offending = [name for name in _ARRAY_ONLY_SPOKES if getattr(input, name) is not None]
+        if offending:
+            raise ValueError(f"{', '.join(repr(name) for name in offending)} {'is an array-only spoke' if len(offending) == 1 else 'are array-only spokes'} and cannot be attached to a table anchor. A table's units are its columns'.")
+
+    if input.rig:
+        # The typed model's dump IS the stored JSON, so the column never grows a shape
+        # the types cannot express.
+        models.RigState.objects.update_or_create(anchor=anchor, defaults={"state": input.rig.model_dump(mode="json")})
+
+    if input.acquisition_metadata:
+        logger.debug("Creating acquisition metadata for coordinate anchor with coordinates %s", anchor.coordinates)
+        models.AcquisitionMetadata.objects.update_or_create(
+            anchor=anchor,
+            defaults={"metadata": _parse_json_object(input.acquisition_metadata.metadata_string, "anchor.acquisitionMetadata.metadataString")},
+        )
+
+    if input.value_histogram:
+        models.ValueHistogram.objects.update_or_create(
+            anchor=anchor,
+            defaults={
+                "histogram": input.value_histogram.histogram,
+                "bins": input.value_histogram.bins,
+                "min": input.value_histogram.min,
+                "max": input.value_histogram.max,
+                "p1": input.value_histogram.p1,
+                "p99": input.value_histogram.p99,
+            },
+        )
+
+    if input.label:
+        models.ChannelLabel.objects.update_or_create(anchor=anchor, defaults={"label": input.label.label})
+
+    if input.value_unit:
+        models.ValueUnit.objects.update_or_create(anchor=anchor, defaults={"unit": parse_value_unit(input.value_unit.unit)})
+
+    if input.recording_site:
+        models.RecordingSite.objects.update_or_create(anchor=anchor, defaults=_site_fields(info, input.recording_site))
+
+    if input.stimulus_site:
+        models.StimulusSite.objects.update_or_create(anchor=anchor, defaults=_site_fields(info, input.stimulus_site))
+
+    if input.simulation:
+        models.SimulationState.objects.update_or_create(
+            anchor=anchor,
+            defaults={
+                "model": get_for_org(models.NeuronModel, info, id=input.simulation.model),
+                "duration": input.simulation.duration,
+                "dt": input.simulation.dt,
+            },
+        )
 
 
 def _site_fields(info: Info, site: SiteInputModel) -> dict:

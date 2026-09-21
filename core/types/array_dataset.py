@@ -389,13 +389,17 @@ class SimulationState(OrgScoped):
     models.CoordinateAnchor,
     filters=filters.CoordinateAnchorFilter,
     pagination=True,
-    description="The axis-agnostic hub that pins metadata spokes (a value unit, a channel label, the rig state, a value histogram, acquisition metadata) to specific coordinates of a dataset",
+    description=(
+        "The axis-agnostic hub that pins metadata spokes (a value unit, a channel label, the rig state, a value histogram, acquisition metadata) to specific coordinates of an "
+        "array dataset or a table dataset. Exactly one of `dataset` and `table` is set"
+    ),
 )
 class CoordinateAnchor(OrgScoped):
-    """The axis-agnostic hub that pins metadata spokes to specific coordinates of a dataset"""
+    """The axis-agnostic hub that pins metadata spokes to specific coordinates of an array dataset or a table dataset"""
 
     id: auto
-    dataset: ArrayDataset
+    dataset: Optional[ArrayDataset] = kante.django_field(description="The array dataset this anchor pins into, or null for a table anchor")
+    table: Optional[Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")]] = kante.django_field(description="The table dataset this anchor pins into, or null for an array anchor")
     # The reverse accessor from RigState.anchor is `rig`, not `rig_state`.
     rig: RigState | None = kante.django_field(description="The rig state recorded at this coordinate")
     value_histogram: ValueHistogram | None
@@ -407,7 +411,10 @@ class CoordinateAnchor(OrgScoped):
     simulation: Optional[SimulationState] = kante.django_field(description="(simulation) The model and integrator parameters that computed the values at this coordinate")
 
     @kante.django_field(
-        description="The coordinates this anchor is pinned to, e.g. {'c': 0, 'sweep': 5}. Level-0 sample indices, i.e. coordinates of the dataset's INTRINSIC system. An anchor that omits an axis is global along it; an empty object is the whole dataset"
+        description=(
+            "The coordinates this anchor is pinned to, e.g. {'c': 0, 'sweep': 5}. For an array dataset these are level-0 sample indices, i.e. coordinates of its INTRINSIC system; for a "
+            "table dataset they are values of its coordinate columns, keyed by column name. An anchor that omits an axis is global along it; an empty object is the whole container"
+        )
     )
     def coordinates(self, info: Info) -> scalars.Any:
         """The coordinates this anchor is pinned to."""

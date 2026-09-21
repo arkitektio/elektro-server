@@ -150,7 +150,10 @@ async def test_deleting_a_dataset_purges_every_pyramid_level(aexecute, create_ar
 
     flagged = [store async for store in DatalayerStore.objects.filter(orphaned_at__isnull=False)]
     assert len(flagged) == 3, "every level's store must be flagged, not just the dataset's own"
-    assert all(await sync(keys_in)(buckets, "zarr", f"{key}/") for key in store_keys), "and the request itself removed nothing"
+    # Gathered first: a generator with an `await` in it is an async generator, and `all()` over
+    # one is a TypeError rather than a check.
+    survivors = [await sync(keys_in)(buckets, "zarr", f"{key}/") for key in store_keys]
+    assert all(survivors), "and the request itself removed nothing"
 
     for store in flagged:
         await sync(age)(store, 30)
@@ -291,6 +294,9 @@ async def test_a_delete_that_rolls_back_flags_nothing(authenticated_context, big
     ctx = authenticated_context
     store = await bigfile_store(populated=True)
     file = await create_file(ctx, "kept.abf", await create_folder(ctx, "DS"), store=store)
+    # Kept aside: `Model.delete()` sets the instance's pk to None on the way out, and the
+    # rollback restores the row, not the instance -- so `file.pk` would look up nothing.
+    file_pk = file.pk
 
     def delete_then_fail() -> None:
         with transaction.atomic():
@@ -301,7 +307,7 @@ async def test_a_delete_that_rolls_back_flags_nothing(authenticated_context, big
     with pytest.raises(RuntimeError, match="boom"):
         await sync(delete_then_fail)()
 
-    assert await models.File.objects.filter(pk=file.pk).aexists(), "the delete rolled back"
+    assert await models.File.objects.filter(pk=file_pk).aexists(), "the delete rolled back"
     refreshed = await DatalayerStore.objects.aget(pk=store.pk)
     assert refreshed.orphaned_at is None, "a delete that did not happen must leave no store flagged"
 

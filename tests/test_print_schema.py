@@ -44,13 +44,13 @@ def test_provenance_filter_fields_exposed():
 _MIKRO_FIELDS = {
     "Column": ["axisType", "description", "dtype", "id", "longName", "name", "nodeReferences", "order", "references", "role", "table", "unit"],
     "ColumnInput": ["axisType", "description", "dtype", "identifiedBy", "longName", "name", "role", "unit"],
-    "CreateSparseDatasetInput": ["axes", "derivedFrom", "description", "folder", "name", "sourceFiles", "store"],
+    "CreateSparseDatasetInput": ["anchors", "axes", "derivedFrom", "description", "folder", "name", "sourceFiles", "store"],
     "CreateTableDatasetInput": ["anchors", "columns", "data", "derivedFrom", "description", "folder", "name", "sourceFiles"],
     "IdentificationInput": ["dataset", "kind", "meshCollection", "name", "networkCollection", "table", "validity"],
     "SparseArray": ["id", "indexedAxis", "indexedAxisName", "path", "store"],
     "SparseAxisInput": ["description", "identifiedBy", "longName", "name"],
     "SparseAxisReference": ["axis", "id", "references"],
-    "SparseDataset": ["arrays", "axisNames", "axisReferences", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "folder", "id", "indexableAxes", "name", "provenanceEntries", "provenanceMetadata", "shape", "sourceFiles"],
+    "SparseDataset": ["anchors", "arrays", "axisNames", "axisReferences", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "folder", "id", "indexableAxes", "name", "provenanceEntries", "provenanceMetadata", "shape", "sourceFiles"],
     "SparseLayout": ["chunks", "dtype", "encoding", "encodingVersion", "indexOrder", "indexedAxis", "nnz", "path", "rangeReadable"],
     "TableDataset": ["anchors", "axisNames", "columns", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "exports", "folder", "id", "name", "provenanceEntries", "provenanceMetadata", "referencedBy", "sourceFiles", "store"],
 }

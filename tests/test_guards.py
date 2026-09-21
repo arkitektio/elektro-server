@@ -115,6 +115,16 @@ def test_anchor_defers_a_spoke_to_its_table(authenticated_context):
     assert guards.resolve_anchor(label) == table
 
 
+def test_anchor_defers_a_spoke_to_its_sparse_dataset(authenticated_context):
+    """And likewise for a sparse matrix: the anchor is part of the matrix."""
+    ctx = authenticated_context
+    matrix = models.SparseDataset.objects.create(name="expression", creator=ctx.request.user, organization=ctx.request.organization)
+    anchor = models.CoordinateAnchor.objects.create(sparse=matrix, coordinates={"feature": 3})
+    label = models.ChannelLabel.objects.create(anchor=anchor, label="GAD1")
+    assert guards.resolve_anchor(anchor) == matrix
+    assert guards.resolve_anchor(label) == matrix
+
+
 # --- schema-level: generated delete mutations --------------------------------
 
 

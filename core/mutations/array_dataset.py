@@ -567,15 +567,22 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
 _ARRAY_ONLY_SPOKES: tuple[str, ...] = ("value_unit",)
 
 
-def _get_or_create_anchor(container: "models.ArrayDataset | models.TableDataset", axis_anchors: list[AxisAnchorInputModel] | None) -> "models.CoordinateAnchor":
+#: Which anchor column each container kind is keyed on.
+_CONTAINER_FIELDS: dict[type, str] = {models.ArrayDataset: "dataset", models.TableDataset: "table", models.SparseDataset: "sparse"}
+
+
+def _get_or_create_anchor(container: "models.ArrayDataset | models.TableDataset | models.SparseDataset", axis_anchors: list[AxisAnchorInputModel] | None) -> "models.CoordinateAnchor":
     """Get-or-create rather than create: two spokes at one coordinate are two spokes of *one* anchor.
 
-    Keyed on the container -- an array dataset or a table dataset -- and the coordinates; the
-    two namespaces cannot collide because an anchor has exactly one container.
+    Keyed on the container -- an array, table or sparse dataset -- and the coordinates; the
+    namespaces cannot collide because an anchor has exactly one container.
     """
     coordinates = {axis_anchor.axis: axis_anchor.value for axis_anchor in axis_anchors or []}
-    key = {"dataset": container} if isinstance(container, models.ArrayDataset) else {"table": container}
-    anchor, _ = models.CoordinateAnchor.objects.get_or_create(coordinates=coordinates, **key)
+    try:
+        field = next(field for kind, field in _CONTAINER_FIELDS.items() if isinstance(container, kind))
+    except StopIteration:
+        raise TypeError(f"A coordinate anchor pins into an array, table or sparse dataset, not a {type(container).__name__}.") from None
+    anchor, _ = models.CoordinateAnchor.objects.get_or_create(coordinates=coordinates, **{field: container})
     return anchor
 
 
@@ -590,10 +597,10 @@ def _write_anchor_spokes(info: Info, anchor: "models.CoordinateAnchor", input: C
     A table-anchored simulation state is stored but not clock-checked: ``clocks.assert_one_run``
     walks ``anchor__dataset``, and a table has no sampling law to reconcile against.
     """
-    if anchor.table_id is not None:
+    if anchor.dataset_id is None:
         offending = [name for name in _ARRAY_ONLY_SPOKES if getattr(input, name) is not None]
         if offending:
-            raise ValueError(f"{', '.join(repr(name) for name in offending)} {'is an array-only spoke' if len(offending) == 1 else 'are array-only spokes'} and cannot be attached to a table anchor. A table's units are its columns'.")
+            raise ValueError(f"{', '.join(repr(name) for name in offending)} {'is an array-only spoke' if len(offending) == 1 else 'are array-only spokes'} and cannot be attached to a table or sparse anchor. A table's units are its columns'.")
 
     if input.rig:
         # The typed model's dump IS the stored JSON, so the column never grows a shape

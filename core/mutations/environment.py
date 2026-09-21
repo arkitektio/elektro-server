@@ -100,7 +100,7 @@ def create_mod_environment(
     input = input.to_pydantic()
 
     store = get_for_org(datalayer_models.BigFileStore, info, id=input.zip_file)
-    store.fill_info()
+    store.fill_info(get_current_datalayer())
 
     environment = models.ModEnvironment.objects.create(
         name=input.name,

@@ -75,6 +75,11 @@ class DatalayerStore(PolymorphicModel):
     original_file_name = models.CharField(max_length=1000, null=True, blank=True, help_text="The original client-provided file name.")
     content_type = models.CharField(max_length=255, null=True, blank=True, help_text="The client-provided content type for the uploaded file.")
     populated = models.BooleanField(default=False, help_text="Whether the store has been populated with a valid path and is ready for use.")
+    size_bytes = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="How many bytes this store actually holds, measured when the upload was finished. Null while an upload is unfinished, or for stores written before this was recorded",
+    )
     orphaned_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -115,6 +120,32 @@ class DatalayerStore(PolymorphicModel):
             return layer.delete_prefix(self.bucket, self.key)
         layer.delete_object(self.bucket, self.key)
         return 1
+
+    def measure_bytes(self, datalayer: Datalayer | None = None) -> int:
+        """Return how many bytes this store actually occupies in S3.
+
+        Prefix-aware for the same reason as :meth:`purge_bytes`: a zarr is a directory, so its
+        size is the sum over a listing, while every other store is one key and a HEAD answers.
+        """
+        layer = datalayer or Datalayer()
+        if self.is_prefix:
+            return layer.measure_prefix_bytes(self.bucket, self.key)
+        return layer.get_object_size(self.bucket, layer.build_object_key(self.bucket, self.key))
+
+    def measured_size(self, datalayer: Datalayer | None = None) -> int | None:
+        """This store's size on disk, or ``None`` if it could not be read. Never raises.
+
+        The non-fatal wrapper around :meth:`measure_bytes`, and the one every ``fill_info``
+        calls. By the time a store is finalized its bytes are already in the bucket, so
+        refusing the upload over a failed accounting read would lose the data to protect a
+        number. A store whose size cannot be measured is still a finished store; ``size_bytes``
+        stays null and says exactly that.
+        """
+        try:
+            return self.measure_bytes(datalayer)
+        except Exception:
+            logger.warning("Could not measure the bytes held by %s store %s; leaving size_bytes unset.", self.bucket, self.pk, exc_info=True)
+            return None
 
     def delete(self, *args, **kwargs) -> tuple[int, dict[str, int]]:
         """Delete the remote objects, then the row.
@@ -160,8 +191,15 @@ class BigFileStore(DatalayerStore):
     def fill_info(self, datalayer: Datalayer | None = None) -> None:
         """Mark the object as populated and normalize its stored URI."""
         self.path = self.build_store_path(datalayer)
+        # Measured here rather than beside the finish mutation because `fill_info` is the
+        # one point both entry paths reach: the `finish*Upload` mutations and the core
+        # create mutations, which call this directly. Non-fatal, and it never overwrites a
+        # recorded size with null -- see `measured_size`.
+        measured = self.measured_size(datalayer)
+        if measured is not None:
+            self.size_bytes = measured
         self.populated = True
-        self.save(update_fields=["path", "populated"])
+        self.save(update_fields=["path", "populated", "size_bytes"])
 
     def get_presigned_url(
         self,
@@ -201,8 +239,15 @@ class MediaStore(DatalayerStore):
     def fill_info(self, datalayer: Datalayer | None = None) -> None:
         """Mark the object as populated and normalize its stored URI."""
         self.path = self.build_store_path(datalayer)
+        # Measured here rather than beside the finish mutation because `fill_info` is the
+        # one point both entry paths reach: the `finish*Upload` mutations and the core
+        # create mutations, which call this directly. Non-fatal, and it never overwrites a
+        # recorded size with null -- see `measured_size`.
+        measured = self.measured_size(datalayer)
+        if measured is not None:
+            self.size_bytes = measured
         self.populated = True
-        self.save(update_fields=["path", "populated"])
+        self.save(update_fields=["path", "populated", "size_bytes"])
 
     def put_file(self, datalayer: Datalayer, file: "FileobjTypeDef") -> None:
         """Upload a file with the service credentials and finalize the store."""
@@ -266,6 +311,13 @@ class ZarrStore(DatalayerStore):
         self.chunk_key_encoding = metadata.chunk_key_encoding
         self.codecs = metadata.codecs
         self.version = metadata.version
+        # Measured here rather than beside the finish mutation because `fill_info` is the
+        # one point both entry paths reach: the `finish*Upload` mutations and the core
+        # create mutations, which call this directly. Non-fatal, and it never overwrites a
+        # recorded size with null -- see `measured_size`.
+        measured = self.measured_size(datalayer)
+        if measured is not None:
+            self.size_bytes = measured
         self.populated = True
         self.save(
             update_fields=[
@@ -282,6 +334,7 @@ class ZarrStore(DatalayerStore):
                 "codecs",
                 "version",
                 "populated",
+                "size_bytes",
             ]
         )
 
@@ -333,8 +386,15 @@ class ParquetStore(DatalayerStore):
         layer = datalayer or Datalayer()
         self.path = self.build_store_path(layer)
         self.columns = [column.model_dump() for column in layer.get_parquet_schema(self)]
+        # Measured here rather than beside the finish mutation because `fill_info` is the
+        # one point both entry paths reach: the `finish*Upload` mutations and the core
+        # create mutations, which call this directly. Non-fatal, and it never overwrites a
+        # recorded size with null -- see `measured_size`.
+        measured = self.measured_size(datalayer)
+        if measured is not None:
+            self.size_bytes = measured
         self.populated = True
-        self.save(update_fields=["path", "columns", "populated"])
+        self.save(update_fields=["path", "columns", "populated", "size_bytes"])
 
 
 class SparseStore(DatalayerStore):
@@ -431,8 +491,15 @@ class SparseStore(DatalayerStore):
         self.spec = metadata.spec
         self.shape = metadata.shape
         self.layouts = [layout.model_dump() for layout in metadata.layouts]
+        # Measured here rather than beside the finish mutation because `fill_info` is the
+        # one point both entry paths reach: the `finish*Upload` mutations and the core
+        # create mutations, which call this directly. Non-fatal, and it never overwrites a
+        # recorded size with null -- see `measured_size`.
+        measured = self.measured_size(datalayer)
+        if measured is not None:
+            self.size_bytes = measured
         self.populated = True
-        self.save(update_fields=["path", "spec", "shape", "layouts", "populated"])
+        self.save(update_fields=["path", "spec", "shape", "layouts", "populated", "size_bytes"])
 
     @property
     def encodings(self) -> list[str]:

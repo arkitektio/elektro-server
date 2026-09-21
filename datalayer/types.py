@@ -214,6 +214,7 @@ class BigFileStore:
     path: str
     bucket: str
     key: str
+    size_bytes: int | None = strawberry.field(description="How many bytes this store actually holds, measured when its upload was finished. Null while unfinished, or for stores written before this was recorded")
     original_file_name: str | None
     content_type: str | None
 
@@ -240,6 +241,7 @@ class MediaStore:
     path: str
     bucket: str
     key: str
+    size_bytes: int | None = strawberry.field(description="How many bytes this store actually holds, measured when its upload was finished. Null while unfinished, or for stores written before this was recorded")
     original_file_name: str | None
     content_type: str | None
 
@@ -266,6 +268,7 @@ class ZarrStore:
     path: str
     bucket: str
     key: str
+    size_bytes: int | None = strawberry.field(description="How many bytes this store actually holds, measured when its upload was finished. Null while unfinished, or for stores written before this was recorded")
     shape: list[int]
     chunks: list[int] = strawberry.field(description="Effective inner chunk shape — the brick/residency unit a reader can decode. For sharded arrays this is the sharding codec's inner chunk_shape, not the chunk-grid (shard) shape.")
     shards: list[int] | None = strawberry.field(description="Shard (outer storage object) shape for zarr v3 sharding_indexed arrays; null when unsharded. Shards exist to cut object count — readers should still treat `chunks` as the brick unit.")
@@ -295,6 +298,7 @@ class ParquetStore:
     path: str
     bucket: str
     key: str
+    size_bytes: int | None = strawberry.field(description="How many bytes this store actually holds, measured when its upload was finished. Null while unfinished, or for stores written before this was recorded")
     original_file_name: str | None
     content_type: str | None
 
@@ -430,6 +434,7 @@ class SparseStore:
     path: str
     bucket: str
     key: str
+    size_bytes: int | None = strawberry.field(description="How many bytes this store actually holds, measured when its upload was finished. Null while unfinished, or for stores written before this was recorded")
     spec: str | None = strawberry.field(description="The version of the `sporadik` block this store was accepted under. A spec selects how every byte in the prefix is read, so an unknown one is refused rather than guessed at")
     shape: list[int] | None = strawberry.field(description="The shape of the matrix, as the root block declares it and every layout agrees. Two axes")
 

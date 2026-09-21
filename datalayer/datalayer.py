@@ -1330,6 +1330,30 @@ class Datalayer:
             Key=self.build_object_key(bucket_key, object_path),
         )
 
+    def measure_prefix_bytes(self, bucket_key: str, object_path: str) -> int:
+        """Sum the sizes of every object under a prefix.
+
+        The listing half of :meth:`delete_prefix` without the deleting half, and paginated for
+        the same reason: a 100k-chunk array is ~100 round trips, not 100k. An absent prefix
+        measures 0 rather than raising, so an unfinished or already-purged store reports the
+        truth instead of an error.
+
+        Args:
+            bucket_key: Logical datalayer store type.
+            object_path: Store-relative prefix.
+
+        Returns:
+            The total size in bytes of everything under the prefix.
+        """
+        conf = self.get_bucket_config(bucket_key)
+        prefix = self.build_object_key(bucket_key, object_path).rstrip("/") + "/"
+
+        total = 0
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=conf.bucket, Prefix=prefix):
+            total += sum(item["Size"] for item in page.get("Contents", []))
+        return total
+
     def delete_prefix(self, bucket_key: str, object_path: str) -> int:
         """Delete every object under a prefix, and return how many were removed.
 

@@ -1,4 +1,5 @@
 from kante.types import Info
+from elektro_server.logs import QuietErrorsSchema
 from typing import List
 import strawberry
 from strawberry import ID as StrawberryID
@@ -597,7 +598,11 @@ class Subscription:
     files = strawberry.subscription(resolver=subscriptions.files, description="Subscribe to real-time file updates")
 
 
-schema = kante.Schema(
+class Schema(QuietErrorsSchema, kante.Schema):
+    """kante.Schema, logging expected resolver errors as one line and bugs with a traceback (see logs.py)."""
+
+
+schema = Schema(
     query=Query,
     subscription=Subscription,
     mutation=Mutation,

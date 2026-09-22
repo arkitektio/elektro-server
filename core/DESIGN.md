@@ -570,6 +570,27 @@ Each of these is deliberate, and each is marked where it happens in the code.
     dataset-wide `ValueHistogram` (mikro's `_value_windows`, where mikro applies it to channels).
 21. **A world may be a place.** mikro's scenes already compose over SPACE; here the TIME-only
     requirement of the first pass is relaxed to TIME *or* SPACE.
+22. **A neuron model is a lineage container**, so `Resident` and `DerivationSourceKind` are
+    both wider here than in mikro, which has no model domain at all. A `NeuronModel` owns a
+    coordinate system carrying one INDEX axis and nothing placeable -- the same degenerate
+    space a table with no coordinate columns gets -- so every edge touching it is UNMAPPABLE:
+    the lineage is recorded and no geometry is claimed. This replaced a `parent` self-FK, which
+    was the last literal parent-column lineage in the schema and recorded no `validity`, no
+    `value_relation` and no provenance, was exposed nowhere in GraphQL, and which
+    `lineageGraph` could not see because a model was not a container for any walk to stand on.
+    `parent` survives on `createNeuronModel` as *sugar* for one NEURON_MODEL entry in
+    `derivedFrom`, placed first so it is the primary parent.
+
+    A simulated dataset may also name its model this way, but **nothing writes that edge for
+    you**. The `simulation` spoke (`SimulationState`: the model, `dt`, `duration`) and a
+    derivation edge answer different questions -- what run this output belongs to, which
+    `clocks.assert_one_run` reconciles across a clock, versus what the data was computed from,
+    which `lineageGraph` walks -- and deriving one from the other would be the second copy free
+    to disagree that this schema refuses everywhere, since the spoke is `update_or_create` and
+    reachable after ingest. `createArrayDataset` checks that the two agree when both are stated
+    and otherwise leaves the author to state the edge. The consequence, stated plainly: a
+    simulated dataset whose writer passes no `derivedFrom` has an empty one, and "where did
+    this trace come from" is answered by the spoke rather than uniformly by `derivedFrom`.
 
 **Clock synchronisation, fixed in mikro and here together.** `_assert_epochs_agree` used to
 refuse *every* edge between two clocks anchored to different instants -- the TRANSLATION its own
@@ -672,6 +693,27 @@ was) rather than handed a guessed model. `tests/test_architecture.py` checks tha
 migration agree, and that the migration actually runs on an empty Postgres.
 
 ## Breaking changes for API clients
+
+**Neuron model lineage** (the coordinate-graph pass):
+
+- **Removed:** `NeuronModel.parent` the *column*. A model's ancestry is now an UNMAPPABLE
+  derivation edge out of the space it owns, read back through `NeuronModel.derivedFrom`. The
+  `parent` *argument* to `createNeuronModel` remains as sugar for exactly that edge; passing it
+  together with a NEURON_MODEL entry in `derivedFrom` is refused, because the two could
+  disagree about order and order is priority.
+- **New:** `NeuronModel.coordinateSystem`, `.derivedFrom`, `.derivedInto`;
+  `derivedFrom` on `createNeuronModel`; `NEURON_MODEL` on `DerivationSourceKind` and the
+  matching `NeuronModelDerivedFromInput` member, so any container may name a model as a source.
+  `NeuronModel` is a member of `Resident` and a node of `lineageGraph`.
+- **`NeuronModel` is organization-scoped.** `hash` was globally unique and the create was
+  unscoped, so two organizations uploading one config shared a row and the later write
+  overwrote the earlier. The constraint is `(organization, hash)` now. Rows already damaged by
+  that are not recoverable; only their provenance history remembers what was lost.
+- **Delete semantics changed.** `parent` was CASCADE, so deleting a model deleted its whole
+  subtree. Now `deleteNeuronModel` sweeps the space the model owns, and that sweep takes every
+  edge touching it -- so deleting a parent leaves its children with an empty `derivedFrom`. The
+  recorded parentage goes, not the child. This is what deleting an array dataset's source
+  already does.
 
 **Layers, tables and sparse datasets** (the second pass):
 
@@ -800,9 +842,13 @@ is refused. `RecordingSite.model` / `StimulusSite.model` and `NeuronModel.record
   would lift that.
 - **Non-contiguous selections.** A lens slices `start:stop:step`; channels `[0, 3, 7]` are
   three lenses. (`BlockGroup.channels` went with `AnalogSignalChannel`.)
-- **Attaching an anchor after ingest.** Anchors are written by `createArrayDataset` only;
-  mikro has the same gap outside its phasor spokes. A series resistance measured afterwards
-  has no mutation yet.
+- ~~**Attaching an anchor after ingest.**~~ **Done, and worth knowing about:**
+  `createCoordinateAnchor` reaches the same `_write_anchor_spokes` writer
+  `createArrayDataset` does, and every spoke there is `update_or_create` -- so a series
+  resistance measured afterwards has a mutation, and a spoke can be *restated*. That
+  mutability is the reason a simulated dataset's derivation edge is authored rather than
+  derived from its `simulation` spoke (divergence 22): a derived copy would go stale the
+  moment the spoke was rewritten.
 - **mikro's scene-only fields** have no counterpart: `defaultScene`, `latestSnapshot`,
   `Lens.renderAxes`, snapshots, animations. What draws a dataset is asked the other way:
   `ArrayDataset.experimentLayers`.

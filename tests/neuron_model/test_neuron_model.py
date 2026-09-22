@@ -7,7 +7,7 @@ regression (environment/parent) and the in-environment mechanism validation.
 
 import pytest
 
-from core.models import ModEnvironment, Mechanism, NeuronModel
+from core.models import ModEnvironment, Mechanism, NeuronModel, Transformation
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -72,9 +72,8 @@ async def test_create_neuron_model_builtin_mechanism(aexecute, authenticated_con
 
 
 async def test_create_neuron_model_with_parent(aexecute, make_neuron_model):
-    # Regression: parent is passed as a GraphQL ID (string), and the resolver must
-    # assign it via parent_id. Assigning the raw string to the FK (parent=...) used
-    # to raise "Cannot assign '<id>': NeuronModel.parent must be a NeuronModel instance".
+    # `parent` is sugar now: it lowers to a single NEURON_MODEL entry in `derivedFrom`, placed
+    # first, so what it produces is an UNMAPPABLE edge out of the child's space -- not a column.
     parent = await make_neuron_model(name="Parent")
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -82,8 +81,18 @@ async def test_create_neuron_model_with_parent(aexecute, make_neuron_model):
     )
     assert not res.errors, res.errors
     assert res.data["createNeuronModel"]["name"] == "Child"
+
     child = await NeuronModel.objects.aget(name="Child")
-    assert child.parent_id == parent.id
+    assert child.coordinate_system_id is not None
+
+    edges = [
+        edge
+        async for edge in Transformation.objects.filter(input=child.coordinate_system_id, parent__isnull=True)
+    ]
+    assert len(edges) == 1
+    assert edges[0].output_id == parent.coordinate_system_id
+    # A model's space claims nothing placeable, so the only honest kind is UNMAPPABLE.
+    assert edges[0].kind == "UNMAPPABLE"
 
 
 async def test_create_neuron_model_inherits_parent_environment(

@@ -525,12 +525,16 @@ def make_dataset(authenticated_context):
 
 @pytest.fixture
 def make_neuron_model(authenticated_context):
-    """Factory: create a NeuronModel row (unique hash per row).
+    """Factory: create a NeuronModel row (unique hash per row), with the space it owns.
 
     environment is NOT NULL on NeuronModel, so one is minted automatically when
     not supplied by the caller.
+
+    The space is minted here too, exactly as ``create_neuron_model`` does: a model is a lineage
+    container, so a row without one is a state the mutation never produces and every lineage
+    read would have to special-case. One INDEX axis, nothing placeable.
     """
-    from core.models import ModEnvironment, NeuronModel
+    from core.models import Axis, CoordinateSystem, ModEnvironment, NeuronModel
 
     @sync_to_async
     def _make(context=None, name="NeuronModel", environment=None, json_model=None):
@@ -539,12 +543,20 @@ def make_neuron_model(authenticated_context):
             environment = ModEnvironment.objects.create(
                 name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization
             )
+        system = CoordinateSystem.objects.create(
+            name=f"{name}/model",
+            creator=ctx.request.user,
+            organization=ctx.request.organization,
+        )
+        Axis.objects.create(coordinate_system=system, order=0, name="object", type="INDEX")
         return NeuronModel.objects.create(
             name=name,
             hash=uuid.uuid4().hex,
             json_model=json_model if json_model is not None else {},
             creator=ctx.request.user,
             environment=environment,
+            organization=ctx.request.organization,
+            coordinate_system=system,
         )
 
     return _make
@@ -579,7 +591,17 @@ def make_simulation_chain(authenticated_context):
         ctx = context or authenticated_context
         creation = seed._creation(ctx)
         environment = models.ModEnvironment.objects.create(name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization)
-        nm = models.NeuronModel.objects.create(name="NeuronModel", hash=uuid.uuid4().hex, json_model=seed.SOMA_MODEL, creator=ctx.request.user, environment=environment)
+        nm_system = models.CoordinateSystem.objects.create(name="NeuronModel/model", creator=ctx.request.user, organization=ctx.request.organization)
+        models.Axis.objects.create(coordinate_system=nm_system, order=0, name="object", type="INDEX")
+        nm = models.NeuronModel.objects.create(
+            name="NeuronModel",
+            hash=uuid.uuid4().hex,
+            json_model=seed.SOMA_MODEL,
+            creator=ctx.request.user,
+            environment=environment,
+            organization=ctx.request.organization,
+            coordinate_system=nm_system,
+        )
 
         clock = clocks.create_clock(name=f"{name}/clock", unit=unit, ctx=creation)
 

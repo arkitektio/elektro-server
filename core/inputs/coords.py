@@ -739,22 +739,31 @@ class CoordinateSystemDerivedFromInputModel(DerivedFromInputBase):
     SOURCE_FIELD: ClassVar[str] = "coordinate_system"
 
 
+class NeuronModelDerivedFromInputModel(DerivedFromInputBase):
+    """Derived from a neuron model, through the space it owns."""
+
+    kind: Literal[enums.DerivationSourceKind.NEURON_MODEL] = enums.DerivationSourceKind.NEURON_MODEL
+    neuron_model: str
+    SOURCE_FIELD: ClassVar[str] = "neuron_model"
+
+
 #: Every source kind, keyed by discriminator value.
 DERIVED_FROM_MEMBERS: dict[str, type[BaseModel]] = {
     enums.DerivationSourceKind.LENS.value: LensDerivedFromInputModel,
     enums.DerivationSourceKind.DATASET.value: DatasetDerivedFromInputModel,
     enums.DerivationSourceKind.ANNOTATION_COLLECTION.value: AnnotationCollectionDerivedFromInputModel,
     enums.DerivationSourceKind.COORDINATE_SYSTEM.value: CoordinateSystemDerivedFromInputModel,
+    enums.DerivationSourceKind.NEURON_MODEL.value: NeuronModelDerivedFromInputModel,
 }
 
 #: The union the pydantic side carries, so a resolver never sees the flat wire shape.
 DerivedFromSpec = Annotated[
-    LensDerivedFromInputModel | DatasetDerivedFromInputModel | AnnotationCollectionDerivedFromInputModel | CoordinateSystemDerivedFromInputModel,
+    LensDerivedFromInputModel | DatasetDerivedFromInputModel | AnnotationCollectionDerivedFromInputModel | CoordinateSystemDerivedFromInputModel | NeuronModelDerivedFromInputModel,
     Field(discriminator="kind"),
 ]
 
 #: The wire fields carrying a source id, one per member.
-_DERIVED_FROM_SOURCE_FIELDS = ("lens", "dataset", "annotation_collection", "coordinate_system")
+_DERIVED_FROM_SOURCE_FIELDS = ("lens", "dataset", "annotation_collection", "coordinate_system", "neuron_model")
 
 _TRANSFORM_DESCRIPTION = (
     "How this data's own space maps back into the source's -- any creatable kind; the rank check holds you to it. **Omit it and the edge is UNMAPPABLE**: naming a source records "
@@ -789,6 +798,7 @@ class DerivedFromInput:
     dataset: strawberry.ID | None = strawberry.field(default=None, description="(DATASET) The dataset this data was computed from, through its whole sample grid")
     annotation_collection: strawberry.ID | None = strawberry.field(default=None, description="(ANNOTATION_COLLECTION) The annotation collection this data was computed from")
     coordinate_system: strawberry.ID | None = strawberry.field(default=None, description="(COORDINATE_SYSTEM) The space this data was computed from, when the source is a space rather than a container")
+    neuron_model: strawberry.ID | None = strawberry.field(default=None, description="(NEURON_MODEL) The neuron model this data was computed from -- the model a trace was simulated from, or the model another model was edited out of")
     transform: TransformInput | None = strawberry.field(default=None, description=_TRANSFORM_DESCRIPTION)
     value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
 
@@ -852,6 +862,16 @@ class CoordinateSystemDerivedFromInput:
     value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
 
 
+@_derived_from_member(NeuronModelDerivedFromInputModel, enums.DerivationSourceKind.NEURON_MODEL, "The fields a NEURON_MODEL derivation reads")
+class NeuronModelDerivedFromInput:
+    """The NEURON_MODEL member of the derivation source union."""
+
+    kind: enums.DerivationSourceKind = strawberry.field(description="The discriminator: which member of DerivedFromInput this is")
+    neuron_model: strawberry.ID = strawberry.field(description="The neuron model this data was computed from")
+    transform: TransformInput | None = strawberry.field(default=None, description=_TRANSFORM_DESCRIPTION)
+    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+
+
 #: The member inputs published to the SDL, for the schema's ``types=[...]``. Dropping one
 #: erases it from the SDL silently -- they are referenced by no field.
 derived_from_union_types: list[type] = [
@@ -859,6 +879,7 @@ derived_from_union_types: list[type] = [
     DatasetDerivedFromInput,
     AnnotationCollectionDerivedFromInput,
     CoordinateSystemDerivedFromInput,
+    NeuronModelDerivedFromInput,
 ]
 
 

@@ -255,6 +255,9 @@ class NeuronModel(OrgScoped):
     description: str | None
     creator: User | None
     environment: ModEnvironment
+    coordinate_system: Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")] | None = strawberry_django.field(
+        description="The coordinate system this model owns. It carries one INDEX axis and nothing placeable; its derivation edges are the model's lineage"
+    )
     model_collections: list[ModelCollection] | None
     mappings: List["WorkspaceMapping"] = strawberry_django.field()
     provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
@@ -274,6 +277,34 @@ class NeuronModel(OrgScoped):
     def sessions(self, info: Info) -> List[NeuronModelSession]:
         """Group :meth:`simulated_datasets` by the clock they are timed onto, in clock order."""
         return sessions_of(info, models.ArrayDataset.objects.filter(anchors__simulation__model=self))
+
+    @strawberry_django.field(
+        description=(
+            "Every edge from this model's space back into what it was computed from, in declared order -- the first is the primary parent, the model it was edited out of. Always "
+            "UNMAPPABLE: a model's space carries one INDEX axis and nothing placeable, so the edge records the lineage and claims no geometry. Empty for a model written from "
+            "scratch. This replaces the old `parent` field, which recorded no validity, no value relation and no provenance, and which `lineageGraph` could not see"
+        )
+    )
+    def derived_from(self, info: Info) -> List[Annotated["Transformation", strawberry.lazy("core.types.coords")]]:
+        """The edges relating this model's space to whatever it came from."""
+        system = getattr(self, "coordinate_system", None)
+        from core.logic import graph as graph_logic
+
+        return graph_logic.collection_derivation_edges(system) if system else []
+
+    @strawberry_django.field(
+        description=(
+            "Everything computed from this model, whatever kind of container it is: the models edited out of it, and the datasets whose `derivedFrom` names it -- a simulated "
+            "trace that stated where it came from. Derived from the same edges as `derivedFrom`, never a stored back-reference that could disagree with them. **Not the same "
+            "question as `simulatedDatasets`**, which reads the `simulation` spoke and answers for every run of this model whether or not anyone authored a derivation"
+        )
+    )
+    def derived_into(self, info: Info) -> List[Annotated["Resident", strawberry.lazy("core.types.coords")]]:
+        """The containers computed from this model."""
+        system = getattr(self, "coordinate_system", None)
+        from core.logic import graph as graph_logic
+
+        return graph_logic.containers_derived_into(system) if system else []
 
     @strawberry_django.field(description="The recording sites that are part of this model: every place on it some dataset's values were recorded from, in the viewer's organization")
     def recording_sites(self, info: Info) -> List[Annotated["RecordingSite", strawberry.lazy("core.types.array_dataset")]]:

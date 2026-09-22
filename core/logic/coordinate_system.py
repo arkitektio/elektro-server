@@ -120,6 +120,7 @@ def resolve_source_system(
     sparse_dataset: "models.SparseDataset | None" = None,
     annotation_collection: "models.AnnotationCollection | None" = None,
     coordinate_system: "models.CoordinateSystem | None" = None,
+    neuron_model: "models.NeuronModel | None" = None,
 ) -> "models.CoordinateSystem":
     """The coordinate system a source is placed by, given the already-fetched owner.
 
@@ -127,14 +128,16 @@ def resolve_source_system(
     through its own space, a table dataset, a sparse dataset or an annotation collection
     through the space it owns, a coordinate system directly. (elektro: mikro has no
     ``sparse_dataset`` keyword -- a derivation cannot name one there -- but a spike raster is a
-    thing waveforms are computed from, so here it can.)
+    thing waveforms are computed from, so here it can. Nor a ``neuron_model`` keyword, since
+    mikro has no model domain at all; here a model owns a space and a trace can be derived from
+    it.)
 
     Shared by registrations and derivations: both name "some container", and the answer to
     "which space stands for it" cannot sensibly differ between them.
     """
-    provided = [value for value in (dataset, lens, table_dataset, sparse_dataset, annotation_collection, coordinate_system) if value is not None]
+    provided = [value for value in (dataset, lens, table_dataset, sparse_dataset, annotation_collection, coordinate_system, neuron_model) if value is not None]
     if len(provided) != 1:
-        raise ValueError("A registration must name exactly one source: a dataset, a lens, a table dataset, a sparse dataset, an annotation collection, or a coordinate system.")
+        raise ValueError("A registration must name exactly one source: a dataset, a lens, a table dataset, a sparse dataset, an annotation collection, a coordinate system, or a neuron model.")
 
     if coordinate_system is not None:
         return coordinate_system
@@ -159,6 +162,12 @@ def resolve_source_system(
             raise ValueError(f"Sparse dataset '{sparse_dataset.name}' has no coordinate system to register.")
         return system
 
+    if neuron_model is not None:
+        system = neuron_model.coordinate_system
+        if system is None:
+            raise ValueError(f"Neuron model '{neuron_model.name}' has no coordinate system, so there is no space to derive from.")
+        return system
+
     if annotation_collection is not None:
         system = annotation_collection.coordinate_system_or_none
         if system is None:
@@ -181,6 +190,7 @@ _DERIVATION_SOURCES: dict[str, tuple[type, str]] = {
     enums.DerivationSourceKind.TABLE_DATASET.value: (models.TableDataset, "table_dataset"),
     enums.DerivationSourceKind.ANNOTATION_COLLECTION.value: (models.AnnotationCollection, "annotation_collection"),
     enums.DerivationSourceKind.COORDINATE_SYSTEM.value: (models.CoordinateSystem, "coordinate_system"),
+    enums.DerivationSourceKind.NEURON_MODEL.value: (models.NeuronModel, "neuron_model"),
 }
 
 

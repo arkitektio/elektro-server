@@ -449,6 +449,7 @@ class DerivationSourceKind(str, Enum):
     TABLE_DATASET = "TABLE_DATASET"
     ANNOTATION_COLLECTION = "ANNOTATION_COLLECTION"
     COORDINATE_SYSTEM = "COORDINATE_SYSTEM"
+    NEURON_MODEL = "NEURON_MODEL"
 
 
 _describe(
@@ -458,6 +459,7 @@ _describe(
     TABLE_DATASET="A table dataset, through the space its coordinate columns declare -- the direction an image reconstructed from a table of SMLM localizations is derived. A table with no coordinate columns enumerates objects rather than places them, and its only honest edge is UNMAPPABLE.",
     ANNOTATION_COLLECTION="An annotation collection, through the space its shapes are drawn in.",
     COORDINATE_SYSTEM="A coordinate system directly, when the source is a space rather than a dataset -- a clock, or a world.",
+    NEURON_MODEL="A neuron model, through the space it owns: the direction a retuned model is derived from the one it was edited out of, and the direction a simulated trace is derived from the model that was integrated to compute it. A model's space carries one INDEX axis and nothing placeable, so this edge is always UNMAPPABLE -- it records where the data came from and claims no geometry. It names the *whole* model; which cell and section were recorded stays on the dataset's recording or stimulus site.",
 )
 
 

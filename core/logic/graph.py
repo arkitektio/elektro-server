@@ -87,6 +87,14 @@ CONTAINERS: tuple[Container, ...] = (
     Container(model=models.TableDataset, related_name="table_datasets", root_field="pk", key="tabledataset", is_collection=True),
     Container(model=models.AnnotationCollection, related_name="annotation_collections", root_field="pk", key="annotationcollection", is_collection=True),
     Container(model=models.SparseDataset, related_name="sparse_datasets", root_field="pk", key="sparsedataset", is_collection=True),
+    # elektro's own, and the one container that holds no samples: a neuron model owns a space so
+    # that "this model was derived from that one" is an edge like every other derivation rather
+    # than the self-FK it used to be. Its space carries a single INDEX axis, so every edge
+    # touching it is UNMAPPABLE -- which also means it stops reading as uninhabited to
+    # `_UNINHABITED` below, and `fact_paths` will now stand on it. Harmless while nothing
+    # mappable touches a model space; the day someone registers one into a world with a real
+    # map, that is the line to revisit.
+    Container(model=models.NeuronModel, related_name="neuron_models", root_field="pk", key="neuronmodel", is_collection=True),
 )
 
 #: The reverse accessors from ``CoordinateSystem`` to the *compositions* over it: the rows
@@ -1887,6 +1895,52 @@ def derived_containers(dataset: "models.ArrayDataset") -> list:
     # One container may have several edges into this dataset -- a fusion of two of its
     # lenses -- and is still one child; pk order makes the answer the creators' order.
     seen: set[tuple] = {("dataset", dataset.pk)}
+    wanted: list[tuple] = []
+    for edge in edges:
+        key = keys.get(edge.input_id) if edge.input_id else None
+        if key is None or key in seen or not is_derivation_edge(edge, of_container=key, keys=keys):
+            continue
+        seen.add(key)
+        wanted.append(key)
+
+    by_kind: dict[str, list[int]] = {}
+    for kind, pk in wanted:
+        by_kind.setdefault(kind, []).append(pk)
+
+    found: dict[tuple, object] = {}
+    for label, pks in by_kind.items():
+        found.update({(label, row.pk): row for row in MODEL_BY_KEY[label].objects.filter(pk__in=pks)})
+    return [found[key] for key in wanted if key in found]
+
+
+def containers_derived_into(system: "models.CoordinateSystem | None") -> list:
+    """Everything computed from the container that owns ``system``, whatever kind it is.
+
+    The collection-side counterpart of :func:`derived_containers`, which is honestly
+    dataset-only: its filter reaches a source through ``output__datasets`` /
+    ``output__lenses__dataset`` / ``output__data_arrays__dataset``, and those three joins *are*
+    what confines it to an array dataset. A container that owns its space outright -- a table, a
+    sparse dataset, an annotation collection, a neuron model -- is reached by none of them, which
+    is why those types carry ``derivedFrom`` and nothing pointing the other way.
+
+    Here the question is one join shorter, because a collection's space stands for the
+    collection: an edge whose ``output`` *is* this space names a child directly. Everything else
+    is the same rule read from the same rows -- kind-blind (an UNMAPPABLE child still came from
+    here), priority-blind (a child that named this source second is still a child), and
+    de-duplicated by container key in pk order, so a child with two edges into this space is one
+    child and the order is its creators'.
+    """
+    if system is None:
+        return []
+
+    edges = list(models.Transformation.objects.filter(output=system, parent__isnull=True).select_related("input", "output").order_by("pk"))
+    if not edges:
+        return []
+
+    keys = _keys_for(edges)
+
+    own = keys.get(system.pk)
+    seen: set[tuple] = {own} if own is not None else set()
     wanted: list[tuple] = []
     for edge in edges:
         key = keys.get(edge.input_id) if edge.input_id else None

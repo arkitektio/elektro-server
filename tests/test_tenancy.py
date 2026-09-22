@@ -76,3 +76,52 @@ async def test_the_owning_organization_can_still_delete_them(aexecute, other_org
         res = await aexecute(document, {"input": {"id": str(row.pk)}}, context=other_org_context)
         assert not res.errors, (mutation, res.errors)
         assert not await type(row).objects.filter(pk=row.pk).aexists()
+
+
+CREATE_NEURON_MODEL = """
+mutation ($input: CreateNeuronModelInput!) {
+  createNeuronModel(input: $input) { id name coordinateSystem { id } }
+}
+"""
+
+
+async def test_two_organizations_can_hold_the_same_model_config(aexecute, authenticated_context, other_org_context):
+    """One org's create must not match -- and overwrite -- another's row.
+
+    `NeuronModel.hash` was `unique=True` *globally* while `create_neuron_model` ran an unscoped
+    `update_or_create(hash=...)`, so the same config uploaded by two organizations produced one
+    shared row whose `creator`, `environment` and `name` belonged to whoever wrote last. It also
+    made the model unable to own a space once it became a lineage container: a coordinate
+    system's organization is required and single-valued, so a shared row had no single answer.
+
+    The constraint is `(organization, hash)` now, and the lookup matches it.
+    """
+    config = {"cells": [], "vInit": "-67 mV", "temperature": "36 degC"}
+
+    mine_env = await models.ModEnvironment.objects.acreate(name="mine-env", organization=authenticated_context.request.organization)
+    theirs_env = await models.ModEnvironment.objects.acreate(name="theirs-env", organization=other_org_context.request.organization)
+
+    mine = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "Mine", "environment": str(mine_env.id), "config": config}},
+        context=authenticated_context,
+    )
+    theirs = await aexecute(
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "Theirs", "environment": str(theirs_env.id), "config": config}},
+        context=other_org_context,
+    )
+    assert not mine.errors, mine.errors
+    assert not theirs.errors, theirs.errors
+
+    # Two rows, not one -- and neither name was overwritten by the other's write.
+    assert mine.data["createNeuronModel"]["id"] != theirs.data["createNeuronModel"]["id"]
+    assert await models.NeuronModel.objects.filter(name="Mine").acount() == 1
+    assert await models.NeuronModel.objects.filter(name="Theirs").acount() == 1
+
+    # Each owns its own space, scoped to its own organization.
+    assert mine.data["createNeuronModel"]["coordinateSystem"]["id"] != theirs.data["createNeuronModel"]["coordinateSystem"]["id"]
+    mine_row = await models.NeuronModel.objects.aget(name="Mine")
+    theirs_row = await models.NeuronModel.objects.aget(name="Theirs")
+    assert mine_row.organization_id == authenticated_context.request.organization.id
+    assert theirs_row.organization_id == other_org_context.request.organization.id

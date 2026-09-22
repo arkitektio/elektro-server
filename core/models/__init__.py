@@ -191,18 +191,16 @@ class NeuronModel(models.Model):
         on_delete=models.CASCADE,
         help_text="The mod environment that the neuron model belongs to",
     )
-    parent = models.ForeignKey(
-        "self",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="children",
-        help_text="The parent model of the neuron (if it was derived from another model)",
-    )
+    # **No `parent` column.** A model derived from another used to say so with a self-FK, which
+    # was the only literal parent-column lineage left in the schema and the weaker of the two
+    # mechanisms this service carries: it recorded no `validity`, no `value_relation` and no
+    # provenance, it was never exposed in GraphQL, and `lineageGraph` could not see it because a
+    # model was not a container. A model's ancestry is now a `Transformation` edge out of
+    # `coordinate_system`, read by the same walks that answer for every other container.
     hash = models.CharField(
         max_length=1000,
         help_text="The hash of the model",
-        unique=True,
+        db_index=True,
     )
     json_model = models.JSONField(
         help_text="The json model of the neuron",
@@ -223,7 +221,49 @@ class NeuronModel(models.Model):
         related_name="pinned_models",
         help_text="The users that have pinned the model",
     )
+
+    # A real column, not a walk through `environment`. Three reasons, in order of force: a
+    # unique constraint can only reference local columns, so "one model per hash per org" is
+    # inexpressible through `environment__organization`; a `CoordinateSystem`'s organization is
+    # required and single-valued, so a row shared across orgs could not own a space; and
+    # `core.scoping._find_org_path` takes the *first* required FK that reaches an organization
+    # and caches the answer process-wide, so a second required FK would make it
+    # declaration-order-dependent. A local column short-circuits that walk entirely.
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="neuron_models",
+        help_text="The organization that owns the model",
+    )
+
+    # The model's own space: one node of the coordinate graph, so that a model can be a lineage
+    # node like every other container. Its axes say nothing placeable -- one INDEX axis, exactly
+    # as a table with no coordinate columns gets -- so every edge touching it is UNMAPPABLE, which
+    # is the honest record of "this model came from that one, and no geometry crosses".
+    coordinate_system = models.ForeignKey(
+        "core.CoordinateSystem",
+        on_delete=models.PROTECT,
+        # Nullable in the database only because the `historical*` twin carries rows written
+        # before this column existed, and a history row must be allowed to say "not
+        # recorded". Every write path sets it, so a live row never has none.
+        null=True,
+        blank=True,
+        related_name="neuron_models",
+        help_text="The coordinate system this model owns. Its derivation edges are its lineage",
+    )
+
     provenance = ProvenanceField()
+
+    class Meta:
+        """Meta options for the neuron model."""
+
+        constraints = [
+            # Was `unique=True` on `hash` alone, which made a config globally unique and let one
+            # org's create match -- and overwrite -- another org's row through the unscoped
+            # `update_or_create` in `create_neuron_model`. Strictly weaker than what it replaces,
+            # so every existing row satisfies it.
+            models.UniqueConstraint(fields=["organization", "hash"], name="one_model_per_hash_per_organization"),
+        ]
 
 
 class Experiment(models.Model):

@@ -72,6 +72,29 @@ delete_model_collection = _make_delete(models.ModelCollection)
 delete_model_workspace = _make_delete(models.ModelWorkspace)
 delete_workspace_mapping = _make_delete(models.WorkspaceMapping)
 delete_mod_environment = _make_delete(models.ModEnvironment)
-delete_neuron_model = _make_delete(models.NeuronModel)
+def delete_neuron_model(info: Info, input: DeleteInput) -> strawberry.ID:
+    """Delete a neuron model, sweeping the space it owns.
+
+    Not `_make_delete`: a model owns its coordinate system and its FK to it is PROTECT, so a
+    plain delete cannot cascade into the space and would leave one orphan per deleted model.
+    This is `core.mutations._generic.make_owned_space_delete`'s rule, written out here rather
+    than imported -- that module imports `delete_flagging_stores` from this one, so importing it
+    back at module scope is a cycle.
+
+    **The lineage consequence, which is a behaviour change worth knowing:** the sweep takes every
+    edge touching that space, so deleting a parent model leaves its children with an empty
+    `derivedFrom`. The recorded parentage goes, not the child -- where the old `parent` column
+    was CASCADE and took the whole subtree with it. This is what an array dataset already does
+    when its source is deleted.
+    """
+    from core.logic import spaces as spaces_logic
+
+    parsed = input.to_pydantic()
+    item = get_for_org(models.NeuronModel, info, id=parsed.id)
+    enforce_delete(info, item)
+    systems = {item.coordinate_system_id}
+    delete_flagging_stores(item)
+    spaces_logic.sweep_empty_systems(systems)
+    return strawberry.ID(parsed.id)
 delete_experiment = _make_delete(models.Experiment)
 delete_layer = _make_delete(models.ExperimentLayer)

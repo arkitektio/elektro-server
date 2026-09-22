@@ -558,7 +558,40 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
         coordinate_anchor = _get_or_create_anchor(dataset, anchor.axis_anchors)
         _write_anchor_spokes(info, coordinate_anchor, anchor)
 
+    _assert_simulation_agrees_with_derivation(info, dataset, model.derived_from)
+
     return dataset
+
+
+def _assert_simulation_agrees_with_derivation(info: Info, dataset: "models.ArrayDataset", derived_from: list | None) -> None:
+    """Refuse a dataset whose simulation spoke and NEURON_MODEL derivation name different models.
+
+    The two are different facts and both are kept. The ``simulation`` spoke says *what run this
+    output belongs to* -- the model, ``dt`` and ``duration`` that ``clocks.assert_one_run``
+    reconciles across a clock -- while a derivation edge says *what this data was computed from*
+    and is what ``lineageGraph`` walks. A spoke is invisible to every graph walk, so the edge is
+    not redundant; but when both are stated in one request they are answering about the same
+    integration, and two different answers is the one state neither can detect later.
+
+    Deliberately only a check. Writing the edge *from* the spoke was the obvious alternative and
+    is wrong: the spoke is `update_or_create` (see :func:`_write_anchor_spokes`) and reachable
+    after ingest through ``createCoordinateAnchor``, so a derived edge would go stale the moment
+    the spoke was restated -- the second copy free to disagree that this schema refuses
+    everywhere. Authored once, checked where both are in hand.
+    """
+    named = {entry.neuron_model for entry in (derived_from or []) if entry.kind == enums.DerivationSourceKind.NEURON_MODEL}
+    if not named:
+        return
+
+    simulated = set(models.SimulationState.objects.filter(anchor__dataset=dataset).values_list("model_id", flat=True))
+    if not simulated:
+        return
+
+    if {str(model_id) for model_id in simulated} != {str(name) for name in named}:
+        raise ValueError(
+            f"Dataset '{dataset.name}' says it was simulated from model(s) {sorted(simulated)} on its simulation anchor, "
+            f"but its `derivedFrom` names {sorted(named)}. One integration cannot have come from two different models -- state the same one, or drop the derivation."
+        )
 
 
 #: The spokes that describe an *array* and nothing else. A table's value units are its

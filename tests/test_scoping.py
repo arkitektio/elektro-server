@@ -78,7 +78,10 @@ ORGANIZATION_PATHS = {
     "ModEnvironment": "organization",
     "ModelCollection": "organization",
     "ModelWorkspace": "organization",
-    "NeuronModel": "environment__organization",
+    # A local column since the model became a lineage container: a unique constraint can only
+    # reference local columns, and a `CoordinateSystem`'s organization is required and
+    # single-valued, so a row shared across orgs could not own a space.
+    "NeuronModel": "organization",
     "RecordingSite": "anchor__organization",
     "RigState": "anchor__organization",
     "SimulationState": "anchor__organization",

@@ -93,6 +93,10 @@ Resident = Annotated[
         Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")],
         Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")],
         Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
+        # elektro's own arm, and the only one that lazy-loads the package rather than a
+        # submodule: `NeuronModel` is defined in `core/types/__init__.py` *above* that module's
+        # import of this one, so by the time strawberry resolves this the package is complete.
+        Annotated["NeuronModel", strawberry.lazy("core.types")],
     ],
     strawberry.union("Resident", description="A piece of data living in a coordinate system. Data belongs to a space; the space belongs to nobody"),
 ]

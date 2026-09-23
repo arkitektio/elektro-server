@@ -244,3 +244,40 @@ def test_the_layer_kinds_and_their_sources_agree() -> None:
     sdl = str(schema)
     for concrete in ("TraceLayer", "SpikesLayer", "EventsLayer", "AnnotationLayer", "HeatmapLayer", "SeriesLayer", "WaveformLayer", "PointLayer"):
         assert f"type {concrete} implements ExperimentLayer" in sdl, f"{concrete} is not registered in the schema's `types=`"
+
+
+def test_every_query_field_is_scoped_to_the_organization() -> None:
+    """A bare `x: list[T] = field()` reads through T's `get_queryset`, and nothing else in the
+    stack adds an organization -- mikro once shipped twelve types without one. Each such field
+    must narrow to the request's organization, checked on the SQL so a `get_queryset` that
+    only selects relations does not count. Fields with a resolver scope themselves through
+    ``core.scoping`` and are skipped.
+    """
+    from types import SimpleNamespace
+
+    from authentikate.models import Organization
+
+    from core.scoping import organization_path
+    from elektro_server.schema import Query
+
+    sentinel = 987654321
+    info = SimpleNamespace(variable_values={}, context=SimpleNamespace(request=SimpleNamespace(organization=Organization(pk=sentinel))))
+
+    checked, unscoped = 0, []
+    for field in Query.__strawberry_definition__.fields:
+        if getattr(field, "base_resolver", None) is not None:
+            continue
+        model = getattr(field, "django_model", None)
+        if model is None:
+            continue
+        checked += 1
+        get_queryset = getattr(field.django_type, "get_queryset", None)
+        if get_queryset is None:
+            unscoped.append(f"{field.python_name} ({field.django_type.__name__} has no get_queryset)")
+            continue
+        sql = str(get_queryset(model.objects.all(), info).query)
+        if organization_path(model) is None or str(sentinel) not in sql:
+            unscoped.append(f"{field.python_name} ({field.django_type.__name__}.get_queryset does not filter by organization)")
+
+    assert checked, "found no Query fields to check -- the walk is broken, not the scoping fine"
+    assert not unscoped, "Query fields readable across organizations:\n  " + "\n  ".join(unscoped)

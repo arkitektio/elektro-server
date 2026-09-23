@@ -11,6 +11,7 @@ from core import mutations
 from core import queries
 from core import subscriptions
 import strawberry_django
+from strawberry_django.fields.field import StrawberryDjangoField
 from koherent.strawberry.extension import KoherentExtension
 from datalayer.duck import DuckExtension
 from typing import Annotated
@@ -34,6 +35,20 @@ from core.types.layers import layer_types
 from core.types.coords import transformation_types
 
 ID = Annotated[StrawberryID, strawberry.argument(description="The unique identifier of an object")]
+
+
+
+class CreatedByCallerField(StrawberryDjangoField):
+    """A list field narrowed to rows the caller created -- the `my*` fields.
+
+    A field class rather than a resolver, because a resolver makes strawberry_django drop the
+    filters/ordering/pagination arguments. Organization scoping still comes from the type's
+    ``get_queryset``, which the parent runs.
+    """
+
+    def get_queryset(self, queryset, info, **kwargs):
+        # Narrow before the parent paginates: a sliced queryset can no longer be filtered.
+        return super().get_queryset(queryset.filter(creator=info.context.request.user), info, **kwargs)
 
 
 @strawberry.type
@@ -83,7 +98,7 @@ class Query:
     annotation_collections: list[types.AnnotationCollection] = strawberry_django.field(description="List annotation collections: named sets of marks, each owning the coordinate system they are drawn in")
     annotations: list[types.Annotation] = strawberry_django.field(description="List annotations: events, epochs and measurements, each in its collection's coordinate system")
     folders: list[types.Folder] = strawberry_django.field(description="List folders (collections of array, table and sparse datasets, annotation collections and files)")
-    myfolders: list[types.Folder] = strawberry_django.field(description="List folders created by the current user")
+    myfolders: list[types.Folder] = strawberry_django.field(field_cls=CreatedByCallerField, description="List folders created by the current user")
     experiments: list[types.Experiment] = strawberry_django.field()
     neuron_models: list[types.NeuronModel] = strawberry_django.field()
     model_collections: list[types.ModelCollection] = strawberry_django.field()
@@ -91,7 +106,7 @@ class Query:
     workspace_mappings: list[types.WorkspaceMapping] = strawberry_django.field()
 
     files: list[types.File] = strawberry_django.field()
-    myfiles: list[types.File] = strawberry_django.field()
+    myfiles: list[types.File] = strawberry_django.field(field_cls=CreatedByCallerField)
     children = strawberry_django.field(resolver=queries.children, description="List everything filed in a folder: its sub-folders, files, array, table and sparse datasets and annotation collections")
 
     mod_environments: list[types.ModEnvironment] = strawberry_django.field()

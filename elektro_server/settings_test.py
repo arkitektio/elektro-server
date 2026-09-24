@@ -33,6 +33,10 @@ AUTHENTIKATE = {
         # only "bot", neither rule 1 (admin) nor rule 3 (a bot's creations belong to the
         # task's assigner) lets them delete, so the guard's denial path is reachable.
         "bottest": {"sub": "2", "roles": ["bot"]},
+        # An "editor": writes data and requests upload grants, but is not an org admin.
+        "editortest": {"sub": "3", "roles": ["editor"]},
+        # A "viewer": in the org, but holding no role that may upload.
+        "viewertest": {"sub": "4", "roles": ["viewer"]},
     },
 }
 

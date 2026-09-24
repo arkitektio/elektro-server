@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING, Optional, TypeVar, cast
 import boto3
 from botocore.config import Config
 from django.conf import settings
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ByteSize, ConfigDict, Field
 
 from datalayer import base_models
+from datalayer import quota as quota_module
 
 if TYPE_CHECKING:
+    from authentikate.models import User
+
     from datalayer import models
 
 logger = logging.getLogger(__name__)
@@ -40,8 +43,8 @@ class BucketConfig(BaseModel):
 
     bucket: str = Field(..., validation_alias=AliasChoices("PATH", "path"))
     subpath: str | None = Field(None, validation_alias=AliasChoices("SUBPATH", "subpath"))
-    default_max_bytes: int = Field(
-        100 * 1024 * 1024,
+    default_max_bytes: ByteSize = Field(
+        ByteSize(100 * 1024 * 1024),
         validation_alias=AliasChoices("DEFAULT_MAX_BYTES", "default_max_bytes"),
     )
 
@@ -92,6 +95,16 @@ class DatalayerConfig(BaseModel):
     media: Optional[BucketConfig] = None
     zarr: Optional[BucketConfig] = None
     parquet: Optional[BucketConfig] = None
+
+    upload_roles: list[str] = Field(
+        default_factory=lambda: ["admin", "editor", "bot"],
+        validation_alias=AliasChoices("UPLOAD_ROLES", "upload_roles"),
+        description="Organization roles allowed to request upload grants; any one of them is enough.",
+    )
+    quotas: quota_module.QuotaConfig = Field(
+        default_factory=quota_module.QuotaConfig,
+        validation_alias=AliasChoices("QUOTAS", "quotas"),
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -213,6 +226,31 @@ class Datalayer:
         """
         requested = expires_in or self.config.session_duration_seconds
         return min(max(requested, MIN_SESSION_DURATION_SECONDS), MAX_SESSION_DURATION_SECONDS)
+
+    def resolve_quota(self, organization_id: int, user: Optional["User"]) -> quota_module.Quota:
+        """The configured quota for ``user`` acting in the organization. See :mod:`datalayer.quota`."""
+        from authentikate.models import Organization
+
+        slug = Organization.objects.values_list("slug", flat=True).get(id=organization_id)
+        return quota_module.resolve_quota(self.config.quotas, slug, user.sub if user is not None else None)
+
+    def _upload_budget(self, bucket_key: str, quota: quota_module.Quota, declared: Optional[int]) -> int:
+        """The byte budget a grant advertises: the declared size, else the per-upload quota, else the bucket default."""
+        if declared:
+            return declared
+        if quota.max_upload_bytes is not None:
+            return quota.max_upload_bytes
+        return int(self.get_bucket_config(bucket_key).default_max_bytes)
+
+    def _admit_upload(self, bucket_key: str, organization_id: int, user: Optional["User"], declared: Optional[int]) -> int:
+        """Check a new upload against the quota, and return the byte budget its grant advertises.
+
+        Raises :class:`~datalayer.quota.QuotaExceeded` when the organization or the user is
+        over quota, or the declared size is over the per-upload limit.
+        """
+        quota = self.resolve_quota(organization_id, user)
+        quota_module.check_upload(quota, organization_id, user, declared)
+        return self._upload_budget(bucket_key, quota, declared)
 
     def parquet_source(self, store: "models.ParquetStore") -> str:
         """The ``s3://`` URL DuckDB reads a parquet store through."""
@@ -620,7 +658,7 @@ class Datalayer:
         except Exception as exc:
             return self._unscoped_fallback(f"a general read grant on {bucket_key} for organization {organization_id}", exc)
 
-    def generate_media_upload_grant(self, organization_id: int, input: base_models.RequestMediaUploadInput) -> base_models.MediaUploadGrant:
+    def generate_media_upload_grant(self, organization_id: int, input: base_models.RequestMediaUploadInput, user: Optional["User"] = None) -> base_models.MediaUploadGrant:
         """Create a media store and a presigned PUT URL for upload.
 
         The presigned URL is generated against the internal S3 endpoint, then
@@ -629,9 +667,12 @@ class Datalayer:
         from datalayer import models
 
         conf = self.get_bucket_config("media")
+
+        budget = self._admit_upload("media", organization_id, user, input.file_size)
         key = self._new_key()
         store = models.MediaStore.objects.create(
             organization_id=organization_id,
+            creator=user,
             path=self.build_store_path("media", key),
             key=key,
             bucket="media",
@@ -654,7 +695,7 @@ class Datalayer:
             path=self.build_store_path("media", store.key),
             expires_in=ttl,
             datalayer="media",
-            max_bytes=input.file_size or conf.default_max_bytes,
+            max_bytes=budget,
             original_file_name=store.original_file_name,
             upload_file_name=store.get_upload_file_name(),
             upload_content_type=store.content_type,
@@ -662,14 +703,17 @@ class Datalayer:
             store=str(store.pk),
         )
 
-    def generate_bigfile_upload_grant(self, organization_id: int, input: base_models.RequestBigFileUploadInput) -> base_models.BigFileUploadGrant:
+    def generate_bigfile_upload_grant(self, organization_id: int, input: base_models.RequestBigFileUploadInput, user: Optional["User"] = None) -> base_models.BigFileUploadGrant:
         """Create a big file store and upload grant."""
         from datalayer import models
 
         conf = self.get_bucket_config("bigfile")
+
+        budget = self._admit_upload("bigfile", organization_id, user, input.file_size)
         key = self._new_key()
         store = models.BigFileStore.objects.create(
             organization_id=organization_id,
+            creator=user,
             path=self.build_store_path("bigfile", key),
             key=key,
             bucket="bigfile",
@@ -692,7 +736,7 @@ class Datalayer:
             path=self.build_store_path("bigfile", store.key),
             expires_in=ttl,
             datalayer="bigfile",
-            max_bytes=input.file_size or conf.default_max_bytes,
+            max_bytes=budget,
             original_file_name=store.original_file_name,
             upload_file_name=store.get_upload_file_name(),
             upload_content_type=store.content_type,
@@ -700,14 +744,17 @@ class Datalayer:
             store=str(store.pk),
         )
 
-    def generate_zarr_upload_grant(self, organization_id: int, input: base_models.RequestZarrUploadInput) -> base_models.ZarrUploadGrant:
+    def generate_zarr_upload_grant(self, organization_id: int, input: base_models.RequestZarrUploadInput, user: Optional["User"] = None) -> base_models.ZarrUploadGrant:
         """Create a Zarr store and upload grant."""
         from datalayer import models
 
         conf = self.get_bucket_config("zarr")
+
+        budget = self._admit_upload("zarr", organization_id, user, None)
         key = self._new_key()
         store = models.ZarrStore.objects.create(
             organization_id=organization_id,
+            creator=user,
             path=self.build_store_path("zarr", key),
             key=key,
             bucket="zarr",
@@ -730,7 +777,7 @@ class Datalayer:
             path=self.build_store_path("zarr", store.key),
             expires_in=ttl,
             datalayer="zarr",
-            max_bytes=conf.default_max_bytes,
+            max_bytes=budget,
             original_file_name=store.original_file_name,
             upload_file_name=store.get_upload_file_name(),
             upload_content_type=store.content_type,
@@ -738,14 +785,17 @@ class Datalayer:
             store=str(store.pk),
         )
 
-    def generate_parquet_upload_grant(self, organization_id: int, input: base_models.RequestParquetUploadInput) -> base_models.ParquetUploadGrant:
+    def generate_parquet_upload_grant(self, organization_id: int, input: base_models.RequestParquetUploadInput, user: Optional["User"] = None) -> base_models.ParquetUploadGrant:
         """Create a parquet store and upload grant."""
         from datalayer import models
 
         conf = self.get_bucket_config("parquet")
+
+        budget = self._admit_upload("parquet", organization_id, user, None)
         key = self._new_key()
         store = models.ParquetStore.objects.create(
             organization_id=organization_id,
+            creator=user,
             path=self.build_store_path("parquet", key),
             key=key,
             bucket="parquet",
@@ -765,7 +815,7 @@ class Datalayer:
             path=self.build_store_path("parquet", store.key),
             expires_in=ttl,
             datalayer="parquet",
-            max_bytes=conf.default_max_bytes,
+            max_bytes=budget,
             original_file_name=store.original_file_name,
             upload_file_name=store.get_upload_file_name(),
             upload_content_type=store.content_type,
@@ -773,7 +823,7 @@ class Datalayer:
             store=str(store.pk),
         )
 
-    def _build_sparse_upload_grant(self, store: "models.SparseStore") -> base_models.SparseUploadGrant:
+    def _build_sparse_upload_grant(self, store: "models.SparseStore", max_bytes: Optional[int] = None) -> base_models.SparseUploadGrant:
         """Issue an upload grant for a sparse store that already exists.
 
         Split out so credentials can be reissued for the same store without minting a second
@@ -794,13 +844,14 @@ class Datalayer:
             key=self.build_object_key("zarr", store.key),
             path=self.build_store_path("zarr", store.key),
             expires_in=ttl,
-            # elektro: stores carry no `max_bytes` column here; the bucket's default is advertised.
-            max_bytes=conf.default_max_bytes,
+            # elektro: stores carry no `max_bytes` column, so a reissued grant re-derives the budget
+            # from the uploader's current per-upload quota rather than reading it off the row.
+            max_bytes=max_bytes if max_bytes is not None else self._upload_budget("zarr", self.resolve_quota(store.organization_id, store.creator), None),
             upload_file_name=store.get_upload_file_name(),
             store=str(store.pk),
         )
 
-    def generate_sparse_upload_grant(self, organization_id: int, input: base_models.RequestSparseUploadInput) -> base_models.SparseUploadGrant:
+    def generate_sparse_upload_grant(self, organization_id: int, input: base_models.RequestSparseUploadInput, user: Optional["User"] = None) -> base_models.SparseUploadGrant:
         """Create a sparse store and a prefix upload grant.
 
         The grant covers the whole prefix and permits read-back and delete inside it, because a
@@ -814,14 +865,17 @@ class Datalayer:
         from datalayer import models
 
         conf = self.get_bucket_config("zarr")
+
+        budget = self._admit_upload("zarr", organization_id, user, None)
         key = self._new_key()
         store = models.SparseStore.objects.create(
             organization_id=organization_id,
+            creator=user,
             path=self.build_store_path("zarr", key),
             key=key,
             bucket="zarr",
         )
-        return self._build_sparse_upload_grant(store)
+        return self._build_sparse_upload_grant(store, budget)
 
     def refresh_sparse_upload_grant(self, organization_id: int, store_id: str) -> base_models.SparseUploadGrant:
         """Reissue upload credentials for a sparse store whose upload is still in flight.

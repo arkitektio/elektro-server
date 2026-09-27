@@ -437,6 +437,7 @@ def assert_axes_describe_the_store(axes: list, store: "models.ZarrStore") -> Non
         )
 
 
+@transaction.atomic
 def create_array_dataset(
     info: Info,
     input: CreateArrayDatasetInput,

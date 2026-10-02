@@ -22,6 +22,7 @@ from kante.path import dynamicpath
 
 from health_check.views import HealthCheckView
 from django.views.decorators.csrf import csrf_exempt
+from rekuest_service.views import answers_challenge
 from elektro_server.service import service as rekuest_service
 
 
@@ -29,7 +30,7 @@ x = "s"
 
 urlpatterns = [
     dynamicpath("admin/", admin.site.urls),
-    dynamicpath("ht", csrf_exempt(HealthCheckView.as_view(checks=["health_check.Database"])), name="health_check"),
+    dynamicpath("ht", answers_challenge(csrf_exempt(HealthCheckView.as_view(checks=["health_check.Database"]))), name="health_check"),
     # The hub's rekuest runs this service's periodic work through here (internal network only).
     *rekuest_service.urls,
 ]

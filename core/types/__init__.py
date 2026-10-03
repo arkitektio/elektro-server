@@ -3,6 +3,7 @@ from core.analysis import compute_dominance
 from core.analysis.dominance import DEFAULT_WEIGHTS
 from pydantic import BaseModel
 import strawberry
+from strawberry.scalars import JSON
 import strawberry_django
 from strawberry import auto
 from typing import Any, List, Optional, Annotated, Union, cast
@@ -29,7 +30,7 @@ import kante
 from core.parameters import Parameter, ParameterModel
 
 
-from core.types._shared import OrgScoped, build_prescoped_queryset, build_prescoper  # noqa: E402,F401  (re-exported: mutations and tests import them from here)
+from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, build_prescoped_queryset, build_prescoper  # noqa: E402,F401  (re-exported: mutations and tests import them from here)
 
 
 @kante.django_type(models.ModEnvironment, filters=filters.ModEnvironmentFilter, pagination=True, ordering=filters.ModEnvironmentOrder)
@@ -54,6 +55,8 @@ class Mechanism(OrgScoped):
 
 @strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, ordering=filters.ModelCollectionOrder, pagination=True)
 class ModelCollection(OrgScoped):
+    descriptors: JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+
     id: auto
     name: str
     models: List["NeuronModel"] = strawberry_django.field()
@@ -250,6 +253,8 @@ class NeuronModelSession:
 
 @strawberry_django.type(models.NeuronModel, filters=filters.NeuronModelFilter, pagination=True, ordering=filters.NeuronModelOrder)
 class NeuronModel(OrgScoped):
+    descriptors: JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+
     id: auto
     name: auto
     description: str | None

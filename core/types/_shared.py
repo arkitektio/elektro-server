@@ -4,6 +4,8 @@ Lives here, not in ``core/types/__init__.py``, so that a type module split out o
 (``core/types/coords.py``) can import the mixin without importing the package that imports it.
 """
 
+from strawberry.scalars import JSON
+
 from core import scoping
 
 
@@ -91,3 +93,17 @@ def apply_link_filters(queryset, filters_input, info) -> list:  # noqa: ANN001 -
     if filters_input is not strawberry.UNSET and filters_input is not None:
         queryset = strawberry_django.filters.apply(filters_input, queryset, info)
     return list(queryset)
+
+
+DESCRIPTORS_DESCRIPTION = (
+    "This object's descriptors, a flat mapping of key to value: the facts about it that an action's port can `require` and a trigger can test "
+    "(e.g. `@elektro/n_samples`). The keys are the ones elektro declares for this structure, and the values are the ones a signal about the object carries. "
+    "Empty for a structure that declares none"
+)
+
+
+def resolve_descriptors(root) -> JSON:  # noqa: ANN001 - the model instance behind any hosted type
+    """The descriptors of a hosted object, from its structure's declaration (``elektro_server.service``)."""
+    from elektro_server.service import service  # the declaration imports core.models
+
+    return service.describe(root)

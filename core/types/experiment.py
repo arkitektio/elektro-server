@@ -10,6 +10,7 @@ import datetime
 from typing import Annotated, List, Optional, cast
 
 import strawberry
+from strawberry.scalars import JSON
 import strawberry_django
 from kante.types import Info
 from koherent.strawberry.types import ProvenanceEntry
@@ -18,7 +19,7 @@ from strawberry import auto
 from authentikate.strawberry.types import User
 
 from core import filters, models
-from core.types._shared import OrgScoped
+from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped
 from core.types.annotation import AnnotationCollection
 from core.types.coords import CoordinateSystem
 
@@ -26,6 +27,8 @@ from core.types.coords import CoordinateSystem
 @strawberry_django.type(models.Experiment, filters=filters.ExperimentFilter, ordering=filters.ExperimentOrder, pagination=True)
 class Experiment(OrgScoped):
     """Data laid out on one timeline, as layers. mikro's Scene, over time."""
+
+    descriptors: JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
 
     id: auto
     name: str

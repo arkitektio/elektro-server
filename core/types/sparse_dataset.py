@@ -8,6 +8,7 @@ cannot record (a sparse dataset is a ``FileLink`` container here).
 from typing import TYPE_CHECKING, Annotated, List, Optional
 
 import strawberry
+from strawberry.scalars import JSON
 from strawberry import auto
 
 import kante
@@ -19,7 +20,7 @@ from core import filters, models, order, scalars
 from core.logic import file_link as file_link_logic
 from core.types.auth import ProvenanceEntry, Task, User
 from core.types.coords import CoordinateSystem, Transformation
-from core.types._shared import OrgScoped, OrgScopedOrNested, apply_link_filters
+from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, OrgScopedOrNested, apply_link_filters
 from core.logic import graph as graph_logic
 
 if TYPE_CHECKING:
@@ -90,6 +91,8 @@ class SparseAxisReference(OrgScopedOrNested):
 )
 class SparseDataset(OrgScoped):
     """A sparse matrix dataset."""
+
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
 
     id: auto
     name: auto

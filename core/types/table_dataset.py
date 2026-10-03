@@ -7,6 +7,7 @@ every type here, and ``Column.nodeReferences`` is gone with the network collecti
 from typing import TYPE_CHECKING, Annotated, List, Optional
 
 import strawberry
+from strawberry.scalars import JSON
 from strawberry import auto
 
 import kante
@@ -20,7 +21,7 @@ from core.logic import file_link as file_link_logic
 from core.logic import graph as graph_logic
 from core.types.auth import ProvenanceEntry, Task, User
 from core.types.coords import CoordinateSystem, Transformation
-from core.types._shared import OrgScoped, OrgScopedOrNested, apply_link_filters
+from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, OrgScopedOrNested, apply_link_filters
 
 if TYPE_CHECKING:
     # Only for the lazy annotation on the file-link fields below; importing it at runtime
@@ -71,6 +72,8 @@ class Column(OrgScopedOrNested):
 )
 class TableDataset(OrgScoped):
     """A parquet-backed table dataset."""
+
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
 
     folder: Optional[Annotated["Folder", strawberry.lazy("core.types.folder")]] = kante.django_field(
         description="The folder this table dataset is filed in. Organisational only: it says where a user keeps this table, never where its rows sit in space -- that is `coordinateSystem` and the edges out of it"

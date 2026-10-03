@@ -11,11 +11,12 @@ from typing import TYPE_CHECKING, Annotated, List, Optional, cast
 
 import kante
 import strawberry
+from strawberry.scalars import JSON
 from kante.types import Info
 from strawberry import auto
 
 from core import enums, filters, models, order
-from core.types._shared import OrgScoped, apply_link_filters
+from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, apply_link_filters
 from core.types.auth import Organization, ProvenanceEntry, Task, User
 from datalayer.types import BigFileStore
 
@@ -39,6 +40,8 @@ logger = logging.getLogger(__name__)
     description="A file in its original format (e.g. an ABF, an NWB file, a vendor recording), stored in a BigFileStore. Files are the raw bytes that array datasets are converted from.",
 )
 class File(OrgScoped):
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+
     id: auto
     name: auto
     store: BigFileStore
@@ -81,6 +84,8 @@ class File(OrgScoped):
     description="A folder is a collection of the things elektro stores. It mimics a folder in a file system and is the top-level container for organising data.",
 )
 class Folder(OrgScoped):
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+
     id: auto
     files: List["File"]
     # The four containers `FileLink` calls "a thing holding data". Being in a folder says

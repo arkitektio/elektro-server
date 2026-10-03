@@ -15,6 +15,7 @@ import datetime
 from typing import TYPE_CHECKING, Annotated, List, Optional
 
 import strawberry
+from strawberry.scalars import JSON
 from strawberry import auto
 
 import kante
@@ -27,7 +28,7 @@ from core import enums, filters, models, order, scalars, scoping
 from core.base_models import slices as base_models
 from core.logic import file_link as file_link_logic
 from core.logic import graph as graph_logic
-from core.types._shared import OrgScoped, apply_link_filters
+from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, apply_link_filters
 from core.types.auth import ProvenanceEntry, Task, User
 from core.types.coords import CoordinateSystem, Resident, Transformation
 from datalayer.types import ZarrStore
@@ -50,6 +51,8 @@ if TYPE_CHECKING:
 )
 class ArrayDataset(OrgScoped):
     """A multi-dimensional array dataset with named dimensions, described by its intrinsic pixel-grid coordinate system."""
+
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
 
     folder: Optional[Annotated["Folder", strawberry.lazy("core.types.folder")]] = kante.django_field(
         description="The folder this dataset is filed in. Organisational only: it says where a user keeps this dataset, never where the data sits in space -- that is `intrinsicSystem` and the edges out of it"
@@ -441,6 +444,8 @@ class Slice:
 )
 class Lens(OrgScoped):
     """A selection over a dataset. Its shape and axes are derived from the dataset and the slices."""
+
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
 
     id: auto
     dataset: ArrayDataset

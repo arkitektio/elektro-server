@@ -10,6 +10,7 @@ import datetime
 from typing import TYPE_CHECKING, Annotated, List, Optional
 
 import strawberry
+from strawberry.scalars import JSON
 from kante.types import Info
 from koherent.strawberry.types import ProvenanceEntry
 from strawberry import auto
@@ -19,7 +20,7 @@ from authentikate.strawberry.types import User
 
 from core import enums, filters, models, order
 from core.logic import graph as graph_logic
-from core.types._shared import OrgScoped, build_prescoped_queryset
+from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, build_prescoped_queryset
 from core.types.coords import CoordinateSystem, Transformation
 
 if TYPE_CHECKING:
@@ -57,6 +58,8 @@ class BoundingBox:
 )
 class AnnotationCollection(OrgScoped):
     """A named set of annotations, owning the space they are drawn in."""
+
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
 
     id: auto
     name: auto

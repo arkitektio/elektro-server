@@ -45,7 +45,7 @@ EXPECTED = {
         "CREATED",
         "DELETED"
     ],
-    "@elektro/dataset": [
+    "@elektro/folder": [
         "CREATED",
         "UPDATED",
         "DELETED"
@@ -108,6 +108,17 @@ def _organization():
 
 def test_the_manifest_declares_every_model_signal():
     assert {s["identifier"]: s["kinds"] for s in service.manifest()["signals"]} == EXPECTED
+
+
+def test_the_manifest_lists_what_elektro_hosts_with_its_descriptors():
+    hosted = {s["identifier"]: s for s in service.manifest()["structures"]}
+    # Everything signalled is hosted; a lens is hosted without ever being signalled.
+    assert set(hosted) == {*EXPECTED, "@elektro/lens"}
+    assert hosted["@elektro/folder"]["label"] == "Folder"
+    array_keys = [d["key"] for d in hosted["@elektro/arraydataset"]["descriptors"]]
+    assert array_keys == [d["key"] for d in hosted["@elektro/lens"]["descriptors"]]
+    assert {"key": "@elektro/n_samples", "type": "INT", "description": "Its total extent along its TIME axes"} in hosted["@elektro/arraydataset"]["descriptors"]
+    assert hosted["@elektro/tabledataset"]["descriptors"] == []
 
 
 @pytest.mark.django_db(transaction=True)

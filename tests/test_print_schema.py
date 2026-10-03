@@ -50,9 +50,9 @@ _MIKRO_FIELDS = {
     "SparseArray": ["id", "indexedAxis", "indexedAxisName", "path", "store"],
     "SparseAxisInput": ["description", "identifiedBy", "longName", "name"],
     "SparseAxisReference": ["axis", "id", "references"],
-    "SparseDataset": ["anchors", "arrays", "axisNames", "axisReferences", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "folder", "id", "indexableAxes", "name", "provenanceEntries", "provenanceMetadata", "shape", "sourceFiles"],
+    "SparseDataset": ["anchors", "arrays", "axisNames", "axisReferences", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "descriptors", "folder", "id", "indexableAxes", "name", "provenanceEntries", "provenanceMetadata", "shape", "sourceFiles"],
     "SparseLayout": ["chunks", "dtype", "encoding", "encodingVersion", "indexOrder", "indexedAxis", "nnz", "path", "rangeReadable"],
-    "TableDataset": ["anchors", "axisNames", "columns", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "exports", "folder", "id", "name", "provenanceEntries", "provenanceMetadata", "referencedBy", "sourceFiles", "store"],
+    "TableDataset": ["anchors", "axisNames", "columns", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "descriptors", "exports", "folder", "id", "name", "provenanceEntries", "provenanceMetadata", "referencedBy", "sourceFiles", "store"],
 }
 
 #: Every place the vendored types differ from mikro's, and why -- `core/DESIGN.md` lists the same.

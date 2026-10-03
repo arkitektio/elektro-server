@@ -12,7 +12,8 @@ from asgiref.sync import sync_to_async
 from kante.context import HttpContext
 
 from core import models
-from elektro_server.service import agent, service
+from elektro_server.hook_agent import agent
+from elektro_server.service import service
 from embeddings import engine
 from tests import seed
 from tests.test_signals import intake  # noqa: F401  the fixture

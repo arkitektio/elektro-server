@@ -91,7 +91,7 @@ class _Intake:
 @pytest.fixture
 def intake(settings):
     server = _Intake()
-    settings.REKUEST_HOOK = {"REKUEST_URL": server.url, "SERVICE": "elektro"}
+    settings.REKUEST_SERVICE = {"REKUEST_URL": server.url, "SERVICE": "elektro"}
     settings.INSTANCE = {
         "PRIVATE_KEY": KEY.as_pem(private=True).decode(),
         "TRUST_JWKS": {"keys": [{**trust.public_jwk(KEY), "service": "live.arkitekt.elektro"}]},

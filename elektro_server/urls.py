@@ -22,7 +22,7 @@ from kante.path import dynamicpath
 
 from health_check.views import HealthCheckView
 from django.views.decorators.csrf import csrf_exempt
-from rekuest_service.views import answers_challenge
+from arkitekt_service.service.views import answers_challenge
 from elektro_server.hook_agent import agent as hook_agent
 from elektro_server.service import service as rekuest_service
 

@@ -1,4 +1,4 @@
-"""elektro as a service of the hub: what exists here (vendored ``rekuest_service``).
+"""elektro as a service of the hub: what exists here (``arkitekt_service.service``).
 
 Two separate declarations, read by rekuest from the service's manifest (``*service.urls`` in
 ``urls.py``) and catalogued hub-wide:
@@ -17,7 +17,7 @@ agent's to say (``elektro_server.hook_agent``), a different thing with its own c
 
 from core import models
 from core.descriptors import ARRAY_DESCRIPTORS, dataset_descriptors, lens_descriptors
-from rekuest_service import Service, organization_of
+from arkitekt_service.service import Service, organization_of
 
 service = Service("elektro", description="Electrophysiology data and simulations.")
 

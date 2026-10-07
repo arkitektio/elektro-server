@@ -1,7 +1,7 @@
 """The descriptors of elektro's arrays — the server-side twin of the client's vocabulary.
 
-They are declared once, on the structures in ``elektro_server/service.py``, and read from there
-by everything that states them: a signal carries the object's descriptors so rekuest can match
+They are declared once, as data, in ``elektro_server.contract`` (their keys are in
+``elektro_server.vocabulary``), and read from there by everything that states them: a signal carries the object's descriptors so rekuest can match
 it against triggers and against the ``requires`` of the ports it would be fed to, and the
 GraphQL types answer them as ``descriptors``, so a client can ask which actions take the object
 in hand. Those ports were declared with the elektro client's spec
@@ -13,23 +13,7 @@ index axes. ``@elektro/value_dimension`` is left out: it needs the client's unit
 from collections import Counter
 from collections.abc import Sequence
 
-from arkitekt_service.service import Descriptor
-
-KEY_BY_AXIS_TYPE = {
-    "SPACE": "@elektro/n_space_axes",
-    "TIME": "@elektro/n_time_axes",
-    "CHANNEL": "@elektro/n_channel_axes",
-    "FREQUENCY": "@elektro/n_frequency_axes",
-    "INDEX": "@elektro/n_index_axes",
-}
-EXTENT_KEYS = {"@elektro/n_channels": "CHANNEL", "@elektro/n_samples": "TIME", "@elektro/n_indices": "INDEX"}
-#: Every descriptor :func:`array_descriptors` produces — what elektro declares an array dataset
-#: and a lens carry.
-ARRAY_DESCRIPTORS = (
-    *(Descriptor(key, "INT", f"How many of its axes are {axis_type} axes") for axis_type, key in KEY_BY_AXIS_TYPE.items()),
-    *(Descriptor(key, "INT", f"Its total extent along its {axis_type} axes") for key, axis_type in EXTENT_KEYS.items()),
-)
-ARRAY_DESCRIPTOR_KEYS = tuple(descriptor.key for descriptor in ARRAY_DESCRIPTORS)
+from elektro_server.vocabulary import EXTENT_KEYS, KEY_BY_AXIS_TYPE
 
 
 def array_descriptors(axis_types: Sequence[str], shape: Sequence[int]) -> dict[str, int]:

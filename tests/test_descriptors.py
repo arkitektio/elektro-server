@@ -12,6 +12,7 @@ from asgiref.sync import sync_to_async
 from kante.context import HttpContext
 
 from core import models
+from elektro_server.vocabulary import STATED_DESCRIPTORS
 from elektro_server.hook_agent import agent
 from elektro_server.service import service
 from embeddings import engine
@@ -56,8 +57,11 @@ async def test_an_object_answers_the_descriptors_its_structure_declares(aexecute
     assert result.data["folder"]["descriptors"] == {}
 
     declared = {s["identifier"]: [d["key"] for d in s["descriptors"]] for s in service.manifest()["structures"]}
-    assert set(result.data["arrayDataset"]["descriptors"]) == set(declared["@elektro/arraydataset"])
-    assert set(result.data["lens"]["descriptors"]) == set(declared["@elektro/lens"])
+    # Every computed key is declared; what is declared beyond them no object carries here.
+    stated = {d.key for d in STATED_DESCRIPTORS}
+    assert set(result.data["arrayDataset"]["descriptors"]) == set(declared["@elektro/arraydataset"]) - stated
+    assert set(result.data["lens"]["descriptors"]) == set(declared["@elektro/lens"]) - stated
+    assert stated <= set(declared["@elektro/lens"])
 
 
 @pytest.mark.django_db(transaction=True)

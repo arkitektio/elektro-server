@@ -246,6 +246,48 @@ async def test_children_orders_and_searches_across_every_source(aexecute, create
     assert len(unasked.data["children"]) == 5, "an explicit null is no constraint"
 
 
+LINK_FILE = "mutation L($input: LinkFileInput!) { linkFile(input: $input) { id direction } }"
+
+CHILD_NAMES = """
+query Children($parent: ID!, $filters: FolderChildrenFilter) {
+  children(parent: $parent, filters: $filters) {
+    ... on File { name }
+    ... on ArrayDataset { name }
+  }
+}
+"""
+
+
+async def test_children_hides_what_was_converted_from_a_file_until_asked(aexecute, create_array_dataset, authenticated_context):
+    """A dataset converted from a file is that file again, so the listing shows the file alone.
+
+    Only the ingest direction hides: an exported dataset was not made from its file, and
+    hiding it would lose the only row that stands for the data.
+    """
+    ctx = authenticated_context
+    folder = await seed.create_folder(ctx, "Ingested")
+    raw = await seed.create_file(ctx, "cell3.abf", folder)
+    export = await seed.create_file(ctx, "sweep.nwb", folder)
+    converted = await create_array_dataset("Converted", [1000], folder=folder.pk)
+    exported = await create_array_dataset("Exported", [1000], folder=folder.pk)
+    await create_array_dataset("Acquired", [1000], folder=folder.pk)
+
+    source = await aexecute(LINK_FILE, {"input": {"dataset": converted["id"], "sourceFiles": [{"file": str(raw.pk)}]}})
+    assert not source.errors, source.errors
+    rendition = await aexecute(LINK_FILE, {"input": {"file": str(export.pk), "sourceOf": [{"kind": "DATASET", "dataset": exported["id"]}]}})
+    assert not rendition.errors, rendition.errors
+
+    async def names(filters: dict | None) -> set[str]:
+        result = await aexecute(CHILD_NAMES, {"parent": str(folder.pk), "filters": filters})
+        assert not result.errors, result.errors
+        return {child["name"] for child in result.data["children"]}
+
+    everything = {"cell3.abf", "sweep.nwb", "Converted", "Exported", "Acquired"}
+    assert await names(None) == everything - {"Converted"}
+    assert await names({"showConverted": False}) == everything - {"Converted"}
+    assert await names({"showConverted": True}) == everything
+
+
 async def test_containers_are_filterable_by_folder(aexecute, create_array_dataset, authenticated_context):
     """`folder` and `folders` on each container filter, and they filter independently."""
     ctx = authenticated_context

@@ -86,8 +86,8 @@ python manage.py validate_settings
 
 A valid config can still say things this release does not read: a misspelt key, or a key of
 another release, is not an error to the loader — the service starts, with the default. Those are
-listed under the tree, and warned about at every boot (system checks `elektro.W001`, a key no
-setting claims, and `elektro.W002`, a key still read under a former name). To ask for a verdict:
+listed under the tree, and warned about at every boot (system checks `arkitekt.W001`, a key no
+setting claims, and `arkitekt.W002`, a key still read under a former name). To ask for a verdict:
 
 ```bash
 python manage.py validate_settings --strict

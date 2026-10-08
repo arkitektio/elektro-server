@@ -41,7 +41,7 @@ dependencies = [
     "whitenoise>=6.6",
     "pgvector>=0.5",
     "model2vec>=0.9",
-    "arkitekt-service>=2.0.2",
+    "arkitekt-service>=3.0.0",
 ]
 
 [dependency-groups]

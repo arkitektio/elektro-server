@@ -2,7 +2,7 @@
 
 Notes for whoever changes this service, person or agent.
 
-## Migrations, jobs and upgrades
+## Migrations and jobs
 
 A container of this image only serves. An installer (konstruktor) prepares the database with
 `arkitekt-service run migrate` once per build — before the first start, and in an update before
@@ -20,14 +20,14 @@ anything is recreated — and runs everything else as a job the image offers by 
   `elektro_server/contract.py`; one nobody runs is deleted. Any job is safe to run again.
 - What `setup=` names runs for every build, after the migrations: it changes nothing the
   second time and needs nothing but the database and the config.
-- Existing data rewritten once is an upgrade into the next major (`upgrades={N: function}` in
-  the contract), not a setup job and not a slow `RunPython`.
+- Existing data is rewritten by a data migration when that needs only the database (it runs
+  once, with the service stopped), and by a re-runnable job in `setup=` when it needs the
+  service's code or its storage. There is no upgrade step, and nothing is keyed to a version.
 
 What this service declares:
 
 - Setup, in order: `ensureadmin`.
 - Other jobs: `purge_orphaned_stores`, `respec_datasets`.
-- Upgrades: none declared, so the image offers no `upgrade` job.
 
 `tests/test_prepared.py` holds the contract to this: migrations committed, every job a command
 of this service, the setup run twice. In `deployments/next` the service runs

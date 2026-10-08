@@ -7,7 +7,7 @@ the same commit, and no installer has to learn of it.
 
 from __future__ import annotations
 
-from arkitekt_service.contract import JSON, Contract, Description, Descriptor, Facts, Hosts, Needs, Offers, Scope, Signal, Start, Structure, blocks
+from arkitekt_service.contract import JSON, Contract, Description, Descriptor, Facts, Hosts, Job, Needs, Offers, Scope, Signal, Start, Structure, blocks
 
 from elektro_server.configuration import Settings
 from elektro_server.vocabulary import ARRAY_DESCRIPTORS, STATED_DESCRIPTORS
@@ -167,4 +167,9 @@ contract = Contract(
     # (and `debug`) become these, so they get the container's signals themselves.
     serve=Start(("daphne", "-b", "0.0.0.0", "-p", "80", "--websocket_timeout", "-1", "elektro_server.asgi:application")),
     debug=Start(("python", "manage.py", "runserver", "0.0.0.0:80")),
+    jobs={
+        "ensureadmin": Job(("ensureadmin",), "Create the operator account the config names"),
+        "purge_orphaned_stores": Job(("purge_orphaned_stores",), "Delete the stored objects of data that was deleted, after the grace period"),
+    },
+    setup=("ensureadmin",),
 )

@@ -26,7 +26,7 @@ request cannot go stale. See :mod:`core.models.coords`.
 
 import dataclasses
 import heapq
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Iterable, Sequence
 
 from django.db.models import F, Q
 
@@ -125,7 +125,7 @@ RESIDENT_RELATIONS: tuple[str, ...] = tuple(container.related_name for container
 COLLECTION_CONTAINERS: tuple[Container, ...] = tuple(container for container in CONTAINERS if container.is_collection)
 
 
-def create_pixel_axes(system: "models.CoordinateSystem", axes: list) -> list["models.Axis"]:
+def create_pixel_axes(system: "models.CoordinateSystem", axes: list, *, shape: "Sequence[int] | None" = None) -> list["models.Axis"]:
     """Write a pixel-space system's axes, enumerating them so `order` is the array index.
 
     ``Axis.order`` being the array-dimension index is load-bearing: it is what ties
@@ -164,12 +164,19 @@ def create_pixel_axes(system: "models.CoordinateSystem", axes: list) -> list["mo
     # exactly once per dataset and never for a level. The column is the read
     # path for `ArrayDataset.spec`; `specs_for_axes` stays its single source of truth.
     #
+    # From the axes *and* the level-0 shape: an axis of one position does not count, so the
+    # spec cannot be read off the axes alone. The dataset's creator has the shape in hand
+    # and passes it; a dataset's grid written without one is refused rather than given the
+    # answer its axes would suggest.
+    #
     # Written without a historical record: this is part of creating the dataset, not an edit
     # to it. Only `name` and `description` are audited edits, and a provenance row here would
     # read as a post-creation change to something that is fixed at creation.
     dataset = next(iter(system.datasets.all()[:1]), None)
     if dataset is not None:
-        dataset.stored_spec = [spec.value for spec in coords_logic.specs_for_axes(axis_specs)]
+        if shape is None:
+            raise ValueError(f"The axes of dataset {dataset.pk}'s own grid were written without its shape, so what it is cannot be said: a spec counts only the axes with more than one position.")
+        dataset.stored_spec = [spec.value for spec in coords_logic.specs_for_axes(axis_specs, shape)]
         dataset.save_without_historical_record(update_fields=["stored_spec"])
 
     return created

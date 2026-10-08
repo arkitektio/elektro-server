@@ -26,7 +26,7 @@ anything is recreated — and runs everything else as a job the image offers by 
 What this service declares:
 
 - Setup, in order: `ensureadmin`.
-- Other jobs: `purge_orphaned_stores`.
+- Other jobs: `purge_orphaned_stores`, `respec_datasets`.
 - Upgrades: none declared, so the image offers no `upgrade` job.
 
 `tests/test_prepared.py` holds the contract to this: migrations committed, every job a command

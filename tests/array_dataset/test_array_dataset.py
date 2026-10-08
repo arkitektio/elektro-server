@@ -12,6 +12,7 @@ reading of it -- a (t, c) recording, a value unit, channel labels, the rig, a de
 
 import pytest
 from asgiref.sync import sync_to_async
+from django.core.management import call_command
 from pytest import approx
 
 from core.models import ArrayDataset, CoordinateAnchor, CoordinateSystem, DataArray, Transformation
@@ -72,6 +73,62 @@ async def _detail(aexecute, dataset_id: str) -> dict:
 
 
 # --- what a dataset is ----------------------------------------------------------------------------
+
+
+SPEC_FILTER = "query ($filters: ArrayDatasetFilter) { arrayDatasets(filters: $filters) { name } }"
+
+
+async def test_an_axis_of_one_position_does_not_count_towards_the_spec(aexecute, create_array_dataset):
+    """A spec says what the data is: one channel is not multichannel, and one sample is no signal.
+
+    The axis is still declared -- `hasAxisTypes` finds it -- but it is not what the dataset is.
+    """
+    zyx = [{"name": "z", "type": "SPACE"}, {"name": "y", "type": "SPACE"}, {"name": "x", "type": "SPACE"}]
+    tf = [{"name": "t", "type": "TIME"}, {"name": "f", "type": "FREQUENCY"}]
+    made = {
+        "recording": await create_array_dataset("recording", [30000, 4]),
+        "single-channel": await create_array_dataset("single-channel", [30000, 1]),
+        "one-sample": await create_array_dataset("one-sample", [1, 4]),
+        "one-plane": await create_array_dataset("one-plane", [1, 13, 23], axes=zyx),
+        "one-bin": await create_array_dataset("one-bin", [500, 1], axes=tf),
+        "spectrogram": await create_array_dataset("spectrogram", [500, 64], axes=tf),
+    }
+
+    specs = {name: (await _detail(aexecute, created["id"]))["spec"] for name, created in made.items()}
+    assert specs == {
+        "recording": ["SCALAR", "TIMESERIES", "MULTICHANNEL"],
+        "single-channel": ["SCALAR", "TIMESERIES"],
+        "one-sample": ["SCALAR", "MULTICHANNEL"],
+        "one-plane": ["IMAGE"],
+        "one-bin": ["SCALAR", "TIMESERIES"],
+        "spectrogram": ["SCALAR", "TIMESERIES", "SPECTRAL"],
+    }
+
+    async def names(filters: dict) -> set[str]:
+        result = await aexecute(SPEC_FILTER, {"filters": filters})
+        assert not result.errors, result.errors
+        return {dataset["name"] for dataset in result.data["arrayDatasets"]}
+
+    assert await names({"spec": ["MULTICHANNEL"]}) == {"recording", "one-sample"}
+    assert await names({"spec": ["TIMESERIES"]}) == {"recording", "single-channel", "one-bin", "spectrogram"}
+    assert await names({"spec": ["VOLUME"]}) == set()
+    assert await names({"spec": ["IMAGE"]}) == {"one-plane"}
+    # Whether the axis is declared is still askable, and is a different question.
+    assert await names({"hasAxisTypes": ["CHANNEL"]}) == {"recording", "single-channel", "one-sample"}
+
+
+async def test_datasets_stored_under_the_old_rule_are_corrected_by_the_job(create_array_dataset):
+    """A row that says MULTICHANNEL for one channel is rewritten by the `respec_datasets` job."""
+    stale = await create_array_dataset("single-channel", [30000, 1])
+    right = await create_array_dataset("recording", [30000, 4])
+    await ArrayDataset.objects.filter(pk=stale["id"]).aupdate(stored_spec=["SCALAR", "TIMESERIES", "MULTICHANNEL"])
+
+    await sync_to_async(call_command)("respec_datasets")
+    # Any job is safe to run again.
+    await sync_to_async(call_command)("respec_datasets")
+
+    assert (await ArrayDataset.objects.aget(pk=stale["id"])).stored_spec == ["SCALAR", "TIMESERIES"]
+    assert (await ArrayDataset.objects.aget(pk=right["id"])).stored_spec == ["SCALAR", "TIMESERIES", "MULTICHANNEL"]
 
 
 async def test_a_recording_is_a_dataset_a_grid_and_one_level(aexecute, create_array_dataset):

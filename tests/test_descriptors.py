@@ -12,7 +12,7 @@ from asgiref.sync import sync_to_async
 from kante.context import HttpContext
 
 from core import models
-from elektro_server.vocabulary import STATED_DESCRIPTORS
+from django.core.management import call_command
 from elektro_server.hook_agent import agent
 from elektro_server.service import service
 from embeddings import engine
@@ -48,6 +48,9 @@ async def test_an_object_answers_the_descriptors_its_structure_declares(aexecute
         "@elektro/n_channels": 4,
         "@elektro/n_samples": 1000,
         "@elektro/n_indices": 0,
+        # Seeded with no value unit, and derived from nothing.
+        "@elektro/value_dimension": "",
+        "@elektro/value_kind": "continuous",
     }
     assert result.data["arrayDataset"]["descriptors"] == whole
     assert {"id": str(dataset.pk), "descriptors": whole} in result.data["arrayDatasets"]
@@ -57,11 +60,9 @@ async def test_an_object_answers_the_descriptors_its_structure_declares(aexecute
     assert result.data["folder"]["descriptors"] == {}
 
     declared = {s["identifier"]: [d["key"] for d in s["descriptors"]] for s in service.manifest()["structures"]}
-    # Every computed key is declared; what is declared beyond them no object carries here.
-    stated = {d.key for d in STATED_DESCRIPTORS}
-    assert set(result.data["arrayDataset"]["descriptors"]) == set(declared["@elektro/arraydataset"]) - stated
-    assert set(result.data["lens"]["descriptors"]) == set(declared["@elektro/lens"]) - stated
-    assert stated <= set(declared["@elektro/lens"])
+    # Every declared key is computed and stored, what the values are included.
+    assert set(result.data["arrayDataset"]["descriptors"]) == set(declared["@elektro/arraydataset"])
+    assert set(result.data["lens"]["descriptors"]) == set(declared["@elektro/lens"])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -103,3 +104,49 @@ async def test_a_sweep_for_one_organization_claims_only_its_rows(authenticated_c
     # Theirs is still there for their own agent's run.
     assert await sync_to_async(reembed_stale)(organization=other_org_context.request.organization.slug) == {"reembedded": 1}
     assert (await models.TableDataset.objects.aget(pk=theirs.pk)).embedding_model == engine.model_id()
+
+
+REQUIRED = "query Required($requires: [DescriptorConstraintInput!]!) { arrayDatasets(filters: {requires: $requires}) { id } lenses(filters: {requires: $requires}) { id dataset { id } } }"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_port_asks_for_what_the_values_measure(aexecute, create_array_dataset):
+    """What a voltage port asks: the dimension of the dataset-wide value unit, stored when the anchor stating it is written."""
+    voltage = await create_array_dataset("membrane potential", [1000, 4], value_unit="mV")
+    current = await create_array_dataset("holding current", [1000, 4], value_unit="pA")
+
+    async def required(requires: list[dict]) -> tuple[set[str], set[str]]:
+        result = await aexecute(REQUIRED, {"requires": requires})
+        assert not result.errors, result.errors
+        return {row["id"] for row in result.data["arrayDatasets"]}, {row["dataset"]["id"] for row in result.data["lenses"]}
+
+    datasets, _ = await required([{"key": "@elektro/value_dimension", "operator": "EQUALS", "value": "voltage"}])
+    assert datasets == {voltage["id"]}
+    datasets, _ = await required([{"key": "@elektro/value_dimension", "operator": "IN", "value": ["voltage", "current"]}, {"key": "@elektro/n_channels", "operator": "EQUALS", "value": 4}])
+    assert datasets == {voltage["id"], current["id"]}
+
+    # A lens is what its dataset's values are; restating the unit restores both.
+    lens = await sync_to_async(lambda: models.Lens.objects.create(dataset_id=voltage["id"], coordinate_system_id=models.ArrayDataset.objects.get(pk=voltage["id"]).coordinate_system_id, slices=[]))()
+    _, lens_datasets = await required([{"key": "@elektro/value_dimension", "operator": "EQUALS", "value": "voltage"}])
+    assert lens_datasets == {voltage["id"]}
+    unit = await models.ValueUnit.objects.aget(anchor__dataset_id=voltage["id"], anchor__coordinates={})
+    unit.unit = "nA"
+    await unit.asave()
+    datasets, lens_datasets = await required([{"key": "@elektro/value_dimension", "operator": "EQUALS", "value": "current"}])
+    assert datasets == {voltage["id"], current["id"]} and lens_datasets == {voltage["id"]}
+    assert (await models.Lens.objects.aget(pk=lens.pk)).stored_descriptors["@elektro/value_dimension"] == "current"
+
+    result = await aexecute(REQUIRED, {"requires": [{"key": "@elektro/colour", "operator": "EQUALS", "value": "red"}]})
+    assert result.errors and "not a descriptor here" in result.errors[0].message
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_the_setup_job_gives_a_row_what_it_owes(create_array_dataset):
+    made = await create_array_dataset("old recording", [1000, 4], value_unit="mV")
+    expected = (await models.ArrayDataset.objects.aget(pk=made["id"])).stored_descriptors
+    assert expected["@elektro/value_dimension"] == "voltage"
+    await models.ArrayDataset.objects.filter(pk=made["id"]).aupdate(stored_descriptors={})
+    await sync_to_async(call_command)("restore_descriptors")
+    assert (await models.ArrayDataset.objects.aget(pk=made["id"])).stored_descriptors == expected

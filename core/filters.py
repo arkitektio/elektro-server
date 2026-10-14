@@ -327,6 +327,8 @@ class MechanismOrder:
 
 from kante.types import Info  # noqa: E402
 from core.logic import graph as graph_logic  # noqa: E402
+from core.logic import descriptor_filter  # noqa: E402
+from core.logic.descriptor_filter import DescriptorConstraintInput  # noqa: E402
 from core.scoping import for_org  # noqa: E402
 
 
@@ -483,6 +485,17 @@ class TransformationFilter(IdsFilterMixin, OwnedFilterMixin):
 @kante.filter_type(models.Lens)
 class LensFilter(IdsFilterMixin):
     id: auto
+
+    @kante.filter_field(
+        description=(
+            "Filter to the lenses satisfying every one of these descriptor constraints: the `requires` of a port, handed on unchanged, so a picker offers what the port accepts. "
+            "Answered in SQL from the descriptors stored on every row. A key lenses do not declare is refused rather than ignored"
+        )
+    )
+    def requires(self, info: Info, queryset: QuerySet, value: list[DescriptorConstraintInput] | None, prefix: str) -> tuple[QuerySet, Q]:
+        if value is None:
+            return queryset, Q()
+        return descriptor_filter.requires(models.Lens, queryset, value, prefix)
 
     @kante.filter_field(description="Filter by the dataset this lens selects over")
     def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
@@ -942,6 +955,17 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
     id: auto
     name: Optional[FilterLookup[str]]
     description: Optional[FilterLookup[str]]
+
+    @kante.filter_field(
+        description=(
+            "Filter to the datasets satisfying every one of these descriptor constraints: the `requires` of a port, handed on unchanged, so a picker offers what the port accepts. "
+            "Answered in SQL from the descriptors stored on every row. A key datasets do not declare is refused rather than ignored"
+        )
+    )
+    def requires(self, info: Info, queryset: QuerySet, value: list[DescriptorConstraintInput] | None, prefix: str) -> tuple[QuerySet, Q]:
+        if value is None:
+            return queryset, Q()
+        return descriptor_filter.requires(models.ArrayDataset, queryset, value, prefix)
 
     # Filing, not placement. `dataset` below and `placeableIn` ask where the data *is*;
     # these two ask where a user *keeps* it.

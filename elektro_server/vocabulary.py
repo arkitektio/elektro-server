@@ -33,7 +33,28 @@ ARRAY_DESCRIPTORS = [
 #: constrain on them at all -- rekuest refuses a key no service declares -- and absent from every
 #: ``describe``, so no object is matched or refused on them here. What the values measure is read
 #: by the client from the dataset's unit; what they mean is stated by whoever made the data.
-STATED_DESCRIPTORS = [
-    Descriptor(key="@elektro/value_dimension", type="STRING", description="What its values measure (voltage, current, ...); read from its unit by the client"),
-    Descriptor(key="@elektro/value_kind", type="STRING", description="What its values mean (e.g. categorical for labels); stated by its producer, never computed"),
+VALUE_DIMENSION = "@elektro/value_dimension"
+VALUE_KIND = "@elektro/value_kind"
+#: What a value unit measures, by the unit each name is checked against: the client's
+#: ``elektro.specs._REFERENCE_UNITS``, so a port's ``requires`` and the stored value agree.
+REFERENCE_UNITS = {
+    "voltage": "volt",
+    "current": "ampere",
+    "conductance": "siemens",
+    "resistance": "ohm",
+    "capacitance": "farad",
+    "charge": "coulomb",
+    "time": "second",
+    "frequency": "hertz",
+    "concentration": "mole / liter",
+    "dimensionless": "dimensionless",
+}
+#: What its values are, beside its axes: read off its dataset-wide value unit and its primary derivation.
+VALUE_DESCRIPTORS = [
+    Descriptor(
+        key=VALUE_DIMENSION,
+        type="STRING",
+        description="What its values measure, from its dataset-wide value unit: voltage, current, conductance, resistance, capacitance, charge, time, frequency, concentration, dimensionless, arbitrary (a.u.) or other; empty when no unit is stated",
+    ),
+    Descriptor(key=VALUE_KIND, type="STRING", description="What its values mean: categorical (labels, from a derivation declared CATEGORIZED) or continuous"),
 ]

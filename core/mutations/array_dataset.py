@@ -15,6 +15,7 @@ from kante.types import Info
 import strawberry
 
 from core import enums, types, models, scalars
+from core import descriptors as descriptors_logic
 from datalayer.datalayer import get_current_datalayer
 import json
 
@@ -564,6 +565,9 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
 
     _assert_simulation_agrees_with_derivation(info, dataset, model.derived_from)
 
+    # Its arrays, its anchors' value unit and its derivation are written after the row: what it
+    # is is stored once all of it is, within the transaction its CREATED goes out at the end of.
+    descriptors_logic.restore(dataset)
     return dataset
 
 

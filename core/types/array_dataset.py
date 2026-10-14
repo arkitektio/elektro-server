@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 class ArrayDataset(OrgScoped):
     """A multi-dimensional array dataset with named dimensions, described by its intrinsic pixel-grid coordinate system."""
 
-    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, only=["stored_descriptors"], description=DESCRIPTORS_DESCRIPTION)
 
     folder: Optional[Annotated["Folder", strawberry.lazy("core.types.folder")]] = kante.django_field(
         description="The folder this dataset is filed in. Organisational only: it says where a user keeps this dataset, never where the data sits in space -- that is `intrinsicSystem` and the edges out of it"
@@ -445,7 +445,7 @@ class Slice:
 class Lens(OrgScoped):
     """A selection over a dataset. Its shape and axes are derived from the dataset and the slices."""
 
-    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, only=["stored_descriptors"], description=DESCRIPTORS_DESCRIPTION)
 
     id: auto
     dataset: ArrayDataset

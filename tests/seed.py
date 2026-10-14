@@ -16,6 +16,7 @@ from asgiref.sync import sync_to_async
 from kante.context import HttpContext
 
 from core import enums
+from core import descriptors as descriptors_logic
 from core.creation import CreationContext
 from core.inputs.coords import (
     AffineTransformInputModel,
@@ -139,6 +140,8 @@ def _seed_array_dataset_sync(ctx: HttpContext, name: str, axes: list, shapes: li
     if value_unit is not None:
         anchor = CoordinateAnchor.objects.create(dataset=dataset, coordinates={})
         ValueUnit.objects.create(anchor=anchor, unit=value_unit)
+    # As `createArrayDataset` ends: what the dataset is, stored once its arrays are written.
+    descriptors_logic.restore(dataset)
 
     return dataset
 

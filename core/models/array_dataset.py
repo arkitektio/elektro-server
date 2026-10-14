@@ -13,6 +13,7 @@ electrophysiology rig what ``optikit`` is to a microscope) and its ``OmeMetadata
 values carry a unit (mV, pA) and a pixel's do not.
 """
 
+from arkitekt_service.service.described import Described
 from django.db import models
 from django.contrib.auth import get_user_model
 from core import enums
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
     from core.models.table_dataset import TableDataset
 
 
-class ArrayDataset(EmbeddedDescriptionMixin, models.Model):
+class ArrayDataset(EmbeddedDescriptionMixin, Described):
     """A multi-dimensional array of data, with one or more pyramid levels attached as DataArrays.
 
     The dataset's dimensions and their types live on the axes of its INTRINSIC
@@ -135,6 +136,7 @@ class ArrayDataset(EmbeddedDescriptionMixin, models.Model):
     class Meta:
         indexes = [
             GinIndex(fields=["stored_spec"], name="array_dataset_spec_gin"),
+            GinIndex(fields=["stored_descriptors"], name="array_dataset_desc_gin", opclasses=["jsonb_path_ops"]),
             # The embedding healer's "any row not by the current model?" probe.
             *embedding_indexes("array_dataset"),
         ]
@@ -547,7 +549,7 @@ class SimulationState(models.Model):
     dt = QuantityField(base_unit="picosecond", null=True, blank=True, help_text="The integration time step (NEURON's dt), stored in picoseconds. Not the sampling period")
 
 
-class Lens(models.Model):
+class Lens(Described):
     """A selection over a dataset. Nothing else.
 
     Its shape and dimensions are derived from the dataset and the slices -- they
@@ -598,6 +600,9 @@ class Lens(models.Model):
     )
 
     provenance = ProvenanceField()
+
+    class Meta:
+        indexes = [GinIndex(fields=["stored_descriptors"], name="lens_desc_gin", opclasses=["jsonb_path_ops"])]
 
     @property
     def slices_list(self) -> list[base_models.SliceModel]:

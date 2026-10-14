@@ -26,10 +26,24 @@ anything is recreated — and runs everything else as a job the image offers by 
 
 What this service declares:
 
-- Setup, in order: `ensureadmin`.
+- Setup, in order: `ensureadmin`, `restore_descriptors`. The second stores the descriptors of
+  every row that misses a declared key (rows from before the key existed); `--all` describes
+  every row again after a describer changed what a key means.
 - Other jobs: `purge_orphaned_stores`, `respec_datasets`.
 
 `tests/test_prepared.py` holds the contract to this: migrations committed, every job a command
 of this service, the setup run twice. In `deployments/next` the service runs
 `arkitekt-service standalone --debug`, which migrates and then serves: restart its container
 to apply a new migration.
+
+## Descriptors
+
+Every descriptor is stored (`stored_descriptors` on `ArrayDataset` and `Lens`, recomputed on every
+save by `arkitekt_service`), so a port's `requires` is the `requires` argument of the dataset and
+lens filters: one indexed query (`core.logic.descriptor_filter`, mikro's by path). Nothing is only
+stated: `@elektro/value_dimension` is read off the dataset-wide `ValueUnit` in the client's words
+(`elektro.specs.value_dimension`), `@elektro/value_kind` off the primary derivation (categorical
+or continuous). What a save cannot see is restored by its writer (`core.descriptors.restore`):
+`createArrayDataset` restores its dataset at its end, and every save or delete of a `ValueUnit` or
+a `Transformation` restores the datasets it concerns and their lenses (`core/signals.py`). A test
+that seeds a dataset by hand restores it too (`tests/seed.py`).

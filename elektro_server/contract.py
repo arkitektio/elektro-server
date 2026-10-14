@@ -10,7 +10,7 @@ from __future__ import annotations
 from arkitekt_service.contract import JSON, Contract, Description, Descriptor, Facts, Hosts, Job, Needs, Offers, Scope, Signal, Start, Structure, blocks
 
 from elektro_server.configuration import Settings
-from elektro_server.vocabulary import ARRAY_DESCRIPTORS, STATED_DESCRIPTORS
+from elektro_server.vocabulary import ARRAY_DESCRIPTORS, VALUE_DESCRIPTORS
 
 #: What a token may be allowed to do here: defined at the coordination server when the hub enrols.
 SCOPES = [
@@ -29,8 +29,8 @@ ROLES = [
     Scope(key="viewer", description="Read-only access"),
 ]
 
-#: What an array dataset and a lens carry: what is computed from their axes, and what is only stated.
-ARRAY_STRUCTURE_DESCRIPTORS = [*ARRAY_DESCRIPTORS, *STATED_DESCRIPTORS]
+#: What an array dataset and a lens carry: what is counted off their axes, and what their values are.
+ARRAY_STRUCTURE_DESCRIPTORS = [*ARRAY_DESCRIPTORS, *VALUE_DESCRIPTORS]
 
 #: What exists on a hub because this service is there: said here, as data, so the hub knows it from
 #: the image. ``service.py`` binds each of these to its model and refuses anything not said here.
@@ -171,6 +171,7 @@ contract = Contract(
         "ensureadmin": Job(("ensureadmin",), "Create the operator account the config names"),
         "purge_orphaned_stores": Job(("purge_orphaned_stores",), "Delete the stored objects of data that was deleted, after the grace period"),
         "respec_datasets": Job(("respec_datasets",), "Recompute the spec of datasets created before an axis of one position stopped counting"),
+        "restore_descriptors": Job(("restore_descriptors",), "Store the descriptors of every dataset and lens that misses one (--all: of every row)"),
     },
-    setup=("ensureadmin",),
+    setup=("ensureadmin", "restore_descriptors"),
 )

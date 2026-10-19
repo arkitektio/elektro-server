@@ -94,7 +94,7 @@ def intake(settings):
     settings.REKUEST_SERVICE = {"REKUEST_URL": server.url, "SERVICE": "elektro"}
     settings.INSTANCE = {
         "PRIVATE_KEY": KEY.as_pem(private=True).decode(),
-        "TRUST_JWKS": {"keys": [{**trust.public_jwk(KEY), "service": "live.arkitekt.elektro"}]},
+        "TRUST_JWKS": {"keys": [{**trust.public_jwk(KEY), "service": "elektro"}]},
     }
     yield server
     server.server.shutdown()
@@ -134,5 +134,5 @@ def test_a_save_is_signalled_signed_by_this_instance(intake):
     (received,) = intake.of("@elektro/experiment")
     assert (received["json"]["kind"], received["json"]["object"], received["json"]["organization"]) == ("CREATED", str(obj.pk), org.slug)
     assert received["path"] == "/agi/signal/elektro"
-    verified = trust.verify("POST", received["path"], received["body"], received["headers"]["Authorization"], audience="live.arkitekt.rekuest")
-    assert verified.issuer == "live.arkitekt.elektro"
+    verified = trust.verify("POST", received["path"], received["body"], received["headers"]["Authorization"], audience="rekuest")
+    assert verified.issuer == "elektro"

@@ -19,6 +19,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from simple_history.utils import bulk_create_with_history
 
 import kante
+from arkitekt_service.collaborations.guests import require_in_collaboration
 from core import enums, models, types
 from core.creation import CreationContext
 from core.input_unions import camel_field, prose_errors
@@ -26,7 +27,7 @@ from core.inputs.coords import AxisInputModel, CoordinateInput, CoordinateInputM
 from core.inputs.validators import assert_rgba, assert_shape_vectors
 from core.logic import graph as graph_logic
 from core import guards
-from core.scoping import get_for_org
+from core.scoping import get_for_org, get_in_org_unshared
 
 
 class _ShapeInputModel(BaseModel):
@@ -96,6 +97,11 @@ class CreateAnnotationInput:
     fill_color: list[int] | None = strawberry.field(default=None, description="Fill color of the geometry, as RGBA: four components, each 0..255, or null for no fill")
     stroke_width: float | None = strawberry.field(default=None, description="Stroke width, in the drawing space's units (default 1.0)")
     filled: bool | None = strawberry.field(default=None, description="Whether the geometry is filled with fill_color (default false)")
+
+
+#: Who may draw, for a guest of the organization: the roles they must hold in a collaboration that holds
+#: what they draw on (``require_in_collaboration``). A full member draws as before, whatever their roles.
+ANNOTATING_ROLES = ["admin", "editor", "bot"]
 
 
 def _mint_experiment_collection(experiment: "models.Experiment", ctx: CreationContext) -> "models.AnnotationCollection":
@@ -191,9 +197,13 @@ def create_annotation(
     ctx = CreationContext.from_info(info)
 
     if model.collection:
-        collection = get_for_org(models.AnnotationCollection, info, id=model.collection)
+        collection = get_in_org_unshared(models.AnnotationCollection, info, id=model.collection)
+        require_in_collaboration(collection, any_role_of=ANNOTATING_ROLES, info=info)
     else:
-        experiment = get_for_org(models.Experiment, info, id=model.experiment)
+        experiment = get_in_org_unshared(models.Experiment, info, id=model.experiment)
+        require_in_collaboration(experiment, any_role_of=ANNOTATING_ROLES, info=info)
+        # A collection minted here comes into the experiment's collaborations with the annotation layer
+        # it is drawn through (the experiment's `depends`, refreshed when a layer is saved).
         collection = _find_or_mint_experiment_collection(experiment, ctx)
 
     system = collection.coordinate_system_or_none
@@ -355,9 +365,13 @@ def create_annotations(
     ctx = CreationContext.from_info(info)
 
     if model.collection:
-        collection = get_for_org(models.AnnotationCollection, info, id=model.collection)
+        collection = get_in_org_unshared(models.AnnotationCollection, info, id=model.collection)
+        require_in_collaboration(collection, any_role_of=ANNOTATING_ROLES, info=info)
     else:
-        experiment = get_for_org(models.Experiment, info, id=model.experiment)
+        experiment = get_in_org_unshared(models.Experiment, info, id=model.experiment)
+        require_in_collaboration(experiment, any_role_of=ANNOTATING_ROLES, info=info)
+        # A collection minted here comes into the experiment's collaborations with the annotation layer
+        # it is drawn through (the experiment's `depends`, refreshed when a layer is saved).
         collection = _find_or_mint_experiment_collection(experiment, ctx)
 
     system = collection.coordinate_system_or_none

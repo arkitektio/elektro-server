@@ -36,6 +36,9 @@ from core.inputs.file_link import file_link_union_types
 from core.inputs.identification import identification_union_types
 from core.types.layers import layer_types
 from core.types.coords import transformation_types
+from arkitekt_service.graphql import CollaborationGate, annotate_schema
+from arkitekt_service.collaborations import graphql as collaboration_types
+from elektro_server.service import service as elektro_service
 
 ID = Annotated[StrawberryID, strawberry.argument(description="The unique identifier of an object")]
 
@@ -52,6 +55,10 @@ class CreatedByCallerField(StrawberryDjangoField):
     def get_queryset(self, queryset, info, **kwargs):
         # Narrow before the parent paginates: a sliced queryset can no longer be filtered.
         return super().get_queryset(queryset.filter(creator=info.context.request.user), info, **kwargs)
+
+
+#: The collaborations of elektro's objects, which a guest of the organization is granted.
+collaboration_api = collaboration_types.resolvers(fetch=lambda model, id, info: scoping.get_for_org(model, info, id=id))
 
 
 @strawberry.type
@@ -111,6 +118,9 @@ class Query:
     files: list[types.File] = strawberry_django.field()
     myfiles: list[types.File] = strawberry_django.field(field_cls=CreatedByCallerField)
     children = strawberry_django.field(resolver=queries.children, description="List everything filed in a folder: its sub-folders, files, array, table and sparse datasets and annotation collections")
+
+    collaborations: list[collaboration_types.Collaboration] = strawberry_django.field(resolver=collaboration_api.collaborations, description="List the organization's collaborations: what a guest granted one sees of it (a guest: the collaborations granted to them)")
+    collaboration: collaboration_types.Collaboration = strawberry_django.field(resolver=collaboration_api.collaboration, description="Get a single collaboration by ID")
 
     mod_environments: list[types.ModEnvironment] = strawberry_django.field()
     mechanisms: list[types.Mechanism] = strawberry_django.field()
@@ -251,8 +261,31 @@ def upload_mutation(**kwargs):
     return kante.django_mutation(extensions=[AuthExtension(any_role_of=roles)], **kwargs)
 
 
+def collaboration_mutation(**kwargs):
+    """A mutation making or changing a collaboration: for full members holding admin or editor."""
+    return strawberry_django.mutation(extensions=[AuthExtension(any_role_of=["admin", "editor"])], **kwargs)
+
+
+def guest_mutation(**kwargs):
+    """A mutation guests of the organization may call too, as full members always could.
+
+    The resolver holds a guest to what is in their collaborations, with the roles it needs held there
+    (``require_in_collaboration``); every other mutation refuses a guest (authentikate's ``SCOPED_READ_ONLY``).
+    """
+    return strawberry_django.mutation(extensions=[AuthExtension(allow_scoped=True)], **kwargs)
+
+
 @strawberry.type
 class Mutation:
+    # --- Collaborations ----------------------------------------------------
+    create_collaboration = collaboration_mutation(resolver=collaboration_api.create_collaboration, description="Create an empty collaboration, to put objects in and grant a guest")
+    add_to_collaboration = collaboration_mutation(
+        resolver=collaboration_api.add_to_collaboration,
+        description="Put an object in a collaboration, with what it needs to be seen: an experiment brings the data its layers draw, a dataset its stores, its spaces and their edges, and its anchors",
+    )
+    remove_from_collaboration = collaboration_mutation(resolver=collaboration_api.remove_from_collaboration, description="Take an object out of a collaboration, with what it brought that nothing else there needs")
+    delete_collaboration = collaboration_mutation(resolver=collaboration_api.delete_collaboration, description="Delete a collaboration: whoever was granted it sees nothing of it any more")
+
     # --- Datalayer actions -------------------------------------------------
     # One block per store type. Each exposes: upload (request + finish),
     # single-object read access, and (where available) an organization-wide
@@ -568,11 +601,11 @@ class Mutation:
         description="Create an annotation collection, in a coordinate system of its own, optionally related to what its shapes are drawn over: a dataset's sample grid, a segment's clock. The common path for a timeline -- drawing on an experiment -- goes through createAnnotation instead, which mints the experiment's collection on first use",
     )
     delete_annotation_collection = strawberry_django.mutation(resolver=mutations.delete_annotation_collection, description="Delete an annotation collection. Its annotations, its experiment layers and the drawing space it owned go with it; what it was drawn over is untouched")
-    create_annotation = strawberry_django.mutation(
+    create_annotation = guest_mutation(
         resolver=mutations.create_annotation,
         description="Draw an annotation into a collection, or onto an experiment (exactly one of the two). Drawing on an experiment finds its annotation collection or mints it on first use: a coordinate system copying the world's axes, an identity registration into the world, and one annotation layer",
     )
-    create_annotations = strawberry_django.mutation(resolver=mutations.create_annotations, description="Draw many annotations in one call -- a detector's whole output. One collection resolve, one chain resolve, one insert")
+    create_annotations = guest_mutation(resolver=mutations.create_annotations, description="Draw many annotations in one call -- a detector's whole output. One collection resolve, one chain resolve, one insert")
     update_annotation = strawberry_django.mutation(resolver=mutations.update_annotation, description="Edit an annotation. Only the supplied fields change; new vectors re-derive the bounding box")
     delete_annotation = strawberry_django.mutation(resolver=mutations.delete_annotation, description="Delete an annotation. Its collection, and the space it was drawn in, stay")
 
@@ -637,6 +670,8 @@ schema = Schema(
     extensions=[
         OpenTelemetryExtension,
         AuthentikateExtension,
+        # A guest of the organization is handed only what is in their collaborations.
+        CollaborationGate,
         KoherentExtension,
         # `only` optimization off, as in mikro: column pruning drops `Transformation.kind`, the
         # discriminator every concrete transformation type's `is_type_of` reads, so the read is
@@ -661,3 +696,6 @@ schema = Schema(
     schema_directives=[unionElementOf],
     config=StrawberryConfig(scalar_map={**core_scalars.SCALAR_MAP, **datalayer_scalars.SCALAR_MAP, **kanne_scalars.SCALAR_MAP}),
 )
+
+# Which structure each type is (`@identified`), and, behind the gate, that elektro lets guests in.
+annotate_schema(schema, elektro_service)

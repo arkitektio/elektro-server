@@ -14,18 +14,14 @@ def build_prescoped_queryset(info, queryset):
 
     Honors an explicit ``filters.scope`` override (not yet implemented) and
     otherwise filters by the model's discovered organization path (see
-    :mod:`core.scoping`). Mirrors the single-object scoping in ``core.scoping``
-    so list fields and by-id lookups stay tenant-consistent.
+    :mod:`core.scoping`). The same chokepoint as the single-object scoping
+    (``scoping.scope_queryset``), so list fields and by-id lookups stay
+    tenant-consistent, and a guest's root lists are their collaborations'.
     """
     if (info.variable_values.get("filters") or {}).get("scope") is not None:
         raise Exception("Custom scopes not implemented yet")
 
-    path = scoping.organization_path(queryset.model)
-    if path is None:
-        if queryset.model.__name__ not in scoping.UNSCOPED_MODELS:
-            raise LookupError(f"{queryset.model.__name__} has no path to an organization and is not registered in core.scoping.UNSCOPED_MODELS")
-        return queryset
-    return queryset.filter(**{path: info.context.request.organization})
+    return scoping.scope_queryset(queryset, info)
 
 
 def build_prescoper():

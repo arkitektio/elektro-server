@@ -39,54 +39,54 @@ HOSTS = Hosts(
         Structure(
             identifier="@elektro/arraydataset",
             label="Array Dataset",
-            description="A multi-dimensional array dataset: a recording, a stimulus or a simulation trace, on its sample grid.",
+            description="A multi-dimensional array of samples: an electrophysiology recording such as a patch clamp voltage or current trace, a stimulus waveform or a simulation trace, on its grid of time, channel and other axes.",
             descriptors=ARRAY_STRUCTURE_DESCRIPTORS,
         ),
         Structure(
             identifier="@elektro/lens",
             label="Lens",
-            description="A selection over an array dataset: a sweep, an epoch window, a run of channels.",
+            description="A selection over an array dataset: one sweep, an epoch or time window, a range of channels of a trace.",
             descriptors=ARRAY_STRUCTURE_DESCRIPTORS,
         ),
         Structure(
             identifier="@elektro/tabledataset",
             label="Table Dataset",
-            description="A parquet-backed table of scientific records.",
+            description="A table of records stored as parquet, such as detected events, trials or a spike sorter's units.",
         ),
         Structure(
             identifier="@elektro/sparsedataset",
             label="Sparse Dataset",
-            description="A sparse dataset, such as a spike raster.",
+            description="A sparse matrix over two enumerated axes, mostly zeros, such as a spike raster.",
         ),
         Structure(
             identifier="@elektro/neuronmodel",
             label="Neuron Model",
-            description="A neuron model: the cells, biophysics and topology a simulation runs.",
+            description="A neuron model for NEURON simulation: its cells, their sections (compartments), biophysics and mechanisms, as a simulation runs them.",
         ),
         Structure(
             identifier="@elektro/modelcollection",
             label="Model Collection",
-            description="A named collection of neuron models.",
+            description="A named collection of neuron models that are compared against each other.",
         ),
         Structure(
             identifier="@elektro/experiment",
             label="Experiment",
-            description="Data laid out on one timeline, as layers.",
+            description="An experiment view: recordings, stimuli and simulation results laid out on one timeline as layers, such as traces, heatmaps, spike rasters and events.",
         ),
         Structure(
             identifier="@elektro/file",
             label="File",
-            description="A file in its original format, as it was uploaded.",
+            description="An uploaded file, kept in its original format as it was uploaded.",
         ),
         Structure(
             identifier="@elektro/folder",
             label="Folder",
-            description="A folder: where a user files the things elektro stores.",
+            description="A folder that organizes datasets, annotations and uploaded files, like a directory.",
         ),
         Structure(
             identifier="@elektro/annotationcollection",
             label="Annotation Collection",
-            description="A named set of annotations, owning the space they are drawn in.",
+            description="A named set of hand-drawn annotations, such as marked events and epochs, owning the space they are drawn in.",
         ),
     ],
     signals=[
@@ -94,32 +94,32 @@ HOSTS = Hosts(
             identifier="@elektro/arraydataset",
             kinds=["CREATED", "UPDATED", "DELETED"],
             descriptors=[descriptor.key for descriptor in ARRAY_STRUCTURE_DESCRIPTORS],
-            description="An array dataset (a recording, a simulation trace) was created, changed or deleted, with its axis counts and extents.",
+            description="An array dataset (a recorded trace, a stimulus, a simulation trace) was created, changed or deleted, with its axis counts and extents.",
         ),
         Signal(
             identifier="@elektro/tabledataset",
             kinds=["CREATED", "UPDATED", "DELETED"],
-            description="A table dataset was created, changed or deleted.",
+            description="A table dataset (events, trials, sorted units) was created, changed or deleted.",
         ),
         Signal(
             identifier="@elektro/sparsedataset",
             kinds=["CREATED", "DELETED"],
-            description="A sparse dataset was created or deleted.",
+            description="A sparse dataset, such as a spike raster, was created or deleted.",
         ),
         Signal(
             identifier="@elektro/neuronmodel",
             kinds=["CREATED"],
-            description="A neuron model was registered.",
+            description="A neuron model for NEURON simulation was registered.",
         ),
         Signal(
             identifier="@elektro/modelcollection",
             kinds=["CREATED"],
-            description="A model collection was created.",
+            description="A collection of neuron models was created.",
         ),
         Signal(
             identifier="@elektro/experiment",
             kinds=["CREATED", "UPDATED", "DELETED"],
-            description="An experiment was created, changed or deleted.",
+            description="An experiment (a timeline of recording, stimulus and simulation layers) was created, changed or deleted.",
         ),
         Signal(
             identifier="@elektro/file",
@@ -134,7 +134,7 @@ HOSTS = Hosts(
         Signal(
             identifier="@elektro/annotationcollection",
             kinds=["CREATED", "DELETED"],
-            description="An annotation collection was created or deleted.",
+            description="An annotation collection (a set of hand-drawn annotations) was created or deleted.",
         ),
     ],
 )

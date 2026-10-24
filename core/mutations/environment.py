@@ -2,13 +2,13 @@ from kante.types import Info
 import strawberry
 
 from core import types, models, scalars
-from datalayer.datalayer import get_current_datalayer
-from datalayer.scalars import BigFileLike
+from arkitekt_datalayer.datalayer import get_current_datalayer
+from arkitekt_datalayer.scalars import BigFileLike
 import json
 from django.conf import settings
 from core.parameters import ParameterInput, ParameterInputModel
 from core.guards import enforce_delete
-from datalayer import models as datalayer_models
+from arkitekt_datalayer import models as datalayer_models
 import kante
 from pydantic import BaseModel
 from core.scoping import get_for_org

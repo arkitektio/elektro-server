@@ -16,7 +16,7 @@ import datetime
 from asgiref.sync import sync_to_async
 from itertools import chain
 from enum import Enum
-from datalayer.datalayer import get_current_datalayer
+from arkitekt_datalayer.datalayer import get_current_datalayer
 from strawberry.experimental import pydantic
 from typing import Union
 from core.base_models.type.graphql.cell import Cell
@@ -25,7 +25,7 @@ from core.base_models.type.graphql.model import ModelConfig
 from authentikate.strawberry.types import Client, User
 from koherent.strawberry.types import ProvenanceEntry
 from core.type_gen import create_stats_type
-from datalayer import types as dt
+from arkitekt_datalayer import types as dt
 import kante
 from core.parameters import Parameter, ParameterModel
 

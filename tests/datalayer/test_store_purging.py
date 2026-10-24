@@ -32,10 +32,10 @@ from django.db import transaction
 from django.utils import timezone
 
 from core import models
-from core.logic import storage
+from arkitekt_datalayer import storage
 from core.mutations.delete import delete_flagging_stores
-from datalayer.datalayer import get_current_datalayer
-from datalayer.models import BigFileStore, DatalayerStore, ZarrStore
+from arkitekt_datalayer.datalayer import get_current_datalayer
+from arkitekt_datalayer.models import BigFileStore, DatalayerStore, ZarrStore
 from tests.seed import create_file, create_folder
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -251,7 +251,7 @@ async def test_the_grace_period_holds(aexecute, authenticated_context, bigfile_s
 
 
 async def test_the_grace_period_is_a_setting(aexecute, authenticated_context, bigfile_store, buckets, settings):
-    """`DATALAYER_STORE_GRACE_DAYS` is what a run with no `--older-than` reads; seven days when unset."""
+    """`datalayer.store_grace_days` is what a run with no `--older-than` reads; seven days when unset."""
     ctx = authenticated_context
     store = await bigfile_store(content=b"bytes", populated=True)
     file = await create_file(ctx, "week-old.abf", await create_folder(ctx, "DS"), store=store)
@@ -262,7 +262,7 @@ async def test_the_grace_period_is_a_setting(aexecute, authenticated_context, bi
     assert "nothing orphaned longer than 7 day(s)" in await sync(purge)()
     assert await sync(keys_in)(buckets, "bigfile", store.key) == {store.key}
 
-    settings.DATALAYER_STORE_GRACE_DAYS = 2
+    settings.DATALAYER = {**settings.DATALAYER, "store_grace_days": 2}
     assert "purged" in await sync(purge)()
     assert await sync(keys_in)(buckets, "bigfile", store.key) == set()
 

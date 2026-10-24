@@ -33,9 +33,9 @@ import pathlib
 
 import pytest
 
-from datalayer.datalayer import Datalayer
-from datalayer import models
-from datalayer.models import sparse_layout_path
+from arkitekt_datalayer.datalayer import Datalayer
+from arkitekt_datalayer import models
+from arkitekt_datalayer.models import sparse_layout_path
 
 CHUNK = 32_768
 
@@ -438,7 +438,7 @@ def test_this_readers_constants_are_the_ones_the_specification_states() -> None:
     and someone reads the spec; if this wanders, it fails and someone reads the spec. Either way the
     document is what settles it.
     """
-    from datalayer import sporadik
+    from arkitekt_datalayer import sporadik
 
     assert sporadik.BLOCK_KEY == "sporadik"
     assert sporadik.LAYOUTS_GROUP == "layouts"

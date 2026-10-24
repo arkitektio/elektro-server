@@ -50,7 +50,7 @@ from django.contrib.auth import get_user_model
 from django.db import models
 
 from authentikate.models import Organization
-from datalayer.models import SparseStore
+from arkitekt_datalayer.models import SparseStore
 from koherent.fields import ProvenanceField
 from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 

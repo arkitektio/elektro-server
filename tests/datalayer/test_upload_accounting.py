@@ -21,9 +21,9 @@ import uuid
 import pytest
 from asgiref.sync import sync_to_async
 
-import datalayer.datalayer as datalayer_module
+import arkitekt_datalayer.datalayer as datalayer_module
 from core import models
-from datalayer.models import BigFileStore, ZarrStore
+from arkitekt_datalayer.models import BigFileStore, ZarrStore
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 

@@ -12,7 +12,7 @@ from django_choices_field import TextChoicesField
 from koherent.fields import ProvenanceField
 from authentikate.models import Organization, Membership
 from taggit.managers import TaggableManager
-from datalayer.models import BigFileStore, ParquetStore
+from arkitekt_datalayer.models import BigFileStore, ParquetStore
 
 from core import enums
 from core.creation import CreationContext

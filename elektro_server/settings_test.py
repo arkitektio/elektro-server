@@ -73,7 +73,7 @@ CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
 
 # Point the datalayer at the MinIO service from tests/integration/docker-compose.yaml
 # (buckets + user are provisioned by the `initc` init container / configs/minio.yaml).
-# Datalayer() reads this dict (see datalayer/datalayer.py: DatalayerConfig).
+# Datalayer() reads this dict (see arkitekt_datalayer.datalayer.DatalayerConfig).
 DATALAYER = {
     "access_key": "mikro_access_key",
     "secret_key": "mikro_secret_key",

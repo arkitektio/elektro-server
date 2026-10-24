@@ -250,7 +250,7 @@ async def test_deleting_a_raster_flags_its_store_through_the_layouts(aexecute, a
 
     from django.core.management import call_command
 
-    from core.logic import storage
+    from arkitekt_datalayer import storage
 
     units = await _units(aexecute, authenticated_context)
     store = await seed.create_sparse_store(authenticated_context, "shared-store", axes=(0, 1), shape=[12, 30000])

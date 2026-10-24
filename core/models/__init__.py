@@ -9,7 +9,7 @@ from koherent.fields import ProvenanceField, HistoricForeignKey
 from django_choices_field import TextChoicesField
 from core.fields import S3Field
 from kanne_server.fields import QuantityField
-from datalayer.datalayer import Datalayer
+from arkitekt_datalayer.datalayer import Datalayer
 
 # Create your models here.
 import boto3
@@ -18,7 +18,7 @@ from django.conf import settings
 from django.core.cache import cache
 from authentikate.models import Organization, Membership
 from polymorphic.models import PolymorphicModel
-from datalayer.models import BigFileStore, ParquetStore, SparseStore, ZarrStore  # noqa: F401  (re-exported, as in mikro)
+from arkitekt_datalayer.models import BigFileStore, ParquetStore, SparseStore, ZarrStore  # noqa: F401  (re-exported, as in mikro)
 
 
 class ModelCollection(models.Model):

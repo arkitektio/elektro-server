@@ -12,9 +12,9 @@ from authentikate.models import Client, Membership, Organization, User
 from kante.context import HttpContext, UniversalRequest
 from strawberry.http.temporal_response import TemporalResponse
 
-import datalayer.datalayer as datalayer_module
-from datalayer import quota
-from datalayer.models import MediaStore, ZarrStore
+import arkitekt_datalayer.datalayer as datalayer_module
+from arkitekt_datalayer import quota
+from arkitekt_datalayer.models import MediaStore, ZarrStore
 from elektro_server.schema import schema
 
 GIB = 1024**3

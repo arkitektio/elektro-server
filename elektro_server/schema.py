@@ -13,7 +13,6 @@ from core import subscriptions
 import strawberry_django
 from strawberry_django.fields.field import StrawberryDjangoField
 from koherent.strawberry.extension import KoherentExtension
-from datalayer.duck import DuckExtension
 from typing import Annotated
 from core.base_models.type.graphql.model import SynapticConnection, Exp2Synapse
 from core.base_models.type.graphql.model import ModelConfigModel
@@ -21,11 +20,10 @@ from core.logic import sites as sites_logic
 from core.base_models.type.graphql.topology import Section
 from authentikate.strawberry.extension import AuthentikateExtension
 from strawberry_django.optimizer import DjangoOptimizerExtension
-from datalayer import mutations as datalayer_mutations
-from datalayer import scalars as datalayer_scalars
-from datalayer.datalayer import DatalayerConfig
+from arkitekt_datalayer import mutations as datalayer_mutations
+from arkitekt_datalayer import scalars as datalayer_scalars
+from arkitekt_datalayer.datalayer import load_config
 from authentikate.strawberry import AuthExtension
-from django.conf import settings
 from kanne_server import scalars as kanne_scalars
 import kante
 from strawberry.extensions.tracing import OpenTelemetryExtension
@@ -257,7 +255,7 @@ def upload_mutation(**kwargs):
     Holding any one of the configured roles is enough. Read once, at schema build -- a change to
     the config takes a restart, like every other setting.
     """
-    roles = DatalayerConfig(**getattr(settings, "DATALAYER", {})).upload_roles
+    roles = load_config().upload_roles
     return kante.django_mutation(extensions=[AuthExtension(any_role_of=roles)], **kwargs)
 
 
@@ -679,7 +677,6 @@ schema = Schema(
         # half of the optimizer, which is where the query count is won, stays on.
         # A factory, not an instance: strawberry builds a fresh extension per request.
         lambda: DjangoOptimizerExtension(enable_only_optimization=False),
-        DuckExtension,
     ],
     # Types reachable only through an interface, or referenced by no field at all, are not
     # discovered by strawberry: left out of this list they vanish from the SDL with no error.

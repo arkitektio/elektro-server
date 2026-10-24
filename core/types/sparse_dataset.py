@@ -14,7 +14,7 @@ from strawberry import auto
 import kante
 from kante.types import Info
 
-from datalayer.types import SparseStore
+from arkitekt_datalayer.types import SparseStore
 
 from core import filters, models, order, scalars
 from core.logic import file_link as file_link_logic

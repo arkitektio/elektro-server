@@ -14,7 +14,7 @@ import kante
 from kante.types import Info
 from kanne_server import scalars as kanne_scalars
 
-from datalayer.types import ParquetStore
+from arkitekt_datalayer.types import ParquetStore
 
 from core import enums, filters, models, order, scalars
 from core.logic import file_link as file_link_logic

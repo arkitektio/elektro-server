@@ -42,7 +42,7 @@ def delete_flagging_stores(instance) -> None:  # noqa: ANN001 - any model row
     """
     from django.db import transaction
 
-    from core.logic import storage
+    from arkitekt_datalayer import storage
 
     with transaction.atomic():
         orphaned = storage.stores_orphaned_by(instance)

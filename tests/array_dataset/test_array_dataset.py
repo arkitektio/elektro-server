@@ -16,7 +16,7 @@ from django.core.management import call_command
 from pytest import approx
 
 from core.models import ArrayDataset, CoordinateAnchor, CoordinateSystem, DataArray, Transformation
-from datalayer.models import ZarrStore
+from arkitekt_datalayer.models import ZarrStore
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 

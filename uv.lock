@@ -147,6 +147,48 @@ wheels = [
 ]
 
 [[package]]
+name = "arkitekt-datalayer"
+version = "0.0.0"
+source = { editable = "../../../../packages/arkitekt-datalayer" }
+dependencies = [
+    { name = "authentikate" },
+    { name = "boto3" },
+    { name = "django" },
+    { name = "django-polymorphic" },
+    { name = "duckdb" },
+    { name = "kante" },
+    { name = "pydantic" },
+    { name = "strawberry-graphql" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "authentikate", specifier = ">=5.1.0" },
+    { name = "boto3", specifier = ">=1.38.9" },
+    { name = "django", specifier = ">=5.2" },
+    { name = "django-polymorphic", specifier = ">=4.11.2" },
+    { name = "duckdb", specifier = ">=1.2.2" },
+    { name = "kante", specifier = ">=2.4.1" },
+    { name = "pydantic", specifier = ">2,<3" },
+    { name = "strawberry-graphql", specifier = ">=0.260" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "basedpyright", specifier = ">=1.39.8" },
+    { name = "django-types", specifier = ">=0.24.0" },
+    { name = "dokker", specifier = ">=2.8" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=1.1.0" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "pytest-django", specifier = ">=4.11.1" },
+    { name = "python-semantic-release", specifier = ">=9.21.0" },
+    { name = "ruff", specifier = ">=0.15.8" },
+    { name = "types-boto3", extras = ["s3", "sts"], specifier = ">=1.38" },
+]
+
+[[package]]
 name = "arkitekt-service"
 version = "7.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -905,6 +947,7 @@ version = "1.0.0rc22"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "arkitekt-datalayer" },
     { name = "arkitekt-service" },
     { name = "authentikate" },
     { name = "boto3" },
@@ -959,6 +1002,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
+    { name = "arkitekt-datalayer", editable = "../../../../packages/arkitekt-datalayer" },
     { name = "arkitekt-service", specifier = ">=7.0.0" },
     { name = "authentikate", specifier = ">=5.1.0" },
     { name = "boto3", specifier = ">=1.38.9" },
@@ -1462,7 +1506,7 @@ wheels = [
 
 [[package]]
 name = "kante"
-version = "2.2.0"
+version = "2.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "channels" },
@@ -1473,9 +1517,9 @@ dependencies = [
     { name = "strawberry-graphql", extra = ["channels"] },
     { name = "strawberry-graphql-django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/79/f1/f58a2d51f8f9df8458b42531ca983721897492cab7ca34bbe08c0317bfe7/kante-2.2.0.tar.gz", hash = "sha256:d405ef92140a09fbf171217231aefb7b917990099cda827497efc42cd50fc37a", size = 37232, upload-time = "2026-08-21T12:04:56.157Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/5e/2eae9bcbc671b421e99815ee7742999d458c2cf39226a7fd31458df359c0/kante-2.4.1.tar.gz", hash = "sha256:372baf6c042517be4b68b755c9da6d88e4aba16d84167f5965105c17776b193b", size = 38727, upload-time = "2026-10-18T09:04:53.189Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/f9/c38ca2d85eeaba8a6ac7db218971144dcc846988430f1df882361507ca79/kante-2.2.0-py3-none-any.whl", hash = "sha256:aa83bc40a9af29064bf43591d9db2add6ea4503c872d8fbc8ac98dfda2f2feb4", size = 44105, upload-time = "2026-08-21T12:04:55.135Z" },
+    { url = "https://files.pythonhosted.org/packages/80/bc/d03b7bcfc56eaafb91e55cd1cb278ab272c1afa9e21e2bdc5a128adf4064/kante-2.4.1-py3-none-any.whl", hash = "sha256:fea02626bb0a861f6be1bb320418a67793104a86787bcd6eacdd193f594af680", size = 45935, upload-time = "2026-10-18T09:04:51.751Z" },
 ]
 
 [[package]]

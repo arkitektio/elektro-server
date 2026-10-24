@@ -30,7 +30,7 @@ from core.logic import coordinate_system as coordinate_system_logic
 from core.logic import graph as graph_logic
 from core.logic import coords as coords_logic
 from core.models import ArrayDataset, CoordinateAnchor, CoordinateSystem, DataArray, File, Folder, Lens, ValueUnit
-from datalayer.models import SparseStore, sparse_layout_path
+from arkitekt_datalayer.models import SparseStore, sparse_layout_path
 
 
 def axis(name: str, type_: enums.AxisType) -> AxisInputModel:
@@ -295,7 +295,7 @@ RASTER_AXES = [
 
 def _seed_table_dataset_sync(ctx: HttpContext, name: str, columns: list[dict], folder: Folder | None) -> "TableDataset":
     from core.models import Column, TableDataset
-    from datalayer.models import ParquetStore
+    from arkitekt_datalayer.models import ParquetStore
 
     store = ParquetStore.objects.create(organization=ctx.request.organization, key=f"seed-{name}", bucket="parquet", populated=True)
     system = CoordinateSystem.objects.create(name=f"{name}/table", creator=ctx.request.user, organization=ctx.request.organization)
@@ -343,7 +343,7 @@ async def create_table_dataset(ctx: HttpContext, name: str = "Events", columns: 
 
 def _seed_sparse_dataset_sync(ctx: HttpContext, name: str, axes: list, shape: list[int], units: "TableDataset | None", folder: Folder | None) -> "SparseDataset":
     from core.models import SparseArray, SparseAxisReference, SparseDataset
-    from datalayer.models import SparseStore
+    from arkitekt_datalayer.models import SparseStore
 
     store = SparseStore.objects.create(organization=ctx.request.organization, key=f"seed-{name}", bucket="zarr", populated=True, spec="1", shape=shape, layouts=[{"path": "layouts/axis0", "encoding": "csr_matrix", "indexed_axis": 0, "index_order": [1], "nnz": 0, "dtype": "float32"}])
     system = CoordinateSystem.objects.create(name=f"{name}/sparse", creator=ctx.request.user, organization=ctx.request.organization)
@@ -414,7 +414,7 @@ def _seed_parquet_store_sync(ctx: HttpContext, *, key: str, columns: list[tuple[
     tests, because they are about placement and edges rather than about the file. Pass the pairs
     when the test is about the schema itself.
     """
-    from datalayer.models import ParquetStore
+    from arkitekt_datalayer.models import ParquetStore
 
     return ParquetStore.objects.create(
         path=f"s3://parquet/{key}",

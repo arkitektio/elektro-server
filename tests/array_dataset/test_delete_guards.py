@@ -21,7 +21,7 @@ from asgiref.sync import sync_to_async
 from koherent.models import Task
 
 from core import models
-from datalayer.models import BigFileStore
+from arkitekt_datalayer.models import BigFileStore
 from tests import seed
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]

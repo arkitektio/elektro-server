@@ -11,7 +11,7 @@ grant / finish / get_zarr_metadata chain.
 import pytest
 
 from core.models import DataArray, Folder
-from datalayer.models import ZarrStore
+from arkitekt_datalayer.models import ZarrStore
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 

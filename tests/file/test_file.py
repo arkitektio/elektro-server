@@ -11,7 +11,7 @@ import pytest
 from asgiref.sync import sync_to_async
 
 from core.models import File, FileLink
-from datalayer.models import BigFileStore
+from arkitekt_datalayer.models import BigFileStore
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 

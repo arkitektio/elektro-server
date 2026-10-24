@@ -420,7 +420,7 @@ def s3_client(backend_stack):
 @pytest.fixture
 def zarr_store(authenticated_context, s3_client):
     """Factory: create a ZarrStore row and (by default) seed its zarr.json in RustFS."""
-    from datalayer.models import ZarrStore
+    from arkitekt_datalayer.models import ZarrStore
 
     @sync_to_async
     def _make(context=None, seed=True, shape=None, dimension_names=None):
@@ -515,7 +515,7 @@ def bigfile_store(authenticated_context, s3_client):
     ``fromFileLike`` reads the object's size off the store, so a file made from a store whose
     upload never happened is refused -- pass ``content=None`` for that case.
     """
-    from datalayer.models import BigFileStore
+    from arkitekt_datalayer.models import BigFileStore
 
     @sync_to_async
     def _make(context=None, content=b"elektro", **kwargs):

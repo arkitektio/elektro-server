@@ -31,7 +31,7 @@ from core.logic import graph as graph_logic
 from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, apply_link_filters
 from core.types.auth import ProvenanceEntry, Task, User
 from core.types.coords import CoordinateSystem, Resident, Transformation
-from datalayer.types import ZarrStore
+from arkitekt_datalayer.types import ZarrStore
 
 if TYPE_CHECKING:
     # Only for the lazy annotations below: each of these modules imports this one back.

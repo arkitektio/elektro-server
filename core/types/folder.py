@@ -18,7 +18,7 @@ from strawberry import auto
 from core import enums, filters, models, order
 from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, apply_link_filters
 from core.types.auth import Organization, ProvenanceEntry, Task, User
-from datalayer.types import BigFileStore
+from arkitekt_datalayer.types import BigFileStore
 
 if TYPE_CHECKING:
     # Runtime imports here would cycle: each of these modules imports this one back.

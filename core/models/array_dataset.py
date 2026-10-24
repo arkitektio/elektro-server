@@ -23,7 +23,7 @@ from django_choices_field import TextChoicesField
 from kanne_server.fields import QuantityField
 from authentikate.models import Organization
 from django.db.models import Q
-from datalayer.models import ZarrStore
+from arkitekt_datalayer.models import ZarrStore
 from django.contrib.postgres.indexes import GinIndex
 from core.base_models import slices as base_models
 from core.logic import coords as coords_logic

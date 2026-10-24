@@ -51,7 +51,7 @@ INSTALLED_APPS = [
     "channels_redis",
     "guardian",
     "simple_history",
-    "datalayer",
+    "arkitekt_datalayer",
     "kanne_server",
     "authentikate",
     "koherent",
@@ -76,27 +76,6 @@ STRAWBERRY_DJANGO = {
 
 AUTH_USER_MODEL = "authentikate.User"
 
-# S3_PUBLIC_DOMAIN = f"{conf.s3.public.host}:{conf.s3.public.port}"  # TODO: FIx
-AWS_ACCESS_KEY_ID = conf.datalayer.access_key
-AWS_SECRET_ACCESS_KEY = conf.datalayer.secret_key
-AWS_S3_ENDPOINT_URL = f"{conf.datalayer.protocol}://{conf.datalayer.host}:{conf.datalayer.port}"
-# AWS_S3_PUBLIC_ENDPOINT_URL = (
-#    f"{conf.minio.public.protocol}://{conf.minio.public.host}:{conf.minio.public.port}"
-# )
-AWS_S3_URL_PROTOCOL = f"{conf.datalayer.protocol}:"
-AWS_S3_FILE_OVERWRITE = False
-AWS_QUERYSTRING_EXPIRE = 3600
-AWS_S3_REGION_NAME = conf.datalayer.region
-
-ZARR_BUCKET = conf.datalayer.zarr.bucket
-PARQUET_BUCKET = conf.datalayer.parquet.bucket
-FILE_BUCKET = conf.datalayer.media.bucket
-MEDIA_BUCKET = conf.datalayer.media.bucket
-
-AWS_STORAGE_BUCKET_NAME = conf.datalayer.media.bucket
-AWS_DEFAULT_ACL = "private"
-AWS_S3_USE_SSL = True
-AWS_S3_SECURE_URLS = False
 
 GRAPHENE = {"SCHEMA": "core.schema.schema"}
 

@@ -183,7 +183,7 @@ async def test_a_shared_parquet_store_survives_the_purge_until_its_last_table_go
     from asgiref.sync import sync_to_async
     from django.core.management import call_command
 
-    from core.logic import storage
+    from arkitekt_datalayer import storage
 
     payload = await seed.table_input(authenticated_context, "trials", TRIALS)
     first = await aexecute(CREATE_TABLE, {"input": payload})

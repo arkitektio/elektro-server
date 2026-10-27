@@ -298,6 +298,10 @@ class Mutation:
         description="Finalize a media upload after the client has written the object",
         resolver=datalayer_mutations.finish_media_upload,
     )
+    refresh_media_upload = upload_mutation(
+        description="Reissue upload credentials for a media upload still in flight, to the same key, so a write that outlives its credentials carries on. Only the uploader may, never for a finished store, and never past the upload's time limit",
+        resolver=datalayer_mutations.refresh_media_upload,
+    )
     request_media_access = kante.django_mutation(
         description="Request temporary S3 read credentials for a media file",
         resolver=datalayer_mutations.request_media_access,
@@ -306,11 +310,19 @@ class Mutation:
         description="Request temporary S3 read credentials for media files in the organization",
         resolver=datalayer_mutations.request_general_media_access,
     )
+    refresh_bigfile_upload = upload_mutation(
+        description="Reissue upload credentials for a bigfile upload still in flight, to the same key, so a write that outlives its credentials carries on. Only the uploader may, never for a finished store, and never past the upload's time limit",
+        resolver=datalayer_mutations.refresh_bigfile_upload,
+    )
 
     # Big files
     request_bigfile_upload = upload_mutation(
         description="Request an upload grant for a big file store",
         resolver=datalayer_mutations.request_bigfile_upload,
+    )
+    refresh_zarr_upload = upload_mutation(
+        description="Reissue upload credentials for a zarr upload still in flight, to the same key, so a write that outlives its credentials carries on. Only the uploader may, never for a finished store, and never past the upload's time limit",
+        resolver=datalayer_mutations.refresh_zarr_upload,
     )
     finish_bigfile_upload = upload_mutation(
         description="Finalize a big file upload after the client has written the object",
@@ -319,6 +331,10 @@ class Mutation:
     request_bigfile_access = kante.django_mutation(
         description="Request temporary S3 read credentials for a big file",
         resolver=datalayer_mutations.request_bigfile_access,
+    )
+    refresh_parquet_upload = upload_mutation(
+        description="Reissue upload credentials for a parquet upload still in flight, to the same key, so a write that outlives its credentials carries on. Only the uploader may, never for a finished store, and never past the upload's time limit",
+        resolver=datalayer_mutations.refresh_parquet_upload,
     )
 
     # Zarr

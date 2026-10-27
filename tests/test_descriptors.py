@@ -97,12 +97,12 @@ async def test_a_sweep_for_one_organization_claims_only_its_rows(authenticated_c
     await models.TableDataset.objects.filter(pk__in=[mine.pk, theirs.pk]).aupdate(embedding=None, embedding_model="another-model")
 
     reembed_stale = agent.actions["reembed_stale"].function
-    assert await sync_to_async(reembed_stale)(organization=authenticated_context.request.organization.slug) == {"reembedded": 1}
+    assert await sync_to_async(reembed_stale)(organization=authenticated_context.request.organization.identifier) == {"reembedded": 1}
 
     assert (await models.TableDataset.objects.aget(pk=mine.pk)).embedding_model == engine.model_id()
     assert (await models.TableDataset.objects.aget(pk=theirs.pk)).embedding_model == "another-model"
     # Theirs is still there for their own agent's run.
-    assert await sync_to_async(reembed_stale)(organization=other_org_context.request.organization.slug) == {"reembedded": 1}
+    assert await sync_to_async(reembed_stale)(organization=other_org_context.request.organization.identifier) == {"reembedded": 1}
     assert (await models.TableDataset.objects.aget(pk=theirs.pk)).embedding_model == engine.model_id()
 
 

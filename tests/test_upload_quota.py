@@ -21,7 +21,7 @@ GIB = 1024**3
 
 REQUEST_ZARR = "mutation { requestZarrUpload(input: {}) { store maxBytes } }"
 REQUEST_MEDIA = """
-mutation($size: ByteCount) {
+mutation($size: ByteCount!) {
   requestMediaUpload(input: {originalFileName: "a.nwb", fileSize: $size}) { store maxBytes }
 }
 """
@@ -31,7 +31,7 @@ def _context(token: str, sub: str, roles: list[str]) -> HttpContext:
     """A same-org context for the static ``token`` (see ``settings_test``), holding ``roles``."""
     user, _ = User.objects.get_or_create(sub=sub, iss="static_issuer", defaults={"username": f"static_issuer_{sub}"})
     client, _ = Client.objects.get_or_create(client_id="oinsoins")
-    org, _ = Organization.objects.get_or_create(slug="static_org")
+    org, _ = Organization.objects.get_or_create(identifier="static_issuer#static_org")
     membership, _ = Membership.objects.get_or_create(user=user, organization=org, defaults={"roles": roles})
 
     request = UniversalRequest(_extensions={"token": token}, _client=client, _user=user, _organization=org)  # type: ignore
@@ -142,7 +142,7 @@ async def test_without_quotas_the_bucket_default_is_advertised(db, authenticated
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_the_user_quota_counts_only_that_user(db, authenticated_context: HttpContext, editor_context: HttpContext, quotas):
-    quotas(organizations={"static_org": {"max_user_bytes": 10 * GIB}})
+    quotas(organizations={"static_issuer#static_org": {"max_user_bytes": 10 * GIB}})
     await _hold(authenticated_context, 10 * GIB)
 
     result = await schema.execute(REQUEST_ZARR, context_value=authenticated_context)
@@ -168,7 +168,7 @@ async def test_a_declared_size_counts_toward_the_user_quota(db, authenticated_co
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_user_override_beats_the_org_limit(db, authenticated_context: HttpContext, quotas):
-    quotas(organizations={"static_org": {"max_user_bytes": 1 * GIB, "users": {"1": {"max_user_bytes": "20GiB"}}}})
+    quotas(organizations={"static_issuer#static_org": {"max_user_bytes": 1 * GIB, "users": {"1": {"max_user_bytes": "20GiB"}}}})
     await _hold(authenticated_context, 10 * GIB)
 
     result = await schema.execute(REQUEST_ZARR, context_value=authenticated_context)
@@ -181,7 +181,7 @@ async def test_the_org_quota_counts_everyone_and_stays_in_its_org(db, authentica
     quotas(default={"max_org_bytes": 10 * GIB})
     await _hold(authenticated_context, 6 * GIB)
     await _hold(editor_context, 4 * GIB)
-    other, _ = await Organization.objects.aget_or_create(slug="other_org")
+    other, _ = await Organization.objects.aget_or_create(identifier="static_issuer#other_org")
     await _hold(authenticated_context, 50 * GIB, organization=other)
 
     result = await schema.execute(REQUEST_ZARR, context_value=editor_context)

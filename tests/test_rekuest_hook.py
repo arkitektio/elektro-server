@@ -66,7 +66,7 @@ def test_forged_and_unconfigured_requests_are_refused(hooked, settings):
 
 @pytest.mark.django_db
 def test_reembed_stale_runs_one_bounded_pass():
-    result = agent.actions["reembed_stale"].function(organization="nobody")
+    result = agent.actions["reembed_stale"].function(organization="static_issuer#nobody")
     assert result == {"reembedded": 0}
 
 

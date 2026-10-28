@@ -1,7 +1,6 @@
 """Tests for the deletion guard (``core.guards``) and the generated deletes.
 
-The predicate is exercised directly (admin / creator / bot-creator / anchor
-delegation), since roles are sourced from the token at resolve time and can't
+The predicate is exercised directly (admin / creator / anchor delegation), since roles are sourced from the token at resolve time and can't
 be injected through the fixtures. The new schema-level delete mutations are
 exercised end-to-end for the cases that don't need injected roles: the creator
 may delete, a user from another organization may not, and a sub-object defers
@@ -15,6 +14,7 @@ from asgiref.sync import sync_to_async
 
 from authentikate.models import User
 from core import guards, models
+from elektro_server.contract import ADMIN
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -60,17 +60,8 @@ def test_admin_can_delete_others(authenticated_context):
     ctx = authenticated_context
     ds = _make_dataset(ctx)
     boss = User.objects.create(username="boss", sub="43", iss="static_issuer")
-    info = _info(boss, ctx.request.organization, roles=["admin"])
+    info = _info(boss, ctx.request.organization, roles=[ADMIN])
     assert guards.can_delete(info, ds) is True
-
-
-def test_bot_creator_denied(authenticated_context):
-    # A bot that created the object cannot delete it; ownership belongs to the
-    # task assigner (absent here), not the bot account.
-    ctx = authenticated_context
-    ds = _make_dataset(ctx)
-    info = _info(ctx.request.user, ctx.request.organization, roles=["bot"])
-    assert guards.can_delete(info, ds) is False
 
 
 def test_anchor_defers_a_layer_to_its_experiment(authenticated_context):

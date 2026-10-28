@@ -7,27 +7,32 @@ the same commit, and no installer has to learn of it.
 
 from __future__ import annotations
 
-from arkitekt_service.contract import JSON, Contract, Description, Descriptor, Facts, Hosts, Job, Needs, Offers, Scope, Signal, Start, Structure, blocks
+from arkitekt_service.contract import JSON, Contract, Description, Descriptor, Facts, Hosts, Job, Needs, Offers, Role, Scope, Signal, Start, Structure, blocks
 
 from elektro_server.configuration import Settings
 from elektro_server.vocabulary import ARRAY_DESCRIPTORS, VALUE_DESCRIPTORS
 
-#: What a token may be allowed to do here: defined at the coordination server when the hub enrols.
+#: What an app may do here on a user's behalf: defined at the coordination server when the hub
+#: enrols. Every root field of the schema asks for one of them (`AuthExtension(scopes=...)`).
 SCOPES = [
-    Scope(key="elektro_read", description="Read electrophysiology data"),
-    Scope(key="elektro_write", description="Write electrophysiology data"),
-    Scope(key="elektro_analyze", description="Run analysis on recordings"),
-    Scope(key="read", description="Generic read access"),
-    Scope(key="write", description="Generic write access"),
+    Scope(key="elektro_read", description="See recordings, datasets, experiments, layers, annotations and neuron models."),
+    Scope(key="elektro_write", description="Upload and change recordings, datasets, files, folders, experiments, layers, annotations and coordinate systems."),
+    Scope(key="elektro_models", description="Build and change neuron models, mechanisms, mod environments and model workspaces."),
+    Scope(key="elektro_share", description="Share electrophysiology data with people outside your organization through collaborations."),
+    Scope(key="elektro_all", description="Do everything in Elektro on your behalf.", is_all_scope=True),
 ]
 
-#: The roles a member of an organization can hold here.
+#: What a member of an organization may do here.
 ROLES = [
-    Scope(key="admin", description="Full administrative access"),
-    Scope(key="user", description="Standard user access"),
-    Scope(key="analyst", description="Can analyze recordings"),
-    Scope(key="viewer", description="Read-only access"),
+    Role(key="elektro_admin", description="Full control of Elektro in this organization.", is_admin_role=True),
+    Role(key="elektro_editor", description="Upload and change electrophysiology data and share it.", is_default_role=True),
+    Role(key="elektro_modeler", description="Build and change neuron models and model workspaces."),
 ]
+
+#: The role every write asks for, the one that builds neuron models without it, and the one holding all.
+EDITOR = "elektro_editor"
+MODELER = "elektro_modeler"
+ADMIN = "elektro_admin"
 
 #: What an array dataset and a lens carry: what is counted off their axes, and what their values are.
 ARRAY_STRUCTURE_DESCRIPTORS = [*ARRAY_DESCRIPTORS, *VALUE_DESCRIPTORS]

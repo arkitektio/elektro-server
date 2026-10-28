@@ -8,12 +8,11 @@ like an ``ExperimentLayer`` or a ``Column``) defer the decision to their
 
 The rule, evaluated against the anchor:
 
-1. Members holding the ``admin`` role in the active organization may delete
-   anything.
+1. Members holding elektro's admin role (``elektro_admin``) in the active
+   organization may delete anything.
 2. The user who originally *assigned the task* that created the object may
    delete it (resolved from the earliest provenance history row).
-3. The ``creator`` may delete it — unless the creator is a ``bot``, in which
-   case ownership belongs to the task assigner (rule 2), not the bot account.
+3. The ``creator`` may delete it.
 """
 
 from __future__ import annotations
@@ -23,9 +22,7 @@ from typing import Any
 from kante.types import Info
 
 from core import models
-
-ADMIN_ROLE = "admin"
-BOT_ROLE = "bot"
+from elektro_server.contract import ADMIN
 
 
 # Attribute chain from a model to its governing anchor. An empty tuple means
@@ -124,18 +121,17 @@ def _original_task_assigner(anchor: Any) -> Any | None:
 
 
 def is_org_admin(info: Info) -> bool:
-    """Whether the current user holds the ``admin`` role in the active organization."""
-    return ADMIN_ROLE in _current_roles(info.context.request)
+    """Whether the current user holds elektro's admin role in the active organization."""
+    return ADMIN in _current_roles(info.context.request)
 
 
 def can_delete(info: Info, instance: Any) -> bool:
     """Whether the current user may delete ``instance`` (or its anchor)."""
     request = info.context.request
     user = request.user
-    roles = _current_roles(request)
 
-    # 1. Organization admins may delete anything.
-    if ADMIN_ROLE in roles:
+    # 1. Elektro's admins may delete anything.
+    if ADMIN in _current_roles(request):
         return True
 
     anchor = resolve_anchor(instance)
@@ -145,11 +141,9 @@ def can_delete(info: Info, instance: Any) -> bool:
     if assigner is not None and assigner.id == user.id:
         return True
 
-    # 3. The creator — unless the creator is a bot, in which case ownership
-    #    sits with the task assigner (rule 2), not the bot account. The creator
-    #    here is the current user, so their active-org roles decide bot status.
+    # 3. The creator.
     creator = getattr(anchor, "creator", None)
-    if creator is not None and creator.id == user.id and BOT_ROLE not in roles:
+    if creator is not None and creator.id == user.id:
         return True
 
     return False

@@ -5,12 +5,11 @@ cases have no subject here; ``tests/test_guards.py`` covers the interpretation l
 
 mikro guards each delete with an ``owner=`` callable. This service has ONE predicate,
 ``core.guards.can_delete``, evaluated against the row's governing anchor (a level, a lens and an
-anchor defer to their dataset): organization admins may delete anything; the assigner of the task
-that created the row may; and its creator may -- unless the caller holds the ``bot`` role, in
-which case ownership sits with the task's assigner and not with the bot account.
+anchor defer to their dataset): elektro's admins (``elektro_admin``) may delete anything; the
+assigner of the task that created the row may; and its creator may.
 
-The default ``authenticated_context`` (static token "test") is an org admin, so the denial path
-is exercised through ``bot_context``: a same-org user holding only the ``bot`` role.
+The default ``authenticated_context`` (static token "test") is elektro's admin, so the denial path
+is exercised through ``bot_context``: a same-org user holding only ``elektro_editor``.
 ``other_org_context`` never reaches the guard at all -- the org-scoped lookup fails first.
 """
 
@@ -84,17 +83,6 @@ async def test_org_admin_can_delete_other_users_folder(aexecute, authenticated_c
 
     assert not result.errors, result.errors
     assert not await models.Folder.objects.filter(id=folder.pk).aexists()
-
-
-async def test_a_bot_cannot_delete_even_the_folder_it_created(aexecute, bot_context):
-    """Where this guard parts from mikro's: a bot account owns nothing, its task's assigner does."""
-    created = await aexecute("mutation { createFolder(input: {name: \"BotMade\"}) { id creator { id } } }", context=bot_context)
-    assert not created.errors, created.errors
-    assert created.data["createFolder"]["creator"]["id"] == str(bot_context.request.user.pk)
-
-    denied = await aexecute(DELETE_FOLDER, {"id": created.data["createFolder"]["id"]}, context=bot_context)
-    assert denied.errors and "You are not allowed to delete this Folder." in str(denied.errors[0])
-    assert await models.Folder.objects.filter(name="BotMade").aexists()
 
 
 async def test_assignee_can_delete_folder(aexecute, authenticated_context, bot_context):

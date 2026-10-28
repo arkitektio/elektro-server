@@ -41,13 +41,13 @@ def _context(token: str, sub: str, roles: list[str]) -> HttpContext:
 
 @pytest.fixture()
 def editor_context(db, backend_stack) -> HttpContext:
-    return _context("editortest", "3", ["editor"])
+    return _context("editortest", "3", ["elektro_editor"])
 
 
 @pytest.fixture()
 def viewer_context(db, backend_stack) -> HttpContext:
     """In the org, but holding no role in ``upload_roles``."""
-    return _context("viewertest", "4", ["viewer"])
+    return _context("viewertest", "4", [])
 
 
 @pytest.fixture()
@@ -105,7 +105,7 @@ async def test_a_bot_can_upload(db, bot_context: HttpContext, quotas):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_role_outside_upload_roles_cannot_upload(db, viewer_context: HttpContext, quotas):
-    """The default ``upload_roles`` is admin + editor + bot: "viewer" is none of them."""
+    """With no ``upload_roles`` configured, uploading takes ``elektro_editor``, which a viewer lacks."""
     quotas()
     result = await schema.execute(REQUEST_ZARR, context_value=viewer_context)
     assert result.errors and "roles" in _errors(result)

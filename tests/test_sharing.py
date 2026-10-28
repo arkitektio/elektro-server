@@ -66,7 +66,7 @@ def guest(db, authenticated_context, settings):
         granted = {str(collaboration.pk): roles for collaboration, roles in collaborations.items()}
         settings.AUTHENTIKATE = {
             **settings.AUTHENTIKATE,
-            "static_tokens": {**settings.AUTHENTIKATE["static_tokens"], "guest": {"sub": "20", "roles": [], "collabs": {"1": granted}}},
+            "static_tokens": {**settings.AUTHENTIKATE["static_tokens"], "guest": {"sub": "20", "roles": [], "collabs": {"1": granted}, "scope": "openid elektro_all"}},
         }
         authentikate_settings.cached_settings = None
         return _context("guest")
@@ -212,7 +212,7 @@ async def test_an_editor_in_the_collaboration_draws_there_and_only_there(authent
     canvas = await _experiment("Canvas")
     await _trace(canvas, chain)
     other = await _experiment("Other")
-    ctx = guest({await _collaboration(authenticated_context, canvas): ["editor"]})
+    ctx = guest({await _collaboration(authenticated_context, canvas): ["elektro_editor"]})
 
     drawn = await _run(ctx, DRAW, input={"experiment": str(canvas.pk), "kind": "EVENT", "name": "pulse", "vectors": [[0.002]]})
     assert not drawn.errors, drawn.errors
@@ -235,8 +235,8 @@ async def test_a_viewer_draws_nothing_and_no_guest_does_anything_else(authentica
     canvas = await _experiment("Canvas")
     collaboration = await _collaboration(authenticated_context, canvas)
 
-    _refused(await _run(guest({collaboration: []}), DRAW, input={"experiment": str(canvas.pk), "kind": "EVENT", "vectors": [[0.002]]}), "SHARE_INSUFFICIENT")
-    deleted = await _run(guest({collaboration: ["editor"]}), "mutation ($input: DeleteInput!) { deleteExperiment(input: $input) }", input={"id": str(canvas.pk)})
+    _refused(await _run(guest({collaboration: []}), DRAW, input={"experiment": str(canvas.pk), "kind": "EVENT", "vectors": [[0.002]]}), "INSUFFICIENT_ROLE")
+    deleted = await _run(guest({collaboration: ["elektro_editor"]}), "mutation ($input: DeleteInput!) { deleteExperiment(input: $input) }", input={"id": str(canvas.pk)})
     _refused(deleted, "SCOPED_READ_ONLY")
     assert await models.Experiment.objects.filter(pk=canvas.pk).aexists()
     assert await models.Annotation.objects.acount() == 0
@@ -267,7 +267,7 @@ async def test_the_schema_says_what_each_type_is_and_who_may_draw():
     sdl = str(schema)
     assert '@identified(by: "@elektro/experiment")' in _type_line(sdl, "Experiment")
     create = next(line.strip() for line in sdl.splitlines() if line.strip().startswith("createAnnotation("))
-    assert create.endswith("@auth(allow_scoped: true)"), create
+    assert create.endswith('@auth(required_scopes: ["elektro_write"], any_role_of: ["elektro_editor"], allow_scoped: true)'), create
 
 
 async def test_an_anchor_and_a_run_hung_on_a_shared_dataset_later_come_along(authenticated_context, guest, make_simulation_chain):

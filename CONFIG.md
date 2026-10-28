@@ -195,7 +195,7 @@ top-level `s3` block). Unlike the optional datalayer in some services, this bloc
 | `zarr` | — (use YAML) | object | **required** | Bucket for Zarr arrays (`{ bucket: <name> }`). |
 | `parquet` | — (use YAML) | object | `null` | Bucket for Parquet tables (`{ bucket: <name> }`). |
 | `bigfile` | — (use YAML) | object | `null` | Bucket for large binary files (`{ bucket: <name> }`). |
-| `upload_roles` | — (use YAML) | list[str] | `[admin, editor, bot]` | Organization roles allowed to request, refresh and finish upload grants. Holding any one is enough. |
+| `upload_roles` | — (use YAML) | list[str] | `[]` (`elektro_editor`) | Organization roles allowed to request, refresh and finish upload grants. Holding any one is enough; when empty, elektro asks for `elektro_editor` (`elektro_admin` holds every role). |
 | `quotas` | — (use YAML) | object | no limits | Per-organization, per-user and per-upload byte quotas. See [Upload quotas](#upload-quotas). |
 
 A bucket binding may also set `default_max_bytes` (bytes, default `100MiB`): the per-upload
@@ -223,7 +223,7 @@ toward their organization only.
 
 ```yaml
 datalayer:
-  upload_roles: [admin, editor, bot]
+  upload_roles: [elektro_editor, elektro_modeler]
   quotas:
     default:
       max_upload_bytes: 500GiB

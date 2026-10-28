@@ -234,7 +234,8 @@ def authenticated_context(db, backend_stack):
 def bot_context(db, backend_stack) -> HttpContext:
     """A non-admin user (static token "bottest") in the SAME org as authenticated_context.
 
-    Holds only the "bot" role, so the delete guard actually applies to it -- the context used
+    Holds only ``elektro_editor``: it passes the write gate but is not elektro's admin, so the delete
+    guard actually applies to it -- the context used
     to exercise the denial path through GraphQL. Vendored from mikro's conftest.
     """
     user, _ = User.objects.get_or_create(
@@ -245,7 +246,7 @@ def bot_context(db, backend_stack) -> HttpContext:
     membership, _ = Membership.objects.get_or_create(
         user=user,
         organization=org,
-        defaults={"roles": ["bot"]},
+        defaults={"roles": ["elektro_editor"]},
     )
 
     request = UniversalRequest(

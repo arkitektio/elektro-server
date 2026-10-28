@@ -16,6 +16,9 @@ DATABASES["default"] = {
 }
 # Django forces DEBUG=False under the test runner, and authentikate 3.0 refuses static
 # tokens when DEBUG is False. These are deliberate test fixtures, so opt in explicitly.
+#: What a test token is unless it says otherwise: elektro's admin, through an app granted all of elektro.
+ADMIN_WITH_EVERY_SCOPE = {"roles": ["elektro_admin"], "scope": "openid elektro_all"}
+
 AUTHENTIKATE = {
     **AUTHENTIKATE,
     "allow_static_tokens_in_production": True,
@@ -23,26 +26,30 @@ AUTHENTIKATE = {
     # listed under (tests/test_sharing.py).
     "audience": "1",
     "static_tokens": {
-        "test": {"sub": "1"},
-        # A non-privileged user in a different organization, for cross-tenant
-        # scoping/permission tests. roles must be set explicitly: StaticToken
-        # defaults roles to ["admin"], which would let this user delete anything
-        # (can_delete rule 1) and defeat the cross-org denial tests.
-        "othertest": {"sub": "9", "org": "other_org", "roles": []},
-        # The SAME user as "test", acting in the other organization: a user who belongs to
-        # two orgs must only ever see the rows of the org they are acting in.
-        "test-other-org": {"sub": "1", "org": "other_org"},
-        # A non-admin user in the SAME organization, for delete-ownership tests: holding
-        # only "bot", neither rule 1 (admin) nor rule 3 (a bot's creations belong to the
-        # task's assigner) lets them delete, so the guard's denial path is reachable.
-        "bottest": {"sub": "2", "roles": ["bot"]},
-        # An "editor": writes data and requests upload grants, but is not an org admin.
-        "editortest": {"sub": "3", "roles": ["editor"]},
-        # A "viewer": in the org, but holding no role that may upload.
-        "viewertest": {"sub": "4", "roles": ["viewer"]},
+        name: {**ADMIN_WITH_EVERY_SCOPE, **token}
+        for name, token in {
+            "test": {"sub": "1"},
+            # A non-privileged user in a different organization, for cross-tenant
+            # scoping/permission tests: an editor passes the write gate, but is not elektro's
+            # admin, who may delete anything (can_delete rule 1) and would defeat the
+            # cross-org denial tests.
+            "othertest": {"sub": "9", "org": "other_org", "roles": ["elektro_editor"]},
+            # The SAME user as "test", acting in the other organization: a user who belongs to
+            # two orgs must only ever see the rows of the org they are acting in.
+            "test-other-org": {"sub": "1", "org": "other_org"},
+            # A non-admin user in the SAME organization, for delete-ownership tests: an editor
+            # passes the write gate but is not elektro's admin, so the creator/assigner guard
+            # actually applies to them.
+            "bottest": {"sub": "2", "roles": ["elektro_editor"]},
+            # An editor: writes data and requests upload grants, but is not elektro's admin.
+            "editortest": {"sub": "3", "roles": ["elektro_editor"]},
+            # In the org, but holding no role that may write or upload.
+            "viewertest": {"sub": "4", "roles": []},
+            # An app granted only what it reads, for the scope tests (tests/test_scopes.py).
+            "readertest": {"sub": "1", "scope": "openid elektro_read"},
+        }.items()
     },
 }
-
 
 OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
 

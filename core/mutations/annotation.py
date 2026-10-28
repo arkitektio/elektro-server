@@ -28,6 +28,7 @@ from core.inputs.validators import assert_rgba, assert_shape_vectors
 from core.logic import graph as graph_logic
 from core import guards
 from core.scoping import get_for_org, get_in_org_unshared
+from elektro_server.contract import EDITOR
 
 
 class _ShapeInputModel(BaseModel):
@@ -99,9 +100,9 @@ class CreateAnnotationInput:
     filled: bool | None = strawberry.field(default=None, description="Whether the geometry is filled with fill_color (default false)")
 
 
-#: Who may draw, for a guest of the organization: the roles they must hold in a collaboration that holds
-#: what they draw on (``require_in_collaboration``). A full member draws as before, whatever their roles.
-ANNOTATING_ROLES = ["admin", "editor", "bot"]
+#: Who may draw: the roles of the mutations, held in the organization or, for a guest, in a
+#: collaboration that holds what they draw on (``require_in_collaboration``).
+ANNOTATING_ROLES = [EDITOR]
 
 
 def _mint_experiment_collection(experiment: "models.Experiment", ctx: CreationContext) -> "models.AnnotationCollection":

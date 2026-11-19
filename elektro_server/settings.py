@@ -169,8 +169,6 @@ AUTHENTICATION_BACKENDS = (
 WSGI_APPLICATION = "elektro_server.wsgi.application"
 ASGI_APPLICATION = "elektro_server.asgi.application"
 
-OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT = "http://jaeger:4317"
-
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 

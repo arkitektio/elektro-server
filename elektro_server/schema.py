@@ -26,7 +26,6 @@ from arkitekt_datalayer.datalayer import load_config
 from authentikate.strawberry import AuthExtension, AuthSubscribeExtension
 from kanne_server import scalars as kanne_scalars
 import kante
-from strawberry.extensions.tracing import OpenTelemetryExtension
 from strawberry.schema.config import StrawberryConfig
 from core.input_unions import unionElementOf
 from core.inputs.coords import derived_from_union_types, transform_union_types
@@ -34,7 +33,7 @@ from core.inputs.file_link import file_link_union_types
 from core.inputs.identification import identification_union_types
 from core.types.layers import layer_types
 from core.types.coords import transformation_types
-from arkitekt_service.graphql import CollaborationGate, annotate_schema
+from arkitekt_service.graphql import CollaborationGate, TelemetryExtension, annotate_schema
 from arkitekt_service.collaborations import graphql as collaboration_types
 from elektro_server.service import service as elektro_service
 from elektro_server.contract import EDITOR, MODELER
@@ -716,7 +715,7 @@ schema = Schema(
     subscription=Subscription,
     mutation=Mutation,
     extensions=[
-        OpenTelemetryExtension,
+        TelemetryExtension,
         AuthentikateExtension,
         # A guest of the organization is handed only what is in their collaborations.
         CollaborationGate,

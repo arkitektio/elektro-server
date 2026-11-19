@@ -51,7 +51,6 @@ AUTHENTIKATE = {
     },
 }
 
-OPENTELEMETRY_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
 
 
 # Disable migrations for faster tests

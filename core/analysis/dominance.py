@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
 
 from core.base_models.type.biophysics import CompartmentModel, SectionParamMapModel
 from core.base_models.type.cell import CellModel
@@ -67,7 +66,7 @@ class SectionDominance:
 
     cell_id: str
     section_id: str
-    category: Optional[str]
+    category: str | None
 
     # Normalized [0, 1] fractions of the model total.
     global_score: float
@@ -97,7 +96,7 @@ class SectionDominance:
 _COND_DENSITY_DIM = get_registry().get_dimensionality("siemens / centimeter ** 2")
 
 
-def _to_si(canonical: Optional[int], pint_cls: type, target_unit: str) -> Optional[float]:
+def _to_si(canonical: int | None, pint_cls: type, target_unit: str) -> float | None:
     """Convert a stored canonical integer to a float in ``target_unit``.
 
     ``pint_cls`` is the ``kanne_server.scalars`` quantity class the field is typed as; its
@@ -111,11 +110,11 @@ def _to_si(canonical: Optional[int], pint_cls: type, target_unit: str) -> Option
     return quantity.to(target_unit).magnitude
 
 
-def _length_cm(canonical: Optional[int]) -> Optional[float]:
+def _length_cm(canonical: int | None) -> float | None:
     return _to_si(canonical, _scalars.Length, "centimeter")
 
 
-def _param_density_s_cm2(param: SectionParamMapModel) -> Optional[float]:
+def _param_density_s_cm2(param: SectionParamMapModel) -> float | None:
     """Conductance density (S/cm²) of a section parameter, or None if it is not one.
 
     A parameter counts as a conductance density only if its distribution value has the
@@ -179,7 +178,14 @@ def _section_geometry(section: SectionModel) -> _Geometry:
         pts = []
         for c in coords:
             r = (_length_cm(c.diam) or 0.0) / 2.0 if c.diam is not None else default_r
-            pts.append((_length_cm(c.x) or 0.0, _length_cm(c.y) or 0.0, _length_cm(c.z) or 0.0, r))
+            pts.append(
+                (
+                    _length_cm(c.x) or 0.0,
+                    _length_cm(c.y) or 0.0,
+                    _length_cm(c.z) or 0.0,
+                    r,
+                )
+            )
         area = 0.0
         length = 0.0
         for (x1, y1, z1, r1), (x2, y2, z2, r2) in zip(pts, pts[1:]):
@@ -201,7 +207,9 @@ def _section_geometry(section: SectionModel) -> _Geometry:
 # --- per-section biophysics --------------------------------------------------
 
 
-def _compartment_for_section(section: SectionModel, cell: CellModel) -> Optional[CompartmentModel]:
+def _compartment_for_section(
+    section: SectionModel, cell: CellModel
+) -> CompartmentModel | None:
     """The biophysics compartment bound to a section (by ``section.category == comp.id``)."""
     if section.category is None:
         return None
@@ -223,13 +231,15 @@ def _section_ra(section: SectionModel, config: ModelConfigModel) -> float:
 def _section_cm(section: SectionModel, config: ModelConfigModel) -> float:
     for canonical in (section.cm, config.cm):
         if canonical is not None:
-            value = _to_si(canonical, _scalars.SpecificCapacitance, "microfarad / centimeter ** 2")
+            value = _to_si(
+                canonical, _scalars.SpecificCapacitance, "microfarad / centimeter ** 2"
+            )
             if value is not None:
                 return value
     return DEFAULT_CM_UF_CM2
 
 
-def _conductance_densities(comp: Optional[CompartmentModel]) -> tuple[float, float]:
+def _conductance_densities(comp: CompartmentModel | None) -> tuple[float, float]:
     """(total conductance density, passive conductance density) in S/cm² for a compartment.
 
     The passive density (from ``pas``/``leak`` mechanisms) is returned separately because
@@ -262,7 +272,7 @@ def _elec_length(geom: _Geometry, ra_ohm_cm: float, rm_ohm_cm2: float) -> float:
     return geom.length / lam
 
 
-def _reference_section(cell: CellModel, reference: Optional[dict]) -> Optional[str]:
+def _reference_section(cell: CellModel, reference: dict | None) -> str | None:
     """Pick the reference section id for a cell: explicit arg > category 'soma' > root."""
     ids = {s.id for s in cell.topology.sections}
     if reference is not None:
@@ -270,17 +280,20 @@ def _reference_section(cell: CellModel, reference: Optional[dict]) -> Optional[s
         ref_section = reference.get("section_id")
         if ref_section in ids and (ref_cell is None or ref_cell == cell.id):
             return ref_section
-    soma = next((s for s in cell.topology.sections if (s.category or "").lower() == "soma"), None)
+    soma = next(
+        (s for s in cell.topology.sections if (s.category or "").lower() == "soma"),
+        None,
+    )
     if soma is not None:
         return soma.id
     root = next((s for s in cell.topology.sections if s.parent is None), None)
     return root.id if root is not None else None
 
 
-def _ancestors(section_id: str, parent_of: dict[str, Optional[str]]) -> list[str]:
+def _ancestors(section_id: str, parent_of: dict[str, str | None]) -> list[str]:
     """Path of ids from ``section_id`` up to (and including) the root."""
     chain = []
-    node: Optional[str] = section_id
+    node: str | None = section_id
     seen = set()
     while node is not None and node not in seen:
         chain.append(node)
@@ -290,7 +303,7 @@ def _ancestors(section_id: str, parent_of: dict[str, Optional[str]]) -> list[str
 
 
 def _electrotonic_distances(
-    cell: CellModel, elec_len: dict[str, float], ref_id: Optional[str]
+    cell: CellModel, elec_len: dict[str, float], ref_id: str | None
 ) -> dict[str, float]:
     """Electrotonic distance from each section to ``ref_id`` along the tree.
 
@@ -298,7 +311,9 @@ def _electrotonic_distances(
     connecting the two nodes: ``depth(section) + depth(ref) - 2·depth(LCA)``, where an
     edge's electrotonic length is attributed to its child section.
     """
-    parent_of = {s.id: (s.parent.parent if s.parent else None) for s in cell.topology.sections}
+    parent_of = {
+        s.id: (s.parent.parent if s.parent else None) for s in cell.topology.sections
+    }
 
     # Cumulative electrotonic depth from the root (root depth = 0; each section adds its
     # own edge length to its parent).
@@ -326,7 +341,7 @@ def _electrotonic_distances(
         # Find the lowest common ancestor by walking up from the section until we hit an
         # ancestor of the reference.
         lca_depth = 0.0
-        node: Optional[str] = s.id
+        node: str | None = s.id
         while node is not None:
             if node in ref_ancestor_depth:
                 lca_depth = ref_ancestor_depth[node]
@@ -342,7 +357,7 @@ def _electrotonic_distances(
 def compute_dominance(
     config: ModelConfigModel,
     *,
-    reference: Optional[dict] = None,
+    reference: dict | None = None,
     weights: tuple[float, float, float] = DEFAULT_WEIGHTS,
 ) -> list[SectionDominance]:
     """Compute per-section dominance scores for every section of every cell in ``config``.
@@ -376,12 +391,21 @@ def compute_dominance(
             # Axial conductance of this section's upstream (parent) edge; a property of
             # the child cable's geometry (root has no upstream edge → 0).
             edge_axial = 0.0
-            if section.parent is not None and geom.length > 0 and ra > 0 and geom.diam > 0:
+            if (
+                section.parent is not None
+                and geom.length > 0
+                and ra > 0
+                and geom.diam > 0
+            ):
                 cross_area = math.pi * (geom.diam / 2.0) ** 2  # cm²
                 resistance = ra * geom.length / cross_area  # ohm
                 edge_axial = 1.0 / resistance if resistance > 0 else 0.0
 
-            rm = (1.0 / passive_g_density) if passive_g_density > 0 else DEFAULT_RM_OHM_CM2
+            rm = (
+                (1.0 / passive_g_density)
+                if passive_g_density > 0
+                else DEFAULT_RM_OHM_CM2
+            )
             elec_len[section.id] = _elec_length(geom, ra, rm)
 
             rows.append(
@@ -404,7 +428,9 @@ def compute_dominance(
         for r in cell_rows:
             parent_id = r["section"].parent.parent if r["section"].parent else None
             if parent_id is not None:
-                children_edge_sum[parent_id] = children_edge_sum.get(parent_id, 0.0) + r["edge_axial"]
+                children_edge_sum[parent_id] = (
+                    children_edge_sum.get(parent_id, 0.0) + r["edge_axial"]
+                )
         for r in cell_rows:
             r["axial"] = r["edge_axial"] + children_edge_sum.get(r["section"].id, 0.0)
 
@@ -434,9 +460,12 @@ def compute_dominance(
     a_frac = _fraction("axial")
 
     raw_global = [
-        alpha * g_frac[i] + beta * c_frac[i] + gamma * a_frac[i] for i in range(len(rows))
+        alpha * g_frac[i] + beta * c_frac[i] + gamma * a_frac[i]
+        for i in range(len(rows))
     ]
-    raw_reference = [raw_global[i] * rows[i]["transfer_weight"] for i in range(len(rows))]
+    raw_reference = [
+        raw_global[i] * rows[i]["transfer_weight"] for i in range(len(rows))
+    ]
 
     global_total = sum(raw_global)
     reference_total = sum(raw_reference)
@@ -449,8 +478,12 @@ def compute_dominance(
                 cell_id=row["cell_id"],
                 section_id=section.id,
                 category=section.category,
-                global_score=(raw_global[i] / global_total) if global_total > 0 else 0.0,
-                reference_score=(raw_reference[i] / reference_total) if reference_total > 0 else 0.0,
+                global_score=(raw_global[i] / global_total)
+                if global_total > 0
+                else 0.0,
+                reference_score=(raw_reference[i] / reference_total)
+                if reference_total > 0
+                else 0.0,
                 raw_global=raw_global[i],
                 raw_reference=raw_reference[i],
                 area=row["area"],

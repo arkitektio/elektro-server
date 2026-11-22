@@ -36,12 +36,17 @@ mutation Create($input: CreateTableDatasetInput!) {
 }
 """
 
-_EVENTS = [{"name": "t", "role": "COORDINATE", "axisType": "TIME", "unit": "second"}, {"name": "label", "role": "LABEL", "dtype": "VARCHAR"}]
+_EVENTS = [
+    {"name": "t", "role": "COORDINATE", "axisType": "TIME", "unit": "second"},
+    {"name": "label", "role": "LABEL", "dtype": "VARCHAR"},
+]
 
 _T = [{"name": "t", "type": "TIME"}]
 
 
-async def _create_annotation_collection(aexecute, name: str, derived_from=None) -> dict[str, Any]:  # noqa: ANN001
+async def _create_annotation_collection(
+    aexecute, name: str, derived_from=None
+) -> dict[str, Any]:  # noqa: ANN001
     """A collection, made the way a client makes one. `createAnnotationCollection` takes no `folder` here (mikro's does)."""
     payload: dict[str, Any] = {"name": name, "axes": _T}
     if derived_from is not None:
@@ -62,15 +67,22 @@ async def _create_table(aexecute, ctx, name: str, folder=None) -> dict[str, Any]
 
 
 async def _file_collection(aexecute, collection: dict, folder) -> None:  # noqa: ANN001
-    moved = await aexecute("mutation M($input: AssociateInput!) { putAnnotationCollectionsInFolder(input: $input) { id } }", {"input": {"selfs": [collection["id"]], "other": str(folder.pk)}})
+    moved = await aexecute(
+        "mutation M($input: AssociateInput!) { putAnnotationCollectionsInFolder(input: $input) { id } }",
+        {"input": {"selfs": [collection["id"]], "other": str(folder.pk)}},
+    )
     assert not moved.errors, moved.errors
 
 
 def _derived_from(parent: dict) -> list[dict]:
-    return [{"kind": "DATASET", "dataset": parent["id"], "transform": {"kind": "IDENTITY"}}]
+    return [
+        {"kind": "DATASET", "dataset": parent["id"], "transform": {"kind": "IDENTITY"}}
+    ]
 
 
-async def test_every_container_files_into_a_named_folder(aexecute, create_array_dataset, authenticated_context):
+async def test_every_container_files_into_a_named_folder(
+    aexecute, create_array_dataset, authenticated_context
+):
     """Everything that takes a folder on create accepts it and reads it back."""
     ctx = authenticated_context
     folder = await seed.create_folder(ctx, "Experiment A")
@@ -81,11 +93,15 @@ async def test_every_container_files_into_a_named_folder(aexecute, create_array_
     ]
 
     for container in created:
-        assert container["folder"] is not None, "a container created with a folder must report it"
+        assert container["folder"] is not None, (
+            "a container created with a folder must report it"
+        )
         assert container["folder"]["name"] == "Experiment A"
 
 
-async def test_a_container_created_without_a_folder_lands_in_the_default(aexecute, create_array_dataset, authenticated_context):
+async def test_a_container_created_without_a_folder_lands_in_the_default(
+    aexecute, create_array_dataset, authenticated_context
+):
     """Omitting the folder files it in the user's default, exactly as a file has always been.
 
     The column is nullable and unfiled rows are legal, but nothing created *through the API*
@@ -95,9 +111,13 @@ async def test_a_container_created_without_a_folder_lands_in_the_default(aexecut
     table = await _create_table(aexecute, authenticated_context, "Unfiled session")
 
     for container in (dataset, table):
-        assert container["folder"] is not None, "a container created without a folder still gets the default one"
+        assert container["folder"] is not None, (
+            "a container created without a folder still gets the default one"
+        )
         assert container["folder"]["name"] == "Default"
-    assert dataset["folder"]["id"] == table["folder"]["id"], "one default folder per user, not one per kind"
+    assert dataset["folder"]["id"] == table["folder"]["id"], (
+        "one default folder per user, not one per kind"
+    )
 
 
 @pytest.mark.xfail(
@@ -109,12 +129,18 @@ async def test_a_container_created_without_a_folder_lands_in_the_default(aexecut
         "until someone calls putAnnotationCollectionsInFolder, and the GraphQL type `AnnotationCollection` has no `folder` field to notice it by."
     ),
 )
-async def test_an_annotation_collection_created_without_a_folder_lands_in_the_default(aexecute):
+async def test_an_annotation_collection_created_without_a_folder_lands_in_the_default(
+    aexecute,
+):
     """mikro's assertion for the fourth container: nothing created through the API is left unfiled."""
     collection = await _create_annotation_collection(aexecute, "Drawn")
 
-    stored = await models.AnnotationCollection.objects.select_related("folder").aget(pk=collection["id"])
-    assert stored.folder is not None, "a container created without a folder still gets the default one"
+    stored = await models.AnnotationCollection.objects.select_related("folder").aget(
+        pk=collection["id"]
+    )
+    assert stored.folder is not None, (
+        "a container created without a folder still gets the default one"
+    )
     assert stored.folder.name == "Default"
 
 
@@ -126,23 +152,33 @@ async def test_an_annotation_collection_created_without_a_folder_lands_in_the_de
         "inheriting its primary parent's folder. It then cannot be filed by hand either (`putAnnotationCollectionsInFolder` refuses derived data), so it stays unfiled until its parent is moved."
     ),
 )
-async def test_a_derived_annotation_collection_is_filed_with_its_parent(aexecute, create_array_dataset, authenticated_context):
+async def test_a_derived_annotation_collection_is_filed_with_its_parent(
+    aexecute, create_array_dataset, authenticated_context
+):
     """Filing is a historical question, not a spatial one: marks detected on a recording live where the recording lives."""
     home = await seed.create_folder(authenticated_context, "Home")
     parent = await create_array_dataset("Acquired", [1000], folder=home.pk)
 
-    derived = await _create_annotation_collection(aexecute, "Detected", derived_from=_derived_from(parent))
+    derived = await _create_annotation_collection(
+        aexecute, "Detected", derived_from=_derived_from(parent)
+    )
 
-    assert await models.AnnotationCollection.objects.filter(pk=derived["id"], folder=home).aexists(), "a derivation is filed where its parent is"
+    assert await models.AnnotationCollection.objects.filter(
+        pk=derived["id"], folder=home
+    ).aexists(), "a derivation is filed where its parent is"
 
 
-async def test_a_folder_lists_every_kind_of_container_it_holds(aexecute, create_array_dataset, authenticated_context):
+async def test_a_folder_lists_every_kind_of_container_it_holds(
+    aexecute, create_array_dataset, authenticated_context
+):
     """The reverse lists on Folder, one per fileable type."""
     ctx = authenticated_context
     folder = await seed.create_folder(ctx, "Everything")
 
     await create_array_dataset("Acquired", [1000], folder=folder.pk)
-    await _file_collection(aexecute, await _create_annotation_collection(aexecute, "Drawn"), folder)
+    await _file_collection(
+        aexecute, await _create_annotation_collection(aexecute, "Drawn"), folder
+    )
     await _create_table(aexecute, authenticated_context, "Session", folder=folder)
     await seed.create_file(ctx, "cell3.abf", folder)
     await seed.create_folder(ctx, "Sub", parent=folder)
@@ -171,7 +207,9 @@ async def test_a_folder_lists_every_kind_of_container_it_holds(aexecute, create_
     assert [f["name"] for f in contents["children"]] == ["Sub"]
 
 
-async def test_children_returns_the_containers_alongside_files(aexecute, create_array_dataset, authenticated_context):
+async def test_children_returns_the_containers_alongside_files(
+    aexecute, create_array_dataset, authenticated_context
+):
     """`children` is the folder's contents, so it has to include what folders can now hold.
 
     It returned only sub-folders and files while the containers were unfileable;
@@ -181,17 +219,24 @@ async def test_children_returns_the_containers_alongside_files(aexecute, create_
     folder = await seed.create_folder(ctx, "Mixed")
     await seed.create_file(ctx, "cell3.abf", folder)
     await create_array_dataset("Acquired", [1000], folder=folder.pk)
-    await _file_collection(aexecute, await _create_annotation_collection(aexecute, "Drawn"), folder)
+    await _file_collection(
+        aexecute, await _create_annotation_collection(aexecute, "Drawn"), folder
+    )
     await _create_table(aexecute, authenticated_context, "Session", folder=folder)
 
-    result = await aexecute("query Children($parent: ID!) { children(parent: $parent) { __typename } }", {"parent": str(folder.pk)})
+    result = await aexecute(
+        "query Children($parent: ID!) { children(parent: $parent) { __typename } }",
+        {"parent": str(folder.pk)},
+    )
     assert not result.errors, result.errors
 
     kinds = {child["__typename"] for child in result.data["children"]}
     assert kinds == {"File", "ArrayDataset", "AnnotationCollection", "TableDataset"}
 
 
-async def test_children_orders_and_searches_across_every_source(aexecute, create_array_dataset, authenticated_context):
+async def test_children_orders_and_searches_across_every_source(
+    aexecute, create_array_dataset, authenticated_context
+):
     """The `order` and `search` branches, which fan across all five sources.
 
     Worth its own test because `children` builds its querysets from a table, and both
@@ -201,7 +246,9 @@ async def test_children_orders_and_searches_across_every_source(aexecute, create
     ctx = authenticated_context
     folder = await seed.create_folder(ctx, "Sortable")
     await create_array_dataset("Beta", [1000], folder=folder.pk)
-    await _file_collection(aexecute, await _create_annotation_collection(aexecute, "Gamma"), folder)
+    await _file_collection(
+        aexecute, await _create_annotation_collection(aexecute, "Gamma"), folder
+    )
     await _create_table(aexecute, authenticated_context, "Alpha", folder=folder)
     await seed.create_file(ctx, "Delta", folder)
     await seed.create_folder(ctx, "Epsilon", parent=folder)
@@ -219,15 +266,30 @@ async def test_children_orders_and_searches_across_every_source(aexecute, create
     }
     """
 
-    ordered = await aexecute(ORDERED, {"parent": str(folder.pk), "order": {"field": "NAME", "direction": "ASC"}})
+    ordered = await aexecute(
+        ORDERED,
+        {"parent": str(folder.pk), "order": {"field": "NAME", "direction": "ASC"}},
+    )
     assert not ordered.errors, ordered.errors
     assert len(ordered.data["children"]) == 5, "ordering by name must not drop a source"
     by_kind: dict[str, list[str]] = {}
     for child in ordered.data["children"]:
         by_kind.setdefault(child["__typename"], []).append(child["name"])
-    assert by_kind == {"Folder": ["Epsilon"], "File": ["Delta"], "ArrayDataset": ["Beta"], "AnnotationCollection": ["Gamma"], "TableDataset": ["Alpha"]}
+    assert by_kind == {
+        "Folder": ["Epsilon"],
+        "File": ["Delta"],
+        "ArrayDataset": ["Beta"],
+        "AnnotationCollection": ["Gamma"],
+        "TableDataset": ["Alpha"],
+    }
 
-    by_created = await aexecute(ORDERED, {"parent": str(folder.pk), "order": {"field": "CREATED_AT", "direction": "DESC"}})
+    by_created = await aexecute(
+        ORDERED,
+        {
+            "parent": str(folder.pk),
+            "order": {"field": "CREATED_AT", "direction": "DESC"},
+        },
+    )
     assert not by_created.errors, by_created.errors
     assert len(by_created.data["children"]) == 5
 
@@ -236,7 +298,9 @@ async def test_children_orders_and_searches_across_every_source(aexecute, create
         {"parent": str(folder.pk), "filters": {"search": "Alpha"}},
     )
     assert not searched.errors, searched.errors
-    assert [c["__typename"] for c in searched.data["children"]] == ["TableDataset"], "search must reach the containers, and only match one here"
+    assert [c["__typename"] for c in searched.data["children"]] == ["TableDataset"], (
+        "search must reach the containers, and only match one here"
+    )
 
     unasked = await aexecute(
         "query Children($parent: ID!, $filters: FolderChildrenFilter) { children(parent: $parent, filters: $filters) { __typename } }",
@@ -246,7 +310,9 @@ async def test_children_orders_and_searches_across_every_source(aexecute, create
     assert len(unasked.data["children"]) == 5, "an explicit null is no constraint"
 
 
-LINK_FILE = "mutation L($input: LinkFileInput!) { linkFile(input: $input) { id direction } }"
+LINK_FILE = (
+    "mutation L($input: LinkFileInput!) { linkFile(input: $input) { id direction } }"
+)
 
 CHILD_NAMES = """
 query Children($parent: ID!, $filters: FolderChildrenFilter) {
@@ -258,7 +324,9 @@ query Children($parent: ID!, $filters: FolderChildrenFilter) {
 """
 
 
-async def test_children_hides_what_was_converted_from_a_file_until_asked(aexecute, create_array_dataset, authenticated_context):
+async def test_children_hides_what_was_converted_from_a_file_until_asked(
+    aexecute, create_array_dataset, authenticated_context
+):
     """A dataset converted from a file is that file again, so the listing shows the file alone.
 
     Only the ingest direction hides: an exported dataset was not made from its file, and
@@ -272,13 +340,26 @@ async def test_children_hides_what_was_converted_from_a_file_until_asked(aexecut
     exported = await create_array_dataset("Exported", [1000], folder=folder.pk)
     await create_array_dataset("Acquired", [1000], folder=folder.pk)
 
-    source = await aexecute(LINK_FILE, {"input": {"dataset": converted["id"], "sourceFiles": [{"file": str(raw.pk)}]}})
+    source = await aexecute(
+        LINK_FILE,
+        {"input": {"dataset": converted["id"], "sourceFiles": [{"file": str(raw.pk)}]}},
+    )
     assert not source.errors, source.errors
-    rendition = await aexecute(LINK_FILE, {"input": {"file": str(export.pk), "sourceOf": [{"kind": "DATASET", "dataset": exported["id"]}]}})
+    rendition = await aexecute(
+        LINK_FILE,
+        {
+            "input": {
+                "file": str(export.pk),
+                "sourceOf": [{"kind": "DATASET", "dataset": exported["id"]}],
+            }
+        },
+    )
     assert not rendition.errors, rendition.errors
 
     async def names(filters: dict | None) -> set[str]:
-        result = await aexecute(CHILD_NAMES, {"parent": str(folder.pk), "filters": filters})
+        result = await aexecute(
+            CHILD_NAMES, {"parent": str(folder.pk), "filters": filters}
+        )
         assert not result.errors, result.errors
         return {child["name"] for child in result.data["children"]}
 
@@ -288,7 +369,9 @@ async def test_children_hides_what_was_converted_from_a_file_until_asked(aexecut
     assert await names({"showConverted": True}) == everything
 
 
-async def test_containers_are_filterable_by_folder(aexecute, create_array_dataset, authenticated_context):
+async def test_containers_are_filterable_by_folder(
+    aexecute, create_array_dataset, authenticated_context
+):
     """`folder` and `folders` on each container filter, and they filter independently."""
     ctx = authenticated_context
     here = await seed.create_folder(ctx, "Here")
@@ -315,10 +398,14 @@ async def test_containers_are_filterable_by_folder(aexecute, create_array_datase
     assert [d["name"] for d in result.data["here"]] == ["Mine"]
     assert {d["name"] for d in result.data["both"]} == {"Mine", "Theirs"}
     assert [b["name"] for b in result.data["tables"]] == ["MyTable"]
-    assert {d["name"] for d in result.data["unasked"]} == {"Mine", "Theirs"}, "an explicit null is no constraint"
+    assert {d["name"] for d in result.data["unasked"]} == {"Mine", "Theirs"}, (
+        "an explicit null is no constraint"
+    )
 
 
-async def test_deleting_a_folder_unfiles_its_contents_and_destroys_nothing(aexecute, create_array_dataset, authenticated_context):
+async def test_deleting_a_folder_unfiles_its_contents_and_destroys_nothing(
+    aexecute, create_array_dataset, authenticated_context
+):
     """`on_delete=SET_NULL` everywhere: a folder is organisational, so deleting one says
     nothing about whether its contents should exist.
 
@@ -340,9 +427,13 @@ async def test_deleting_a_folder_unfiles_its_contents_and_destroys_nothing(aexec
     dataset = await create_array_dataset("Survives", [1000], folder=folder.pk)
     collection = await _create_annotation_collection(aexecute, "AndThis")
     await _file_collection(aexecute, collection, folder)
-    table = await _create_table(aexecute, authenticated_context, "AlsoSurvives", folder=folder)
+    table = await _create_table(
+        aexecute, authenticated_context, "AlsoSurvives", folder=folder
+    )
 
-    deleted = await aexecute("mutation ($id: ID!) { deleteFolder(input: {id: $id}) }", {"id": str(folder.pk)})
+    deleted = await aexecute(
+        "mutation ($id: ID!) { deleteFolder(input: {id: $id}) }", {"id": str(folder.pk)}
+    )
     assert not deleted.errors, deleted.errors
 
     async def survives_unfiled(model, pk) -> bool:  # noqa: ANN001
@@ -359,7 +450,9 @@ async def test_deleting_a_folder_unfiles_its_contents_and_destroys_nothing(aexec
     assert await survives_unfiled(models.File, nested.pk)
 
 
-async def test_a_container_can_be_refiled_and_unfiled(aexecute, create_array_dataset, authenticated_context):
+async def test_a_container_can_be_refiled_and_unfiled(
+    aexecute, create_array_dataset, authenticated_context
+):
     """`put<Things>InFolder` / `release<Things>FromFolder` for every fileable kind.
 
     Without these a container could be filed once, at creation, and never moved: `folder`
@@ -371,28 +464,59 @@ async def test_a_container_can_be_refiled_and_unfiled(aexecute, create_array_dat
 
     dataset = await create_array_dataset("Moves", [1000], folder=origin.pk)
     collection = await _create_annotation_collection(aexecute, "AndThis")
-    table = await _create_table(aexecute, authenticated_context, "AlsoMoves", folder=origin)
+    table = await _create_table(
+        aexecute, authenticated_context, "AlsoMoves", folder=origin
+    )
     file = await seed.create_file(ctx, "cell3.abf", origin)
 
     cases = [
-        ("putArrayDatasetsInFolder", "releaseArrayDatasetsFromFolder", models.ArrayDataset, dataset["id"]),
-        ("putAnnotationCollectionsInFolder", "releaseAnnotationCollectionsFromFolder", models.AnnotationCollection, collection["id"]),
-        ("putTableDatasetsInFolder", "releaseTableDatasetsFromFolder", models.TableDataset, table["id"]),
+        (
+            "putArrayDatasetsInFolder",
+            "releaseArrayDatasetsFromFolder",
+            models.ArrayDataset,
+            dataset["id"],
+        ),
+        (
+            "putAnnotationCollectionsInFolder",
+            "releaseAnnotationCollectionsFromFolder",
+            models.AnnotationCollection,
+            collection["id"],
+        ),
+        (
+            "putTableDatasetsInFolder",
+            "releaseTableDatasetsFromFolder",
+            models.TableDataset,
+            table["id"],
+        ),
         ("putFilesInFolder", "releaseFilesFromFolder", models.File, file.pk),
     ]
 
     for put, release, model, pk in cases:
-        moved = await aexecute(f"mutation M($input: AssociateInput!) {{ {put}(input: $input) {{ id name }} }}", {"input": {"selfs": [str(pk)], "other": str(destination.pk)}})
+        moved = await aexecute(
+            f"mutation M($input: AssociateInput!) {{ {put}(input: $input) {{ id name }} }}",
+            {"input": {"selfs": [str(pk)], "other": str(destination.pk)}},
+        )
         assert not moved.errors, moved.errors
-        assert await model.objects.filter(pk=pk, folder=destination).aexists(), f"{put} must re-file it"
+        assert await model.objects.filter(pk=pk, folder=destination).aexists(), (
+            f"{put} must re-file it"
+        )
 
-        freed = await aexecute(f"mutation M($input: DesociateInput!) {{ {release}(input: $input) {{ id }} }}", {"input": {"selfs": [str(pk)], "other": str(destination.pk)}})
+        freed = await aexecute(
+            f"mutation M($input: DesociateInput!) {{ {release}(input: $input) {{ id }} }}",
+            {"input": {"selfs": [str(pk)], "other": str(destination.pk)}},
+        )
         assert not freed.errors, freed.errors
-        assert await model.objects.filter(pk=pk, folder__isnull=True).aexists(), f"{release} must unfile it"
-        assert await model.objects.filter(pk=pk).aexists(), f"{release} must not delete it"
+        assert await model.objects.filter(pk=pk, folder__isnull=True).aexists(), (
+            f"{release} must unfile it"
+        )
+        assert await model.objects.filter(pk=pk).aexists(), (
+            f"{release} must not delete it"
+        )
 
 
-async def test_releasing_a_file_from_a_folder_no_longer_violates_not_null(aexecute, authenticated_context):
+async def test_releasing_a_file_from_a_folder_no_longer_violates_not_null(
+    aexecute, authenticated_context
+):
     """`File.folder` was NOT NULL while `releaseFilesFromFolder` set it to None.
 
     Every call was an IntegrityError. Making the column nullable -- which SET_NULL needed
@@ -402,13 +526,18 @@ async def test_releasing_a_file_from_a_folder_no_longer_violates_not_null(aexecu
     folder = await seed.create_folder(ctx, "Holding")
     file = await seed.create_file(ctx, "cell3.abf", folder)
 
-    result = await aexecute("mutation M($input: DesociateInput!) { releaseFilesFromFolder(input: $input) { id } }", {"input": {"selfs": [str(file.pk)], "other": str(folder.pk)}})
+    result = await aexecute(
+        "mutation M($input: DesociateInput!) { releaseFilesFromFolder(input: $input) { id } }",
+        {"input": {"selfs": [str(file.pk)], "other": str(folder.pk)}},
+    )
     assert not result.errors, result.errors
 
     assert await models.File.objects.filter(pk=file.pk, folder__isnull=True).aexists()
 
 
-async def test_derived_data_is_filed_with_its_parent_and_cannot_be_filed_alone(aexecute, create_array_dataset, authenticated_context):
+async def test_derived_data_is_filed_with_its_parent_and_cannot_be_filed_alone(
+    aexecute, create_array_dataset, authenticated_context
+):
     """Only root data is filed explicitly; a derivation inherits and refuses a folder of its own.
 
     Kind-blind: the dataset below derives UNMAPPABLY from its parent -- per-sweep summary
@@ -422,42 +551,88 @@ async def test_derived_data_is_filed_with_its_parent_and_cannot_be_filed_alone(a
     parent = await create_array_dataset("Acquired", [1000], folder=home.pk)
 
     unmappably = [{"kind": "DATASET", "dataset": parent["id"]}]
-    derived = await create_array_dataset("Measurements", [12], axes=[{"name": "sweep", "type": "INDEX"}], derived_from=unmappably)
-    assert derived["folder"]["name"] == "Home", "a derivation is filed where its parent is"
+    derived = await create_array_dataset(
+        "Measurements",
+        [12],
+        axes=[{"name": "sweep", "type": "INDEX"}],
+        derived_from=unmappably,
+    )
+    assert derived["folder"]["name"] == "Home", (
+        "a derivation is filed where its parent is"
+    )
 
-    refused = await create_array_dataset("Rejected", [12], axes=[{"name": "sweep", "type": "INDEX"}], derived_from=unmappably, folder=elsewhere.pk, raw=True)
-    assert refused.errors, "naming a folder for derived data must be refused, not silently ignored"
+    refused = await create_array_dataset(
+        "Rejected",
+        [12],
+        axes=[{"name": "sweep", "type": "INDEX"}],
+        derived_from=unmappably,
+        folder=elsewhere.pk,
+        raw=True,
+    )
+    assert refused.errors, (
+        "naming a folder for derived data must be refused, not silently ignored"
+    )
     assert "filed with it" in str(refused.errors[0])
-    assert not await models.ArrayDataset.objects.filter(name="Rejected").aexists(), "one transaction: the refusal leaves nothing behind"
+    assert not await models.ArrayDataset.objects.filter(name="Rejected").aexists(), (
+        "one transaction: the refusal leaves nothing behind"
+    )
 
-    moved = await aexecute("mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }", {"input": {"selfs": [derived["id"]], "other": str(elsewhere.pk)}})
+    moved = await aexecute(
+        "mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }",
+        {"input": {"selfs": [derived["id"]], "other": str(elsewhere.pk)}},
+    )
     assert moved.errors, "a derived container cannot be re-filed on its own either"
-    assert await models.ArrayDataset.objects.filter(pk=derived["id"], folder=home).aexists()
+    assert await models.ArrayDataset.objects.filter(
+        pk=derived["id"], folder=home
+    ).aexists()
 
 
-async def test_moving_a_parent_moves_everything_derived_from_it(aexecute, create_array_dataset, authenticated_context):
+async def test_moving_a_parent_moves_everything_derived_from_it(
+    aexecute, create_array_dataset, authenticated_context
+):
     """The stored copy stays honest: re-filing a root rewrites its descendants, transitively."""
     ctx = authenticated_context
     home = await seed.create_folder(ctx, "Home")
     destination = await seed.create_folder(ctx, "Destination")
 
     root = await create_array_dataset("Acquired", [1000], folder=home.pk)
-    child = await create_array_dataset("Filtered", [1000], derived_from=_derived_from(root))
-    grandchild = await create_array_dataset("Decimated", [1000], derived_from=_derived_from(child))
-    marks = await _create_annotation_collection(aexecute, "Detected", derived_from=_derived_from(grandchild))
+    child = await create_array_dataset(
+        "Filtered", [1000], derived_from=_derived_from(root)
+    )
+    grandchild = await create_array_dataset(
+        "Decimated", [1000], derived_from=_derived_from(child)
+    )
+    marks = await _create_annotation_collection(
+        aexecute, "Detected", derived_from=_derived_from(grandchild)
+    )
 
-    assert await models.ArrayDataset.objects.filter(pk=grandchild["id"], folder=home).aexists(), "inheritance is transitive at creation"
+    assert await models.ArrayDataset.objects.filter(
+        pk=grandchild["id"], folder=home
+    ).aexists(), "inheritance is transitive at creation"
 
-    moved = await aexecute("mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }", {"input": {"selfs": [root["id"]], "other": str(destination.pk)}})
+    moved = await aexecute(
+        "mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }",
+        {"input": {"selfs": [root["id"]], "other": str(destination.pk)}},
+    )
     assert not moved.errors, moved.errors
 
-    assert await models.ArrayDataset.objects.filter(pk=root["id"], folder=destination).aexists()
-    assert await models.ArrayDataset.objects.filter(pk=child["id"], folder=destination).aexists(), "the child follows"
-    assert await models.ArrayDataset.objects.filter(pk=grandchild["id"], folder=destination).aexists(), "and so does the grandchild"
-    assert await models.AnnotationCollection.objects.filter(pk=marks["id"], folder=destination).aexists(), "and the marks drawn over it, a container of the other kind"
+    assert await models.ArrayDataset.objects.filter(
+        pk=root["id"], folder=destination
+    ).aexists()
+    assert await models.ArrayDataset.objects.filter(
+        pk=child["id"], folder=destination
+    ).aexists(), "the child follows"
+    assert await models.ArrayDataset.objects.filter(
+        pk=grandchild["id"], folder=destination
+    ).aexists(), "and so does the grandchild"
+    assert await models.AnnotationCollection.objects.filter(
+        pk=marks["id"], folder=destination
+    ).aexists(), "and the marks drawn over it, a container of the other kind"
 
 
-async def test_a_secondary_parent_does_not_carry_the_filing(aexecute, create_array_dataset, authenticated_context):
+async def test_a_secondary_parent_does_not_carry_the_filing(
+    aexecute, create_array_dataset, authenticated_context
+):
     """A fusion sits with its *primary* parent, matching the rule placement already uses."""
     ctx = authenticated_context
     first_home = await seed.create_folder(ctx, "First")
@@ -467,15 +642,28 @@ async def test_a_secondary_parent_does_not_carry_the_filing(aexecute, create_arr
     primary = await create_array_dataset("Primary", [1000], folder=first_home.pk)
     secondary = await create_array_dataset("Secondary", [1000], folder=second_home.pk)
 
-    fusion = await create_array_dataset("Fused", [1000], derived_from=[*_derived_from(primary), *_derived_from(secondary)])
-    assert fusion["folder"]["name"] == "First", "the first declared source is the primary parent"
+    fusion = await create_array_dataset(
+        "Fused",
+        [1000],
+        derived_from=[*_derived_from(primary), *_derived_from(secondary)],
+    )
+    assert fusion["folder"]["name"] == "First", (
+        "the first declared source is the primary parent"
+    )
 
-    moved = await aexecute("mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }", {"input": {"selfs": [secondary["id"]], "other": str(destination.pk)}})
+    moved = await aexecute(
+        "mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }",
+        {"input": {"selfs": [secondary["id"]], "other": str(destination.pk)}},
+    )
     assert not moved.errors, moved.errors
-    assert await models.ArrayDataset.objects.filter(pk=fusion["id"], folder=first_home).aexists(), "moving a secondary parent must not drag the fusion along"
+    assert await models.ArrayDataset.objects.filter(
+        pk=fusion["id"], folder=first_home
+    ).aexists(), "moving a secondary parent must not drag the fusion along"
 
 
-async def test_filing_says_nothing_about_placement(aexecute, create_array_dataset, authenticated_context):
+async def test_filing_says_nothing_about_placement(
+    aexecute, create_array_dataset, authenticated_context
+):
     """Two datasets in one folder share no space, and one dataset's folder is not its system.
 
     The point of the whole feature: `folder` is organisational and the coordinate graph is
@@ -501,26 +689,51 @@ async def test_filing_says_nothing_about_placement(aexecute, create_array_datase
 
     a, b = result.data["a"], result.data["b"]
     assert a["folder"]["id"] == b["folder"]["id"], "same folder"
-    assert a["intrinsicSystem"]["id"] != b["intrinsicSystem"]["id"], "sharing a folder must not mean sharing a space"
+    assert a["intrinsicSystem"]["id"] != b["intrinsicSystem"]["id"], (
+        "sharing a folder must not mean sharing a space"
+    )
 
     systems_before = await models.CoordinateSystem.objects.acount()
     edges_before = await models.Transformation.objects.acount()
-    released = await aexecute("mutation M($input: DesociateInput!) { releaseArrayDatasetsFromFolder(input: $input) { id } }", {"input": {"selfs": [first["id"]], "other": str(folder.pk)}})
+    released = await aexecute(
+        "mutation M($input: DesociateInput!) { releaseArrayDatasetsFromFolder(input: $input) { id } }",
+        {"input": {"selfs": [first["id"]], "other": str(folder.pk)}},
+    )
     assert not released.errors, released.errors
-    assert (await models.CoordinateSystem.objects.acount(), await models.Transformation.objects.acount()) == (systems_before, edges_before), "and re-filing writes nothing to the graph"
+    assert (
+        await models.CoordinateSystem.objects.acount(),
+        await models.Transformation.objects.acount(),
+    ) == (systems_before, edges_before), "and re-filing writes nothing to the graph"
 
 
-async def test_another_organization_cannot_file_this_organizations_data(aexecute, create_array_dataset, authenticated_context, other_org_context):
+async def test_another_organization_cannot_file_this_organizations_data(
+    aexecute, create_array_dataset, authenticated_context, other_org_context
+):
     """Both ends of a filing are organization-scoped lookups: their folder cannot take our data, and ours cannot take theirs."""
     ours = await seed.create_folder(authenticated_context, "Ours")
     theirs = await seed.create_folder(other_org_context, "Theirs")
     dataset = await create_array_dataset("Mine", [1000], folder=ours.pk)
 
-    into_theirs = await aexecute("mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }", {"input": {"selfs": [dataset["id"]], "other": str(theirs.pk)}})
+    into_theirs = await aexecute(
+        "mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }",
+        {"input": {"selfs": [dataset["id"]], "other": str(theirs.pk)}},
+    )
     assert into_theirs.errors
-    by_them = await aexecute("mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }", {"input": {"selfs": [dataset["id"]], "other": str(theirs.pk)}}, context=other_org_context)
+    by_them = await aexecute(
+        "mutation M($input: AssociateInput!) { putArrayDatasetsInFolder(input: $input) { id } }",
+        {"input": {"selfs": [dataset["id"]], "other": str(theirs.pk)}},
+        context=other_org_context,
+    )
     assert by_them.errors
-    assert await models.ArrayDataset.objects.filter(pk=dataset["id"], folder=ours).aexists()
+    assert await models.ArrayDataset.objects.filter(
+        pk=dataset["id"], folder=ours
+    ).aexists()
 
-    listed = await aexecute("query ($parent: ID!) { children(parent: $parent) { __typename } }", {"parent": str(ours.pk)}, context=other_org_context)
-    assert listed.errors or listed.data["children"] == [], "and another organization reads nothing of this folder's contents"
+    listed = await aexecute(
+        "query ($parent: ID!) { children(parent: $parent) { __typename } }",
+        {"parent": str(ours.pk)},
+        context=other_org_context,
+    )
+    assert listed.errors or listed.data["children"] == [], (
+        "and another organization reads nothing of this folder's contents"
+    )

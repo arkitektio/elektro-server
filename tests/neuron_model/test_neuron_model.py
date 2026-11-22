@@ -7,7 +7,7 @@ regression (environment/parent) and the in-environment mechanism validation.
 
 import pytest
 
-from core.models import ModEnvironment, Mechanism, NeuronModel, Transformation
+from core.models import Mechanism, ModEnvironment, NeuronModel, Transformation
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -33,7 +33,9 @@ def _cell(mechanisms):
         # Compartments are matched to sections by the section's category, so the
         # soma section must carry category "soma" for the "soma" compartment.
         "biophysics": {"compartments": [{"id": "soma", "mechanisms": mechanisms}]},
-        "topology": {"sections": [{"id": "soma", "category": "soma", "length": "20 um"}]},
+        "topology": {
+            "sections": [{"id": "soma", "category": "soma", "length": "20 um"}]
+        },
     }
 
 
@@ -43,7 +45,8 @@ async def test_create_neuron_model_minimal(aexecute, authenticated_context):
         name="env-min", organization=authenticated_context.request.organization
     )
     res = await aexecute(
-        CREATE_NEURON_MODEL, {"input": {"name": "NM", "environment": str(env.id), "config": _config()}}
+        CREATE_NEURON_MODEL,
+        {"input": {"name": "NM", "environment": str(env.id), "config": _config()}},
     )
     assert not res.errors, res.errors
     assert res.data["createNeuronModel"]["name"] == "NM"
@@ -52,19 +55,29 @@ async def test_create_neuron_model_minimal(aexecute, authenticated_context):
 
 async def test_create_neuron_model_requires_environment(aexecute):
     # environment/parent both omitted -> NOT NULL environment can't be resolved.
-    res = await aexecute(CREATE_NEURON_MODEL, {"input": {"name": "NoEnv", "config": _config()}})
+    res = await aexecute(
+        CREATE_NEURON_MODEL, {"input": {"name": "NoEnv", "config": _config()}}
+    )
     assert res.errors
     assert not await NeuronModel.objects.filter(name="NoEnv").aexists()
 
 
-async def test_create_neuron_model_builtin_mechanism(aexecute, authenticated_context, bigfile_store):
+async def test_create_neuron_model_builtin_mechanism(
+    aexecute, authenticated_context, bigfile_store
+):
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
         name="env", store=store, organization=authenticated_context.request.organization
     )
     res = await aexecute(
         CREATE_NEURON_MODEL,
-        {"input": {"name": "WithEnv", "environment": str(env.id), "config": _config([_cell(["hh"])])}},
+        {
+            "input": {
+                "name": "WithEnv",
+                "environment": str(env.id),
+                "config": _config([_cell(["hh"])]),
+            }
+        },
     )
     # "hh" is a built-in mechanism, so validation passes even though env has no mechanisms.
     assert not res.errors, res.errors
@@ -87,7 +100,9 @@ async def test_create_neuron_model_with_parent(aexecute, make_neuron_model):
 
     edges = [
         edge
-        async for edge in Transformation.objects.filter(input=child.coordinate_system_id, parent__isnull=True)
+        async for edge in Transformation.objects.filter(
+            input=child.coordinate_system_id, parent__isnull=True
+        )
     ]
     assert len(edges) == 1
     assert edges[0].output_id == parent.coordinate_system_id
@@ -102,7 +117,9 @@ async def test_create_neuron_model_inherits_parent_environment(
     # parent's environment.
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
-        name="parent-env", store=store, organization=authenticated_context.request.organization
+        name="parent-env",
+        store=store,
+        organization=authenticated_context.request.organization,
     )
     parent = await make_neuron_model(name="ParentWithEnv", environment=env)
     res = await aexecute(
@@ -120,13 +137,17 @@ async def test_create_neuron_model_explicit_environment_overrides_parent(
     # An explicit environment wins over the parent's environment.
     parent_store = await bigfile_store()
     parent_env = await ModEnvironment.objects.acreate(
-        name="parent-env2", store=parent_store, organization=authenticated_context.request.organization
+        name="parent-env2",
+        store=parent_store,
+        organization=authenticated_context.request.organization,
     )
     parent = await make_neuron_model(name="ParentWithEnv2", environment=parent_env)
 
     own_store = await bigfile_store()
     own_env = await ModEnvironment.objects.acreate(
-        name="own-env", store=own_store, organization=authenticated_context.request.organization
+        name="own-env",
+        store=own_store,
+        organization=authenticated_context.request.organization,
     )
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -147,10 +168,14 @@ async def test_create_neuron_model_explicit_environment_overrides_parent(
 # --- negatives ---------------------------------------------------------------
 
 
-async def test_create_neuron_model_unknown_mechanism(aexecute, authenticated_context, bigfile_store):
+async def test_create_neuron_model_unknown_mechanism(
+    aexecute, authenticated_context, bigfile_store
+):
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
-        name="env2", store=store, organization=authenticated_context.request.organization
+        name="env2",
+        store=store,
+        organization=authenticated_context.request.organization,
     )
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -191,7 +216,9 @@ def _cell_with_param(mechanism, param):
                 }
             ]
         },
-        "topology": {"sections": [{"id": "soma", "category": "soma", "length": "20 um"}]},
+        "topology": {
+            "sections": [{"id": "soma", "category": "soma", "length": "20 um"}]
+        },
     }
 
 
@@ -200,7 +227,9 @@ async def test_create_neuron_model_section_param_valid_against_catalog(
 ):
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
-        name="env-cat-ok", store=store, organization=authenticated_context.request.organization
+        name="env-cat-ok",
+        store=store,
+        organization=authenticated_context.request.organization,
     )
     # The mechanism's catalog declares param key "gkbar".
     await Mechanism.objects.acreate(
@@ -208,7 +237,13 @@ async def test_create_neuron_model_section_param_valid_against_catalog(
     )
     res = await aexecute(
         CREATE_NEURON_MODEL,
-        {"input": {"name": "GoodParam", "environment": str(env.id), "config": _config([_cell_with_param("kdr", "gkbar")])}},
+        {
+            "input": {
+                "name": "GoodParam",
+                "environment": str(env.id),
+                "config": _config([_cell_with_param("kdr", "gkbar")]),
+            }
+        },
     )
     assert not res.errors, res.errors
     assert await NeuronModel.objects.filter(name="GoodParam").aexists()
@@ -219,7 +254,9 @@ async def test_create_neuron_model_section_param_not_in_catalog(
 ):
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
-        name="env-cat-bad", store=store, organization=authenticated_context.request.organization
+        name="env-cat-bad",
+        store=store,
+        organization=authenticated_context.request.organization,
     )
     await Mechanism.objects.acreate(
         name="kdr", environment=env, parameters=[{"key": "gkbar", "kind": "FLOAT"}]
@@ -227,7 +264,13 @@ async def test_create_neuron_model_section_param_not_in_catalog(
     # "gbogus" is not a declared param of kdr -> resolver raises.
     res = await aexecute(
         CREATE_NEURON_MODEL,
-        {"input": {"name": "BadParam", "environment": str(env.id), "config": _config([_cell_with_param("kdr", "gbogus")])}},
+        {
+            "input": {
+                "name": "BadParam",
+                "environment": str(env.id),
+                "config": _config([_cell_with_param("kdr", "gbogus")]),
+            }
+        },
     )
     assert res.errors
     assert not await NeuronModel.objects.filter(name="BadParam").aexists()
@@ -252,7 +295,9 @@ def _cell_with_value(mechanism, param, value):
                 }
             ]
         },
-        "topology": {"sections": [{"id": "soma", "category": "soma", "length": "20 um"}]},
+        "topology": {
+            "sections": [{"id": "soma", "category": "soma", "length": "20 um"}]
+        },
     }
 
 
@@ -261,17 +306,25 @@ async def test_section_param_value_matching_declared_dimension(
 ):
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
-        name="env-dim-ok", store=store, organization=authenticated_context.request.organization
+        name="env-dim-ok",
+        store=store,
+        organization=authenticated_context.request.organization,
     )
     # gkbar declares a conductance-density unit; a value in mS/cm2 shares its dimension.
     await Mechanism.objects.acreate(
-        name="kdr", environment=env,
+        name="kdr",
+        environment=env,
         parameters=[{"key": "gkbar", "kind": "FLOAT", "reference_unit": "S/cm2"}],
     )
     res = await aexecute(
         CREATE_NEURON_MODEL,
-        {"input": {"name": "DimOk", "environment": str(env.id),
-                   "config": _config([_cell_with_value("kdr", "gkbar", "10 mS/cm2")])}},
+        {
+            "input": {
+                "name": "DimOk",
+                "environment": str(env.id),
+                "config": _config([_cell_with_value("kdr", "gkbar", "10 mS/cm2")]),
+            }
+        },
     )
     assert not res.errors, res.errors
     assert await NeuronModel.objects.filter(name="DimOk").aexists()
@@ -282,17 +335,25 @@ async def test_section_param_value_wrong_dimension_rejected(
 ):
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
-        name="env-dim-bad", store=store, organization=authenticated_context.request.organization
+        name="env-dim-bad",
+        store=store,
+        organization=authenticated_context.request.organization,
     )
     await Mechanism.objects.acreate(
-        name="kdr", environment=env,
+        name="kdr",
+        environment=env,
         parameters=[{"key": "gkbar", "kind": "FLOAT", "reference_unit": "S/cm2"}],
     )
     # A voltage value for a conductance-density param -> dimension mismatch -> rejected.
     res = await aexecute(
         CREATE_NEURON_MODEL,
-        {"input": {"name": "DimBad", "environment": str(env.id),
-                   "config": _config([_cell_with_value("kdr", "gkbar", "10 mV")])}},
+        {
+            "input": {
+                "name": "DimBad",
+                "environment": str(env.id),
+                "config": _config([_cell_with_value("kdr", "gkbar", "10 mV")]),
+            }
+        },
     )
     assert res.errors
 
@@ -302,17 +363,25 @@ async def test_arbitrary_unit_param_opts_out_of_dimension_check(
 ):
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
-        name="env-au", store=store, organization=authenticated_context.request.organization
+        name="env-au",
+        store=store,
+        organization=authenticated_context.request.organization,
     )
     # gkbar declares arbitrary units -> its values are not dimension-checked.
     await Mechanism.objects.acreate(
-        name="kdr", environment=env,
+        name="kdr",
+        environment=env,
         parameters=[{"key": "gkbar", "kind": "FLOAT", "reference_unit": "a.u."}],
     )
     res = await aexecute(
         CREATE_NEURON_MODEL,
-        {"input": {"name": "AuOk", "environment": str(env.id),
-                   "config": _config([_cell_with_value("kdr", "gkbar", "0.7 a.u.")])}},
+        {
+            "input": {
+                "name": "AuOk",
+                "environment": str(env.id),
+                "config": _config([_cell_with_value("kdr", "gkbar", "0.7 a.u.")]),
+            }
+        },
     )
     assert not res.errors, res.errors
     assert await NeuronModel.objects.filter(name="AuOk").aexists()

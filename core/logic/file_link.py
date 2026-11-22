@@ -28,7 +28,6 @@ from core import enums, models
 from core.creation import CreationContext
 from core.scoping import get_for_org
 
-
 #: The ``FileLink`` FK each container model is stored under. The one place the container's
 #: type meets the column, so the ingest side (which is handed a model instance) and the export
 #: side (which is handed a discriminator) cannot disagree about where a link is written.
@@ -56,7 +55,9 @@ def container_field(container) -> str:  # noqa: ANN001 - one of the four contain
     """
     field = _CONTAINER_FIELDS.get(type(container))
     if field is None:
-        raise ValueError(f"A {type(container).__name__} cannot be linked to a file: only an array dataset, a table dataset, an annotation collection or a sparse dataset holds data a file encodes.")
+        raise ValueError(
+            f"A {type(container).__name__} cannot be linked to a file: only an array dataset, a table dataset, an annotation collection or a sparse dataset holds data a file encodes."
+        )
     return field
 
 
@@ -70,7 +71,9 @@ def column_for_kind(kind: "enums.FileLinkContainerKind | str") -> str:
     value = kind.value if hasattr(kind, "value") else kind
     model = _CONTAINER_MODELS.get(value)
     if model is None:
-        raise ValueError(f"'{value}' is not a container a file link can point at. Expected one of: {', '.join(sorted(_CONTAINER_MODELS))}.")
+        raise ValueError(
+            f"'{value}' is not a container a file link can point at. Expected one of: {', '.join(sorted(_CONTAINER_MODELS))}."
+        )
     return _CONTAINER_FIELDS[model]
 
 
@@ -80,7 +83,11 @@ def container_label(container) -> str:  # noqa: ANN001 - one of the four contain
     Not ``container.name``: a ``MeshCollection`` carries ``version`` instead, so reading the
     name directly turns a refusal that was about to explain itself into an ``AttributeError``.
     """
-    return getattr(container, "name", None) or getattr(container, "version", None) or f"{type(container).__name__} {container.pk}"
+    return (
+        getattr(container, "name", None)
+        or getattr(container, "version", None)
+        or f"{type(container).__name__} {container.pk}"
+    )
 
 
 def _refuse_duplicates(pairs: Sequence[tuple], *, subject: str) -> None:
@@ -91,7 +98,9 @@ def _refuse_duplicates(pairs: Sequence[tuple], *, subject: str) -> None:
     than a label on it. The database says the same thing with four partial unique constraints;
     this says it in a sentence first, so a client never sees an IntegrityError.
     """
-    duplicates = sorted({_describe_pair(pair) for pair in pairs if pairs.count(pair) > 1})
+    duplicates = sorted(
+        {_describe_pair(pair) for pair in pairs if pairs.count(pair) > 1}
+    )
     if duplicates:
         raise ValueError(
             f"Each entry must name a distinct {subject}, but {', '.join(duplicates)} appear{'s' if len(duplicates) == 1 else ''} more than once. "
@@ -105,7 +114,14 @@ def _describe_pair(pair: tuple) -> str:
     return f"{identifier} (series '{series}')" if series else str(identifier)
 
 
-def _existing_link(*, file_id: int, container_field_name: str, container_id: int, direction: str, series: str) -> bool:
+def _existing_link(
+    *,
+    file_id: int,
+    container_field_name: str,
+    container_id: int,
+    direction: str,
+    series: str,
+) -> bool:
     """Whether this exact link is already recorded."""
     return models.FileLink.objects.filter(
         **{
@@ -117,7 +133,9 @@ def _existing_link(*, file_id: int, container_field_name: str, container_id: int
     ).exists()
 
 
-def write_file_links(info, *, container, source_files: Sequence, ctx: CreationContext) -> list["models.FileLink"]:  # noqa: ANN001 - kante's Info, and a container model
+def write_file_links(
+    info, *, container, source_files: Sequence, ctx: CreationContext
+) -> list["models.FileLink"]:  # noqa: ANN001 - kante's Info, and a container model
     """Record the files a container was produced from. The ingest direction.
 
     Every id is org-scoped through ``get_for_org`` like any other id a client sends, and every
@@ -127,7 +145,10 @@ def write_file_links(info, *, container, source_files: Sequence, ctx: CreationCo
         return []
 
     field_name = container_field(container)
-    _refuse_duplicates([(entry.file, entry.series_identifier or "") for entry in source_files], subject="file")
+    _refuse_duplicates(
+        [(entry.file, entry.series_identifier or "") for entry in source_files],
+        subject="file",
+    )
 
     files = [get_for_org(models.File, info, id=entry.file) for entry in source_files]
 
@@ -135,8 +156,16 @@ def write_file_links(info, *, container, source_files: Sequence, ctx: CreationCo
     # collides with a link already on record must not leave the entries before it written.
     for entry, file in zip(source_files, files):
         series = entry.series_identifier or ""
-        if _existing_link(file_id=file.pk, container_field_name=field_name, container_id=container.pk, direction=enums.FileLinkDirectionChoices.SOURCE.value, series=series):
-            raise ValueError(f"'{container_label(container)}' already records file '{file.name}'{f' (series {series!r})' if series else ''} as a source. One link per file and series.")
+        if _existing_link(
+            file_id=file.pk,
+            container_field_name=field_name,
+            container_id=container.pk,
+            direction=enums.FileLinkDirectionChoices.SOURCE.value,
+            series=series,
+        ):
+            raise ValueError(
+                f"'{container_label(container)}' already records file '{file.name}'{f' (series {series!r})' if series else ''} as a source. One link per file and series."
+            )
 
     links: list[models.FileLink] = []
     with transaction.atomic():
@@ -147,7 +176,9 @@ def write_file_links(info, *, container, source_files: Sequence, ctx: CreationCo
                     file=file,
                     direction=enums.FileLinkDirectionChoices.SOURCE.value,
                     series_identifier=series,
-                    value_relation=entry.value_relation.value if entry.value_relation else None,
+                    value_relation=entry.value_relation.value
+                    if entry.value_relation
+                    else None,
                     creator=ctx.user,
                     organization=ctx.organization,
                     **{field_name: container},
@@ -157,7 +188,9 @@ def write_file_links(info, *, container, source_files: Sequence, ctx: CreationCo
     return links
 
 
-def write_export_links(info, *, file: "models.File", export_of: Sequence, ctx: CreationContext) -> list["models.FileLink"]:  # noqa: ANN001 - kante's Info
+def write_export_links(
+    info, *, file: "models.File", export_of: Sequence, ctx: CreationContext
+) -> list["models.FileLink"]:  # noqa: ANN001 - kante's Info
     """Record the containers a file was written from. The export direction.
 
     The mirror of :func:`write_file_links`, and the reason both live here: one file exported
@@ -167,21 +200,45 @@ def write_export_links(info, *, file: "models.File", export_of: Sequence, ctx: C
     if not export_of:
         return []
 
-    lowered = [(entry.kind.value if hasattr(entry.kind, "value") else entry.kind, entry.container_id, entry.series_identifier or "", entry.value_relation) for entry in export_of]
-    _refuse_duplicates([(kind, container_id, series) for kind, container_id, series, _ in lowered], subject="container")
+    lowered = [
+        (
+            entry.kind.value if hasattr(entry.kind, "value") else entry.kind,
+            entry.container_id,
+            entry.series_identifier or "",
+            entry.value_relation,
+        )
+        for entry in export_of
+    ]
+    _refuse_duplicates(
+        [(kind, container_id, series) for kind, container_id, series, _ in lowered],
+        subject="container",
+    )
 
-    containers = [get_for_org(_CONTAINER_MODELS[kind], info, id=container_id) for kind, container_id, _, _ in lowered]
+    containers = [
+        get_for_org(_CONTAINER_MODELS[kind], info, id=container_id)
+        for kind, container_id, _, _ in lowered
+    ]
     fields = [container_field(container) for container in containers]
 
     # Resolve phase, like the ingest direction: a collision on the third entry must not leave
     # the first two written.
     for (_, _, series, _), container, field_name in zip(lowered, containers, fields):
-        if _existing_link(file_id=file.pk, container_field_name=field_name, container_id=container.pk, direction=enums.FileLinkDirectionChoices.RENDITION.value, series=series):
-            raise ValueError(f"'{file.name}' already records '{container_label(container)}' as what it was written from{f' (series {series!r})' if series else ''}. One link per container and series.")
+        if _existing_link(
+            file_id=file.pk,
+            container_field_name=field_name,
+            container_id=container.pk,
+            direction=enums.FileLinkDirectionChoices.RENDITION.value,
+            series=series,
+        ):
+            raise ValueError(
+                f"'{file.name}' already records '{container_label(container)}' as what it was written from{f' (series {series!r})' if series else ''}. One link per container and series."
+            )
 
     links: list[models.FileLink] = []
     with transaction.atomic():
-        for (_, _, series, value_relation), container, field_name in zip(lowered, containers, fields):
+        for (_, _, series, value_relation), container, field_name in zip(
+            lowered, containers, fields
+        ):
             links.append(
                 models.FileLink.objects.create(
                     file=file,
@@ -207,4 +264,8 @@ def links_for(container, direction: "enums.FileLinkDirectionChoices"):  # noqa: 
     ``strawberry_django.filters.apply`` before evaluating it. Returning a list here is what
     left ``FileLinkFilter`` declared but unreachable, and therefore absent from the SDL.
     """
-    return container.file_links.filter(direction=direction.value).select_related("file").order_by("pk")
+    return (
+        container.file_links.filter(direction=direction.value)
+        .select_related("file")
+        .order_by("pk")
+    )

@@ -162,7 +162,11 @@ async def test_bad_unit_rejected_by_schema(aexecute, bigfile_store):
                     {
                         "name": "hh",
                         "parameters": [
-                            {"key": "gnabar", "kind": "FLOAT", "referenceUnit": "notaunit"}
+                            {
+                                "key": "gnabar",
+                                "kind": "FLOAT",
+                                "referenceUnit": "notaunit",
+                            }
                         ],
                     }
                 ],

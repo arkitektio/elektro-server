@@ -17,16 +17,14 @@ shared world), whose axes are supplied through :class:`PhysicalAxisInput`.
 import dataclasses
 from typing import Annotated, ClassVar, Literal
 
+import kante
 import strawberry
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-import kante
-from kanne_server import scalars as kanne_scalars
 
 from core import enums
 from core.input_unions import parse_union_member, prose_errors, union_memberships
 from core.logic import coords as coords_logic
-
+from kanne_server import scalars as kanne_scalars
 
 # --------------------------------------------------------------------------------------
 # The two value rules a metric transform obeys, as plain functions so the pydantic members
@@ -54,7 +52,9 @@ from core.logic import coords as coords_logic
 # and "invertible" is not a thing to ask of it.
 
 
-def assert_no_collapsed_factors(scale: list[float], *, noun: str = "transformation") -> None:
+def assert_no_collapsed_factors(
+    scale: list[float], *, noun: str = "transformation"
+) -> None:
     """Reject a scale factor of zero, which collapses its axis onto a point.
 
     Not a matter of taste: ``_scale_invariance`` classifies a scale by whether its entries
@@ -70,21 +70,29 @@ def assert_no_collapsed_factors(scale: list[float], *, noun: str = "transformati
         )
 
 
-def assert_no_collapsed_rows(affine: list[list[float]], *, noun: str = "transformation") -> None:
+def assert_no_collapsed_rows(
+    affine: list[list[float]], *, noun: str = "transformation"
+) -> None:
     """Reject an affine row whose linear part is all zeros, which collapses an output axis.
 
     The last column is the translation and is deliberately excluded -- a row that is all
     zeros *but* for its offset is a constant, which is the same collapse; a row whose only
     non-zero entry *is* in the linear part is fine at any magnitude.
     """
-    collapsed = [index for index, row in enumerate(affine) if row and not any(entry != 0.0 for entry in row[:-1])]
+    collapsed = [
+        index
+        for index, row in enumerate(affine)
+        if row and not any(entry != 0.0 for entry in row[:-1])
+    ]
     if collapsed:
         raise ValueError(
             f"A {noun}'s `affine` has one row per output axis, so no row's linear part may be all zeros, but rows {collapsed} are. Such a row sends every input to one value, collapsing that output axis -- a projection is stated by naming the axes you keep (BY_DIMENSION), never by zeroing a row."
         )
 
 
-def assert_nonsingular_matrix(affine: list[list[float]], *, noun: str = "transformation") -> None:
+def assert_nonsingular_matrix(
+    affine: list[list[float]], *, noun: str = "transformation"
+) -> None:
     """Reject a square affine whose linear part cannot be undone.
 
     `core.logic.graph.is_invertible` decides invertibility by *kind*, and says so in its own
@@ -120,14 +128,26 @@ class AxisInputModel(BaseModel):
     description: str | None = None
 
 
-@kante.pydantic_input(AxisInputModel, description="Input type for one structural axis of a dataset's sample grid: its name and its semantic kind. Units and sampling rates do not belong here -- they belong to a clock, a separate coordinate system plus one edge")
+@kante.pydantic_input(
+    AxisInputModel,
+    description="Input type for one structural axis of a dataset's sample grid: its name and its semantic kind. Units and sampling rates do not belong here -- they belong to a clock, a separate coordinate system plus one edge",
+)
 class AxisInput:
     """Input for one structural axis of a dataset's pixel grid."""
 
-    name: str = strawberry.field(description="The name of the axis, e.g. 'z', 'c' or 'tau'. Free-form")
-    type: enums.AxisType = strawberry.field(description="The semantic kind of the axis. Axes must be ordered by this: time first, then channel and custom types, then space")
-    long_name: str | None = strawberry.field(default=None, description="A human-readable name for the axis")
-    description: str | None = strawberry.field(default=None, description="A free-form description of what the axis measures, e.g. 'distance from the coverslip'")
+    name: str = strawberry.field(
+        description="The name of the axis, e.g. 'z', 'c' or 'tau'. Free-form"
+    )
+    type: enums.AxisType = strawberry.field(
+        description="The semantic kind of the axis. Axes must be ordered by this: time first, then channel and custom types, then space"
+    )
+    long_name: str | None = strawberry.field(
+        default=None, description="A human-readable name for the axis"
+    )
+    description: str | None = strawberry.field(
+        default=None,
+        description="A free-form description of what the axis measures, e.g. 'distance from the coverslip'",
+    )
 
 
 class CoordinateInputModel(BaseModel):
@@ -137,11 +157,16 @@ class CoordinateInputModel(BaseModel):
     value: int
 
 
-@kante.pydantic_input(CoordinateInputModel, description="A discrete coordinate a question is asked at, e.g. a channel or a sweep")
+@kante.pydantic_input(
+    CoordinateInputModel,
+    description="A discrete coordinate a question is asked at, e.g. a channel or a sweep",
+)
 class CoordinateInput:
     """Input for pinning to a value along one named coordinate."""
 
-    name: str = strawberry.field(description="The name of the coordinate, e.g. 't' or 'c'")
+    name: str = strawberry.field(
+        description="The name of the coordinate, e.g. 't' or 'c'"
+    )
     value: int = strawberry.field(description="The value along that coordinate")
 
 
@@ -170,8 +195,12 @@ class SelectorInputModel(BaseModel):
 class SelectorInput:
     """Input for scoping an edge to one position along one axis."""
 
-    axis: str = strawberry.field(description="The axis of the *input* system this edge is scoped to, e.g. 'c' or 't'. It must be an axis you index rather than measure -- a SPACE axis is refused, because a correction that varies continuously through space is a FIELD")
-    index: int = strawberry.field(description="The position along that axis at which this map holds, e.g. 2 for the third channel")
+    axis: str = strawberry.field(
+        description="The axis of the *input* system this edge is scoped to, e.g. 'c' or 't'. It must be an axis you index rather than measure -- a SPACE axis is refused, because a correction that varies continuously through space is a FIELD"
+    )
+    index: int = strawberry.field(
+        description="The position along that axis at which this map holds, e.g. 2 for the third channel"
+    )
 
 
 class BoundingBoxInputModel(BaseModel):
@@ -181,12 +210,19 @@ class BoundingBoxInputModel(BaseModel):
     max: list[float]
 
 
-@kante.pydantic_input(BoundingBoxInputModel, description="An axis-aligned box as a min and a max corner, in the coordinate order of the frame it is asked in")
+@kante.pydantic_input(
+    BoundingBoxInputModel,
+    description="An axis-aligned box as a min and a max corner, in the coordinate order of the frame it is asked in",
+)
 class BoundingBoxInput:
     """Input for an axis-aligned bounding box."""
 
-    min: list[float] = strawberry.field(description="The lower corner, in the frame's coordinate order")
-    max: list[float] = strawberry.field(description="The upper corner, in the frame's coordinate order")
+    min: list[float] = strawberry.field(
+        description="The lower corner, in the frame's coordinate order"
+    )
+    max: list[float] = strawberry.field(
+        description="The upper corner, in the frame's coordinate order"
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -235,7 +271,9 @@ IDENTITY_TRANSFORM = LoweredTransform(kind=enums.TransformKind.IDENTITY.value)
 _ORTHONORMAL_TOLERANCE = 1e-6
 
 
-def assert_orthonormal(affine: list[list[float]], *, noun: str = "transformation") -> None:
+def assert_orthonormal(
+    affine: list[list[float]], *, noun: str = "transformation"
+) -> None:
     """Reject a ROTATION whose matrix is not one.
 
     A ROTATION carries the same `affine` an AFFINE does and differs from it in exactly one
@@ -277,12 +315,15 @@ def assert_orthonormal(affine: list[list[float]], *, noun: str = "transformation
                 worst_value, worst_cell = deviation, (i, j)
 
     if worst_value > _ORTHONORMAL_TOLERANCE:
-        kind = "a length" if worst_cell and worst_cell[0] == worst_cell[1] else "an angle"
+        kind = (
+            "a length" if worst_cell and worst_cell[0] == worst_cell[1] else "an angle"
+        )
         raise ValueError(
             f"A {noun} declared ROTATION must have an orthonormal matrix -- that is what makes it a rotation rather than a general map, and it is why a client is told lengths and "
             f"angles survive it. Its transpose-times-itself differs from the identity by {worst_value:.6g} at {worst_cell}, so it does not preserve {kind}. "
             "Use AFFINE for a matrix that scales or shears; ROTATION is the claim that it does neither."
         )
+
 
 class IdentityTransformInputModel(BaseModel):
     """The identity map: no parameters beyond the discriminator that names it."""
@@ -378,7 +419,9 @@ class MapAxisTransformInputModel(BaseModel):
 
     def lower(self) -> LoweredTransform:
         """Flatten to the shape the graph writers take."""
-        return LoweredTransform(kind=self.kind, input_axes=self.input_axes, output_axes=self.output_axes)
+        return LoweredTransform(
+            kind=self.kind, input_axes=self.input_axes, output_axes=self.output_axes
+        )
 
 
 class ByDimensionTransformInputModel(BaseModel):
@@ -401,7 +444,9 @@ class ByDimensionTransformInputModel(BaseModel):
 
     @field_validator("affine")
     @classmethod
-    def _no_collapsed_rows(cls, affine: list[list[float]] | None) -> list[list[float]] | None:
+    def _no_collapsed_rows(
+        cls, affine: list[list[float]] | None
+    ) -> list[list[float]] | None:
         if affine is not None:
             assert_no_collapsed_rows(affine)
             # The case most worth catching: a BY_DIMENSION maps its named axes one for one,
@@ -433,7 +478,12 @@ class FieldTransformInputModel(BaseModel):
 
     def lower(self) -> LoweredTransform:
         """Flatten to the shape the graph writers take."""
-        return LoweredTransform(kind=self.kind, field=self.field, input_axes=self.input_axes, output_axes=self.output_axes)
+        return LoweredTransform(
+            kind=self.kind,
+            field=self.field,
+            input_axes=self.input_axes,
+            output_axes=self.output_axes,
+        )
 
 
 class UnmappableTransformInputModel(BaseModel):
@@ -462,6 +512,7 @@ TRANSFORM_MEMBERS: dict[str, type[BaseModel]] = {
     "UNMAPPABLE": UnmappableTransformInputModel,
 }
 
+
 @kante.pydantic_input(
     IdentityTransformInputModel,
     directives=union_memberships("TransformInput", key="IDENTITY"),
@@ -470,7 +521,9 @@ TRANSFORM_MEMBERS: dict[str, type[BaseModel]] = {
 class IdentityTransformInput:
     """The IDENTITY member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
 
 
 @kante.pydantic_input(
@@ -481,8 +534,12 @@ class IdentityTransformInput:
 class ScaleTransformInput:
     """The SCALE member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
-    scale: list[float] = strawberry.field(description="The per-axis scale factors, in the axis order of the input system")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
+    scale: list[float] = strawberry.field(
+        description="The per-axis scale factors, in the axis order of the input system"
+    )
 
 
 @kante.pydantic_input(
@@ -493,8 +550,12 @@ class ScaleTransformInput:
 class TranslationTransformInput:
     """The TRANSLATION member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
-    translation: list[float] = strawberry.field(description="The per-axis offsets, in the axis order of the input system")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
+    translation: list[float] = strawberry.field(
+        description="The per-axis offsets, in the axis order of the input system"
+    )
 
 
 @kante.pydantic_input(
@@ -505,8 +566,12 @@ class TranslationTransformInput:
 class AffineTransformInput:
     """The AFFINE member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
-    affine: list[list[float]] = strawberry.field(description="The matrix, M x (N+1), rows outermost. The last column is the translation")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
+    affine: list[list[float]] = strawberry.field(
+        description="The matrix, M x (N+1), rows outermost. The last column is the translation"
+    )
 
 
 @kante.pydantic_input(
@@ -517,8 +582,12 @@ class AffineTransformInput:
 class RotationTransformInput:
     """The ROTATION member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
-    affine: list[list[float]] = strawberry.field(description="The orthonormal rotation matrix, in the same M x (N+1) layout an AFFINE uses")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
+    affine: list[list[float]] = strawberry.field(
+        description="The orthonormal rotation matrix, in the same M x (N+1) layout an AFFINE uses"
+    )
 
 
 @kante.pydantic_input(
@@ -529,9 +598,15 @@ class RotationTransformInput:
 class MapAxisTransformInput:
     """The MAP_AXIS member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
-    input_axes: list[str] = strawberry.field(description="The names of the input axes, e.g. ['z', 'y', 'x']")
-    output_axes: list[str] = strawberry.field(description="The names of the output axes they map onto, position by position. The matrix is synthesized from the two lists")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
+    input_axes: list[str] = strawberry.field(
+        description="The names of the input axes, e.g. ['z', 'y', 'x']"
+    )
+    output_axes: list[str] = strawberry.field(
+        description="The names of the output axes they map onto, position by position. The matrix is synthesized from the two lists"
+    )
 
 
 @kante.pydantic_input(
@@ -542,12 +617,26 @@ class MapAxisTransformInput:
 class ByDimensionTransformInput:
     """The BY_DIMENSION member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
-    input_axes: list[str] = strawberry.field(description="The names of the input axes this edge acts on, e.g. ['t'] for a (t, c) dataset placed onto a clock that has only a time axis. The axes it does not name it says nothing about")
-    output_axes: list[str] = strawberry.field(description="The names of the output axes they map onto")
-    scale: list[float] | None = strawberry.field(default=None, description="Optional per-axis scale factors over the named axes, in the order they are named")
-    translation: list[float] | None = strawberry.field(default=None, description="Optional per-axis offsets over the named axes")
-    affine: list[list[float]] | None = strawberry.field(default=None, description="Optional matrix over the named axes, M x (N+1), rows outermost")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
+    input_axes: list[str] = strawberry.field(
+        description="The names of the input axes this edge acts on, e.g. ['t'] for a (t, c) dataset placed onto a clock that has only a time axis. The axes it does not name it says nothing about"
+    )
+    output_axes: list[str] = strawberry.field(
+        description="The names of the output axes they map onto"
+    )
+    scale: list[float] | None = strawberry.field(
+        default=None,
+        description="Optional per-axis scale factors over the named axes, in the order they are named",
+    )
+    translation: list[float] | None = strawberry.field(
+        default=None, description="Optional per-axis offsets over the named axes"
+    )
+    affine: list[list[float]] | None = strawberry.field(
+        default=None,
+        description="Optional matrix over the named axes, M x (N+1), rows outermost",
+    )
 
 
 @kante.pydantic_input(
@@ -558,12 +647,18 @@ class ByDimensionTransformInput:
 class FieldTransformInput:
     """The FIELD member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
     field: strawberry.ID = strawberry.field(
         description="The coordinate system of the array whose values are the map. Its value axis says what they mean -- COORDINATE for absolute positions, DISPLACEMENT for offsets, none at all for a scalar array whose one value is a position. Pass the input's own system when the array's values are themselves the map, as for a spike train, whose values ARE its spike times. For an irregularly sampled signal pass the system of its times dataset, which must be the only dataset living there. A FIELD has no closed-form inverse, so a placement path only ever walks it forwards"
     )
-    input_axes: list[str] = strawberry.field(description="The input axes the lookup consumes, e.g. ['y', 'x'] for a label mask -- the ones it does not name pass through")
-    output_axes: list[str] = strawberry.field(description="The output axes the field's values produce, e.g. ['i']")
+    input_axes: list[str] = strawberry.field(
+        description="The input axes the lookup consumes, e.g. ['y', 'x'] for a label mask -- the ones it does not name pass through"
+    )
+    output_axes: list[str] = strawberry.field(
+        description="The output axes the field's values produce, e.g. ['i']"
+    )
 
 
 @kante.pydantic_input(
@@ -574,8 +669,13 @@ class FieldTransformInput:
 class UnmappableTransformInput:
     """The UNMAPPABLE member of the transform input union."""
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The discriminator: which member of TransformInput this is")
-    reason: str | None = strawberry.field(default=None, description="Why nothing corresponds, e.g. 'one row per segmented object'. Purely descriptive: the kind is what the graph acts on")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The discriminator: which member of TransformInput this is"
+    )
+    reason: str | None = strawberry.field(
+        default=None,
+        description="Why nothing corresponds, e.g. 'one row per segmented object'. Purely descriptive: the kind is what the graph acts on",
+    )
 
 
 #: The member inputs published to the SDL, for the schema's ``types=[...]``. Nothing here
@@ -610,8 +710,9 @@ TransformSpec = Annotated[
     Field(discriminator="kind"),
 ]
 
+
 @strawberry.input(
-    description="One edge of the coordinate graph, as a discriminated union: `kind` selects a member, and only that member's fields are read -- any other supplied field is rejected, never dropped. The member inputs annotated `@unionElementOf(union: \"TransformInput\")` say which fields each kind reads. Direction is always forward, input -> output",
+    description='One edge of the coordinate graph, as a discriminated union: `kind` selects a member, and only that member\'s fields are read -- any other supplied field is rejected, never dropped. The member inputs annotated `@unionElementOf(union: "TransformInput")` say which fields each kind reads. Direction is always forward, input -> output',
 )
 class TransformInput:
     """One authored edge of the coordinate graph, discriminated by `kind`.
@@ -621,14 +722,35 @@ class TransformInput:
     strict member model -- so the pydantic layer only ever holds the union.
     """
 
-    kind: enums.CreatableTransformKind = strawberry.field(description="The kind of transformation, which fixes which of the fields below are read. Any field outside the chosen kind's member is rejected")
-    scale: list[float] | None = strawberry.field(default=None, description="(SCALE, BY_DIMENSION) The per-axis scale factors")
-    translation: list[float] | None = strawberry.field(default=None, description="(TRANSLATION, BY_DIMENSION) The per-axis offsets")
-    affine: list[list[float]] | None = strawberry.field(default=None, description="(AFFINE, ROTATION, BY_DIMENSION) The matrix, M x (N+1), rows outermost")
-    input_axes: list[str] | None = strawberry.field(default=None, description="(MAP_AXIS, BY_DIMENSION, FIELD) The names of the input axes the edge acts on")
-    output_axes: list[str] | None = strawberry.field(default=None, description="(MAP_AXIS, BY_DIMENSION, FIELD) The names of the output axes they map onto")
-    field: strawberry.ID | None = strawberry.field(default=None, description="(FIELD) The coordinate system of the array whose values are the map")
-    reason: str | None = strawberry.field(default=None, description="(UNMAPPABLE) Why nothing corresponds. Purely descriptive")
+    kind: enums.CreatableTransformKind = strawberry.field(
+        description="The kind of transformation, which fixes which of the fields below are read. Any field outside the chosen kind's member is rejected"
+    )
+    scale: list[float] | None = strawberry.field(
+        default=None, description="(SCALE, BY_DIMENSION) The per-axis scale factors"
+    )
+    translation: list[float] | None = strawberry.field(
+        default=None, description="(TRANSLATION, BY_DIMENSION) The per-axis offsets"
+    )
+    affine: list[list[float]] | None = strawberry.field(
+        default=None,
+        description="(AFFINE, ROTATION, BY_DIMENSION) The matrix, M x (N+1), rows outermost",
+    )
+    input_axes: list[str] | None = strawberry.field(
+        default=None,
+        description="(MAP_AXIS, BY_DIMENSION, FIELD) The names of the input axes the edge acts on",
+    )
+    output_axes: list[str] | None = strawberry.field(
+        default=None,
+        description="(MAP_AXIS, BY_DIMENSION, FIELD) The names of the output axes they map onto",
+    )
+    field: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="(FIELD) The coordinate system of the array whose values are the map",
+    )
+    reason: str | None = strawberry.field(
+        default=None,
+        description="(UNMAPPABLE) Why nothing corresponds. Purely descriptive",
+    )
 
     def to_pydantic(self) -> BaseModel:
         """Match the flat wire fields to the member model `kind` selects, strictly."""
@@ -702,7 +824,9 @@ class DerivedFromInputBase(BaseModel):
         return LoweredDerivation(
             source_kind=self.kind.value if hasattr(self.kind, "value") else self.kind,
             source_id=getattr(self, type(self).SOURCE_FIELD),
-            transform=self.transform.lower() if self.transform else UNMAPPABLE_TRANSFORM,
+            transform=self.transform.lower()
+            if self.transform
+            else UNMAPPABLE_TRANSFORM,
             value_relation=self.value_relation,
         )
 
@@ -718,7 +842,9 @@ class LensDerivedFromInputModel(DerivedFromInputBase):
 class DatasetDerivedFromInputModel(DerivedFromInputBase):
     """Derived from a dataset as a whole, through its sample grid."""
 
-    kind: Literal[enums.DerivationSourceKind.DATASET] = enums.DerivationSourceKind.DATASET
+    kind: Literal[enums.DerivationSourceKind.DATASET] = (
+        enums.DerivationSourceKind.DATASET
+    )
     dataset: str
     SOURCE_FIELD: ClassVar[str] = "dataset"
 
@@ -726,7 +852,9 @@ class DatasetDerivedFromInputModel(DerivedFromInputBase):
 class AnnotationCollectionDerivedFromInputModel(DerivedFromInputBase):
     """Derived from an annotation collection, through the space its shapes are drawn in."""
 
-    kind: Literal[enums.DerivationSourceKind.ANNOTATION_COLLECTION] = enums.DerivationSourceKind.ANNOTATION_COLLECTION
+    kind: Literal[enums.DerivationSourceKind.ANNOTATION_COLLECTION] = (
+        enums.DerivationSourceKind.ANNOTATION_COLLECTION
+    )
     annotation_collection: str
     SOURCE_FIELD: ClassVar[str] = "annotation_collection"
 
@@ -734,7 +862,9 @@ class AnnotationCollectionDerivedFromInputModel(DerivedFromInputBase):
 class CoordinateSystemDerivedFromInputModel(DerivedFromInputBase):
     """Derived from a coordinate system directly -- a physical space, a world."""
 
-    kind: Literal[enums.DerivationSourceKind.COORDINATE_SYSTEM] = enums.DerivationSourceKind.COORDINATE_SYSTEM
+    kind: Literal[enums.DerivationSourceKind.COORDINATE_SYSTEM] = (
+        enums.DerivationSourceKind.COORDINATE_SYSTEM
+    )
     coordinate_system: str
     SOURCE_FIELD: ClassVar[str] = "coordinate_system"
 
@@ -742,7 +872,9 @@ class CoordinateSystemDerivedFromInputModel(DerivedFromInputBase):
 class NeuronModelDerivedFromInputModel(DerivedFromInputBase):
     """Derived from a neuron model, through the space it owns."""
 
-    kind: Literal[enums.DerivationSourceKind.NEURON_MODEL] = enums.DerivationSourceKind.NEURON_MODEL
+    kind: Literal[enums.DerivationSourceKind.NEURON_MODEL] = (
+        enums.DerivationSourceKind.NEURON_MODEL
+    )
     neuron_model: str
     SOURCE_FIELD: ClassVar[str] = "neuron_model"
 
@@ -758,12 +890,22 @@ DERIVED_FROM_MEMBERS: dict[str, type[BaseModel]] = {
 
 #: The union the pydantic side carries, so a resolver never sees the flat wire shape.
 DerivedFromSpec = Annotated[
-    LensDerivedFromInputModel | DatasetDerivedFromInputModel | AnnotationCollectionDerivedFromInputModel | CoordinateSystemDerivedFromInputModel | NeuronModelDerivedFromInputModel,
+    LensDerivedFromInputModel
+    | DatasetDerivedFromInputModel
+    | AnnotationCollectionDerivedFromInputModel
+    | CoordinateSystemDerivedFromInputModel
+    | NeuronModelDerivedFromInputModel,
     Field(discriminator="kind"),
 ]
 
 #: The wire fields carrying a source id, one per member.
-_DERIVED_FROM_SOURCE_FIELDS = ("lens", "dataset", "annotation_collection", "coordinate_system", "neuron_model")
+_DERIVED_FROM_SOURCE_FIELDS = (
+    "lens",
+    "dataset",
+    "annotation_collection",
+    "coordinate_system",
+    "neuron_model",
+)
 
 _TRANSFORM_DESCRIPTION = (
     "How this data's own space maps back into the source's -- any creatable kind; the rank check holds you to it. **Omit it and the edge is UNMAPPABLE**: naming a source records "
@@ -793,18 +935,41 @@ class DerivedFromInput:
     unions, and ``to_pydantic`` is where that flatness is corrected into the strict member.
     """
 
-    kind: enums.DerivationSourceKind = strawberry.field(description="Which sort of thing the source is. It fixes which id field below is read; any other is rejected")
-    lens: strawberry.ID | None = strawberry.field(default=None, description="(LENS) The lens this data was computed from")
-    dataset: strawberry.ID | None = strawberry.field(default=None, description="(DATASET) The dataset this data was computed from, through its whole sample grid")
-    annotation_collection: strawberry.ID | None = strawberry.field(default=None, description="(ANNOTATION_COLLECTION) The annotation collection this data was computed from")
-    coordinate_system: strawberry.ID | None = strawberry.field(default=None, description="(COORDINATE_SYSTEM) The space this data was computed from, when the source is a space rather than a container")
-    neuron_model: strawberry.ID | None = strawberry.field(default=None, description="(NEURON_MODEL) The neuron model this data was computed from -- the model a trace was simulated from, or the model another model was edited out of")
-    transform: TransformInput | None = strawberry.field(default=None, description=_TRANSFORM_DESCRIPTION)
-    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+    kind: enums.DerivationSourceKind = strawberry.field(
+        description="Which sort of thing the source is. It fixes which id field below is read; any other is rejected"
+    )
+    lens: strawberry.ID | None = strawberry.field(
+        default=None, description="(LENS) The lens this data was computed from"
+    )
+    dataset: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="(DATASET) The dataset this data was computed from, through its whole sample grid",
+    )
+    annotation_collection: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="(ANNOTATION_COLLECTION) The annotation collection this data was computed from",
+    )
+    coordinate_system: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="(COORDINATE_SYSTEM) The space this data was computed from, when the source is a space rather than a container",
+    )
+    neuron_model: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="(NEURON_MODEL) The neuron model this data was computed from -- the model a trace was simulated from, or the model another model was edited out of",
+    )
+    transform: TransformInput | None = strawberry.field(
+        default=None, description=_TRANSFORM_DESCRIPTION
+    )
+    value_relation: enums.ValueRelation | None = strawberry.field(
+        default=None, description=_VALUE_RELATION_DESCRIPTION
+    )
 
     def to_pydantic(self) -> BaseModel:
         """Match the flat wire fields to the member model `kind` selects, strictly."""
-        supplied = {name: getattr(self, name) for name in ("kind", "value_relation", *_DERIVED_FROM_SOURCE_FIELDS)}
+        supplied = {
+            name: getattr(self, name)
+            for name in ("kind", "value_relation", *_DERIVED_FROM_SOURCE_FIELDS)
+        }
         data = {name: value for name, value in supplied.items() if value is not None}
         if self.transform is not None:
             # The nested union is corrected first, so a bad transform is reported as a
@@ -813,7 +978,9 @@ class DerivedFromInput:
         return parse_union_member(DERIVED_FROM_MEMBERS, data, noun="derivation")
 
 
-def _derived_from_member(model: type, key: "enums.DerivationSourceKind", description: str):  # noqa: ANN202 - a decorator factory
+def _derived_from_member(
+    model: type, key: "enums.DerivationSourceKind", description: str
+):  # noqa: ANN202 - a decorator factory
     """Publish one member input of the DerivedFromInput union."""
     return kante.pydantic_input(
         model,
@@ -822,54 +989,114 @@ def _derived_from_member(model: type, key: "enums.DerivationSourceKind", descrip
     )
 
 
-@_derived_from_member(LensDerivedFromInputModel, enums.DerivationSourceKind.LENS, "The fields a LENS derivation reads")
+@_derived_from_member(
+    LensDerivedFromInputModel,
+    enums.DerivationSourceKind.LENS,
+    "The fields a LENS derivation reads",
+)
 class LensDerivedFromInput:
     """The LENS member of the derivation source union."""
 
-    kind: enums.DerivationSourceKind = strawberry.field(description="The discriminator: which member of DerivedFromInput this is")
-    lens: strawberry.ID = strawberry.field(description="The lens this data was computed from")
-    transform: TransformInput | None = strawberry.field(default=None, description=_TRANSFORM_DESCRIPTION)
-    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+    kind: enums.DerivationSourceKind = strawberry.field(
+        description="The discriminator: which member of DerivedFromInput this is"
+    )
+    lens: strawberry.ID = strawberry.field(
+        description="The lens this data was computed from"
+    )
+    transform: TransformInput | None = strawberry.field(
+        default=None, description=_TRANSFORM_DESCRIPTION
+    )
+    value_relation: enums.ValueRelation | None = strawberry.field(
+        default=None, description=_VALUE_RELATION_DESCRIPTION
+    )
 
 
-@_derived_from_member(DatasetDerivedFromInputModel, enums.DerivationSourceKind.DATASET, "The fields a DATASET derivation reads")
+@_derived_from_member(
+    DatasetDerivedFromInputModel,
+    enums.DerivationSourceKind.DATASET,
+    "The fields a DATASET derivation reads",
+)
 class DatasetDerivedFromInput:
     """The DATASET member of the derivation source union."""
 
-    kind: enums.DerivationSourceKind = strawberry.field(description="The discriminator: which member of DerivedFromInput this is")
-    dataset: strawberry.ID = strawberry.field(description="The dataset this data was computed from, through its whole sample grid")
-    transform: TransformInput | None = strawberry.field(default=None, description=_TRANSFORM_DESCRIPTION)
-    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+    kind: enums.DerivationSourceKind = strawberry.field(
+        description="The discriminator: which member of DerivedFromInput this is"
+    )
+    dataset: strawberry.ID = strawberry.field(
+        description="The dataset this data was computed from, through its whole sample grid"
+    )
+    transform: TransformInput | None = strawberry.field(
+        default=None, description=_TRANSFORM_DESCRIPTION
+    )
+    value_relation: enums.ValueRelation | None = strawberry.field(
+        default=None, description=_VALUE_RELATION_DESCRIPTION
+    )
 
 
-@_derived_from_member(AnnotationCollectionDerivedFromInputModel, enums.DerivationSourceKind.ANNOTATION_COLLECTION, "The fields an ANNOTATION_COLLECTION derivation reads")
+@_derived_from_member(
+    AnnotationCollectionDerivedFromInputModel,
+    enums.DerivationSourceKind.ANNOTATION_COLLECTION,
+    "The fields an ANNOTATION_COLLECTION derivation reads",
+)
 class AnnotationCollectionDerivedFromInput:
     """The ANNOTATION_COLLECTION member of the derivation source union."""
 
-    kind: enums.DerivationSourceKind = strawberry.field(description="The discriminator: which member of DerivedFromInput this is")
-    annotation_collection: strawberry.ID = strawberry.field(description="The annotation collection this data was computed from")
-    transform: TransformInput | None = strawberry.field(default=None, description=_TRANSFORM_DESCRIPTION)
-    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+    kind: enums.DerivationSourceKind = strawberry.field(
+        description="The discriminator: which member of DerivedFromInput this is"
+    )
+    annotation_collection: strawberry.ID = strawberry.field(
+        description="The annotation collection this data was computed from"
+    )
+    transform: TransformInput | None = strawberry.field(
+        default=None, description=_TRANSFORM_DESCRIPTION
+    )
+    value_relation: enums.ValueRelation | None = strawberry.field(
+        default=None, description=_VALUE_RELATION_DESCRIPTION
+    )
 
 
-@_derived_from_member(CoordinateSystemDerivedFromInputModel, enums.DerivationSourceKind.COORDINATE_SYSTEM, "The fields a COORDINATE_SYSTEM derivation reads")
+@_derived_from_member(
+    CoordinateSystemDerivedFromInputModel,
+    enums.DerivationSourceKind.COORDINATE_SYSTEM,
+    "The fields a COORDINATE_SYSTEM derivation reads",
+)
 class CoordinateSystemDerivedFromInput:
     """The COORDINATE_SYSTEM member of the derivation source union."""
 
-    kind: enums.DerivationSourceKind = strawberry.field(description="The discriminator: which member of DerivedFromInput this is")
-    coordinate_system: strawberry.ID = strawberry.field(description="The space this data was computed from")
-    transform: TransformInput | None = strawberry.field(default=None, description=_TRANSFORM_DESCRIPTION)
-    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+    kind: enums.DerivationSourceKind = strawberry.field(
+        description="The discriminator: which member of DerivedFromInput this is"
+    )
+    coordinate_system: strawberry.ID = strawberry.field(
+        description="The space this data was computed from"
+    )
+    transform: TransformInput | None = strawberry.field(
+        default=None, description=_TRANSFORM_DESCRIPTION
+    )
+    value_relation: enums.ValueRelation | None = strawberry.field(
+        default=None, description=_VALUE_RELATION_DESCRIPTION
+    )
 
 
-@_derived_from_member(NeuronModelDerivedFromInputModel, enums.DerivationSourceKind.NEURON_MODEL, "The fields a NEURON_MODEL derivation reads")
+@_derived_from_member(
+    NeuronModelDerivedFromInputModel,
+    enums.DerivationSourceKind.NEURON_MODEL,
+    "The fields a NEURON_MODEL derivation reads",
+)
 class NeuronModelDerivedFromInput:
     """The NEURON_MODEL member of the derivation source union."""
 
-    kind: enums.DerivationSourceKind = strawberry.field(description="The discriminator: which member of DerivedFromInput this is")
-    neuron_model: strawberry.ID = strawberry.field(description="The neuron model this data was computed from")
-    transform: TransformInput | None = strawberry.field(default=None, description=_TRANSFORM_DESCRIPTION)
-    value_relation: enums.ValueRelation | None = strawberry.field(default=None, description=_VALUE_RELATION_DESCRIPTION)
+    kind: enums.DerivationSourceKind = strawberry.field(
+        description="The discriminator: which member of DerivedFromInput this is"
+    )
+    neuron_model: strawberry.ID = strawberry.field(
+        description="The neuron model this data was computed from"
+    )
+    transform: TransformInput | None = strawberry.field(
+        default=None, description=_TRANSFORM_DESCRIPTION
+    )
+    value_relation: enums.ValueRelation | None = strawberry.field(
+        default=None, description=_VALUE_RELATION_DESCRIPTION
+    )
 
 
 #: The member inputs published to the SDL, for the schema's ``types=[...]``. Dropping one
@@ -893,15 +1120,29 @@ class PhysicalAxisInputModel(BaseModel):
     description: str | None = None
 
 
-@kante.pydantic_input(PhysicalAxisInputModel, description="Input type for one axis of a unit-carrying coordinate system: its name, its semantic kind and its physical unit")
+@kante.pydantic_input(
+    PhysicalAxisInputModel,
+    description="Input type for one axis of a unit-carrying coordinate system: its name, its semantic kind and its physical unit",
+)
 class PhysicalAxisInput:
     """Input for one axis of a unit-carrying coordinate system."""
 
-    name: str = strawberry.field(description="The name of the axis, e.g. 'z' or 't'. Free-form")
-    type: enums.AxisType = strawberry.field(description="The semantic kind of the axis. Must match the sample-grid axis of the same name when the space reinterprets a dataset's grid")
-    unit: kanne_scalars.Unit = strawberry.field(description="The physical unit of the axis, e.g. 'micrometer' or 'millisecond'. A pint unit, validated on the way in; 'a.u.' for arbitrary units")
-    long_name: str | None = strawberry.field(default=None, description="A human-readable name for the axis")
-    description: str | None = strawberry.field(default=None, description="A free-form description of what the axis measures, e.g. 'distance from the coverslip'")
+    name: str = strawberry.field(
+        description="The name of the axis, e.g. 'z' or 't'. Free-form"
+    )
+    type: enums.AxisType = strawberry.field(
+        description="The semantic kind of the axis. Must match the sample-grid axis of the same name when the space reinterprets a dataset's grid"
+    )
+    unit: kanne_scalars.Unit = strawberry.field(
+        description="The physical unit of the axis, e.g. 'micrometer' or 'millisecond'. A pint unit, validated on the way in; 'a.u.' for arbitrary units"
+    )
+    long_name: str | None = strawberry.field(
+        default=None, description="A human-readable name for the axis"
+    )
+    description: str | None = strawberry.field(
+        default=None,
+        description="A free-form description of what the axis measures, e.g. 'distance from the coverslip'",
+    )
 
 
 class RegistrationPathInputModel(BaseModel):
@@ -929,13 +1170,30 @@ class RegistrationPathInputModel(BaseModel):
 class RegistrationPathInput:
     """One source registered into a shared coordinate system, and the edge placing it."""
 
-    dataset: strawberry.ID | None = strawberry.field(default=None, description="Register this dataset, through its sample grid. Provide exactly one source")
-    lens: strawberry.ID | None = strawberry.field(default=None, description="Register this lens, through the space its selection is expressed in (its own if it is sliced, its dataset's sample grid if not). Provide exactly one source")
-    annotation_collection: strawberry.ID | None = strawberry.field(default=None, description="Register this annotation collection, through its own drawing coordinate system. Provide exactly one source")
-    coordinate_system: strawberry.ID | None = strawberry.field(default=None, description="Register this coordinate system directly. Provide exactly one source")
+    dataset: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="Register this dataset, through its sample grid. Provide exactly one source",
+    )
+    lens: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="Register this lens, through the space its selection is expressed in (its own if it is sliced, its dataset's sample grid if not). Provide exactly one source",
+    )
+    annotation_collection: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="Register this annotation collection, through its own drawing coordinate system. Provide exactly one source",
+    )
+    coordinate_system: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="Register this coordinate system directly. Provide exactly one source",
+    )
     transform: TransformInput | None = strawberry.field(
         default=None,
         description="The edge from the source into the shared space. Omit for an IDENTITY -- the source's coordinates are the space's coordinates as-is. Direction is always forward -- if your registration library gave you the inverse, invert it first",
     )
-    name: str | None = strawberry.field(default=None, description="Optional name for the registration edge")
-    validity: enums.PlacementValidity | None = strawberry.field(default=None, description="How much this map is actually known. Defaults to MANUAL -- someone authored it")
+    name: str | None = strawberry.field(
+        default=None, description="Optional name for the registration edge"
+    )
+    validity: enums.PlacementValidity | None = strawberry.field(
+        default=None,
+        description="How much this map is actually known. Defaults to MANUAL -- someone authored it",
+    )

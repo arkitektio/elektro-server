@@ -4,35 +4,38 @@
 every type here, and ``Column.nodeReferences`` is gone with the network collections.
 """
 
-from typing import TYPE_CHECKING, Annotated, List, Optional
-
-import strawberry
-from strawberry.scalars import JSON
-from strawberry import auto
+from typing import TYPE_CHECKING, Annotated, Optional
 
 import kante
-from kante.types import Info
-from kanne_server import scalars as kanne_scalars
-
+import strawberry
 from arkitekt_datalayer.types import ParquetStore
+from kante.types import Info
+from strawberry import auto
+from strawberry.scalars import JSON
 
 from core import enums, filters, models, order, scalars
 from core.logic import file_link as file_link_logic
 from core.logic import graph as graph_logic
+from core.types._shared import (
+    DESCRIPTORS_DESCRIPTION,
+    OrgScoped,
+    OrgScopedOrNested,
+    apply_link_filters,
+    resolve_descriptors,
+)
 from core.types.auth import ProvenanceEntry, Task, User
 from core.types.coords import CoordinateSystem, Transformation
-from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, OrgScopedOrNested, apply_link_filters
+from kanne_server import scalars as kanne_scalars
 
 if TYPE_CHECKING:
     # Only for the lazy annotation on the file-link fields below; importing it at runtime
     # would be a cycle, since `core.types.file_link` references this module in return.
+    # And again, for the anchors: `core.types.array_dataset` imports the folder types too.
+    from core.types.array_dataset import CoordinateAnchor
     from core.types.file_link import FileLink
 
     # Same reason: `core.types.folder` imports this module for the layer types.
     from core.types.folder import Folder
-
-    # And again, for the anchors: `core.types.array_dataset` imports the folder types too.
-    from core.types.array_dataset import CoordinateAnchor
 
 
 @kante.django_type(
@@ -62,7 +65,6 @@ class Column(OrgScopedOrNested):
     )
 
 
-
 @kante.django_type(
     models.TableDataset,
     filters=filters.TableDatasetFilter,
@@ -73,10 +75,14 @@ class Column(OrgScopedOrNested):
 class TableDataset(OrgScoped):
     """A parquet-backed table dataset."""
 
-    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = kante.django_field(
+        resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION
+    )
 
-    folder: Optional[Annotated["Folder", strawberry.lazy("core.types.folder")]] = kante.django_field(
-        description="The folder this table dataset is filed in. Organisational only: it says where a user keeps this table, never where its rows sit in space -- that is `coordinateSystem` and the edges out of it"
+    folder: Annotated["Folder", strawberry.lazy("core.types.folder")] | None = (
+        kante.django_field(
+            description="The folder this table dataset is filed in. Organisational only: it says where a user keeps this table, never where its rows sit in space -- that is `coordinateSystem` and the edges out of it"
+        )
     )
 
     @kante.django_field(
@@ -87,54 +93,82 @@ class TableDataset(OrgScoped):
         ),
         prefetch_related=["file_links__file"],
     )
-    def source_files(self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET) -> List[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
+    def source_files(
+        self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET
+    ) -> list[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
         """The links naming a file this table dataset was produced from."""
-        return apply_link_filters(file_link_logic.links_for(self, enums.FileLinkDirectionChoices.SOURCE), filters, info)
+        return apply_link_filters(
+            file_link_logic.links_for(self, enums.FileLinkDirectionChoices.SOURCE),
+            filters,
+            info,
+        )
 
     @kante.django_field(
         description="The files written out of this table dataset: an OME-TIFF export, a rendered snapshot registered as a file. The mirror of `sourceFiles`",
         prefetch_related=["file_links__file"],
     )
-    def exports(self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET) -> List[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
+    def exports(
+        self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET
+    ) -> list[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
         """The links naming a file written out of this table dataset."""
-        return apply_link_filters(file_link_logic.links_for(self, enums.FileLinkDirectionChoices.RENDITION), filters, info)
+        return apply_link_filters(
+            file_link_logic.links_for(self, enums.FileLinkDirectionChoices.RENDITION),
+            filters,
+            info,
+        )
 
     id: auto
     name: auto
     description: str | None
-    provenance_entries: List["ProvenanceEntry"] = kante.django_field(
+    provenance_entries: list["ProvenanceEntry"] = kante.django_field(
         description="Every change made to this table: who created it, and every subsequent rename or redescription, attributed to the client, user and task it happened under. Only `name` and `description` can change -- the store, the columns and the coordinate system derived from them are fixed at creation"
     )
-    store: ParquetStore = kante.django_field(description="The Parquet store holding the rows. Request an access grant from it and read the Parquet directly")
-    columns: List[Column] = kante.django_field(description="The declared column schema, in order. The COORDINATE columns are the axes of this table's coordinate system")
-    coordinate_system: CoordinateSystem = kante.django_field(description="The coordinate system this table owns. Its axes are the table's coordinate columns (or a single INDEX axis for a pure measurement table)")
-    created_through: Task | None = kante.django_field(description="The task this table was created through, if any")
-    anchors: List[Annotated["CoordinateAnchor", strawberry.lazy("core.types.array_dataset")]] = kante.django_field(
+    store: ParquetStore = kante.django_field(
+        description="The Parquet store holding the rows. Request an access grant from it and read the Parquet directly"
+    )
+    columns: list[Column] = kante.django_field(
+        description="The declared column schema, in order. The COORDINATE columns are the axes of this table's coordinate system"
+    )
+    coordinate_system: CoordinateSystem = kante.django_field(
+        description="The coordinate system this table owns. Its axes are the table's coordinate columns (or a single INDEX axis for a pure measurement table)"
+    )
+    created_through: Task | None = kante.django_field(
+        description="The task this table was created through, if any"
+    )
+    anchors: list[
+        Annotated["CoordinateAnchor", strawberry.lazy("core.types.array_dataset")]
+    ] = kante.django_field(
         description=(
             "The coordinate anchors of this table, each pinning metadata spokes -- the rig state, acquisition metadata, a channel label, a recording site -- to values of its "
             "coordinate columns keyed by column name, or to the whole table when its coordinates are empty. The same hub an array dataset uses, so a per-unit table carries the "
             "acquisition facts of the recording it was computed from"
         )
     )
-    created_through_by: User | None = kante.django_field(description="The assigner of the creating task, if any")
-    referenced_by: List[Column] = kante.django_field(
+    created_through_by: User | None = kante.django_field(
+        description="The assigner of the creating task, if any"
+    )
+    referenced_by: list[Column] = kante.django_field(
         description="Every column, in any table, that declares this table as its reference target -- the reverse of `Column.references`. This table cannot be deleted while any of them exist"
     )
 
     @kante.django_field(
         description="Every edge from this table's space back into data it was computed from, in declared order -- the first is the primary parent, the one that places it. UNMAPPABLE where the lineage is recorded but no geometry is claimed; empty for a freestanding table. The same relation a derived dataset's `derivedFrom` records"
     )
-    def derived_from(self, info: Info) -> List[Transformation]:
+    def derived_from(self, info: Info) -> list[Transformation]:
         """The edges relating this table's space to the data it came from."""
         system = getattr(self, "coordinate_system", None)
         return graph_logic.collection_derivation_edges(system) if system else []
 
-    @kante.django_field(description="The table's axis names, in order. Derived from the coordinate columns")
-    def axis_names(self, info: Info) -> List[str]:
+    @kante.django_field(
+        description="The table's axis names, in order. Derived from the coordinate columns"
+    )
+    def axis_names(self, info: Info) -> list[str]:
         """The table's axis names."""
         return self.axis_names
 
-    @kante.django_field(description="How this table was produced: the run, its parameters and its inputs")
+    @kante.django_field(
+        description="How this table was produced: the run, its parameters and its inputs"
+    )
     def provenance_metadata(self, info: Info) -> scalars.Any:
         """How this table was produced."""
         return self.provenance_metadata

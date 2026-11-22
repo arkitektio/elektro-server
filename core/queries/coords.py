@@ -39,7 +39,9 @@ def coordinate_graph(
         direction=direction,
     )
 
-    return types.CoordinateGraph(root=root, systems=systems, transformations=transformations)
+    return types.CoordinateGraph(
+        root=root, systems=systems, transformations=transformations
+    )
 
 
 def lineage_graph(

@@ -13,22 +13,24 @@ electrophysiology rig what ``optikit`` is to a microscope) and its ``OmeMetadata
 values carry a unit (mV, pA) and a pixel's do not.
 """
 
-from arkitekt_service.service.described import Described
-from django.db import models
-from django.contrib.auth import get_user_model
-from core import enums
-from koherent.fields import ProvenanceField
-from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
-from django_choices_field import TextChoicesField
-from kanne_server.fields import QuantityField
-from authentikate.models import Organization
-from django.db.models import Q
+from typing import TYPE_CHECKING
+
 from arkitekt_datalayer.models import ZarrStore
+from arkitekt_service.service.described import Described
+from authentikate.models import Organization
+from django.contrib.auth import get_user_model
 from django.contrib.postgres.indexes import GinIndex
+from django.db import models
+from django.db.models import Q
+from django_choices_field import TextChoicesField
+from koherent.fields import ProvenanceField
+
+from core import enums
 from core.base_models import slices as base_models
 from core.logic import coords as coords_logic
 from core.models.coords import CoordinateSystem, Transformation  # noqa: F401  (re-exported via core.models)
-from typing import TYPE_CHECKING
+from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
+from kanne_server.fields import QuantityField
 
 if TYPE_CHECKING:
     from core.models.sparse_dataset import SparseDataset
@@ -68,7 +70,9 @@ class ArrayDataset(EmbeddedDescriptionMixin, Described):
     """
 
     name = models.CharField(max_length=1000, help_text="The name of the data source")
-    description = models.CharField(max_length=1000, help_text="The description of the data source", null=True)
+    description = models.CharField(
+        max_length=1000, help_text="The description of the data source", null=True
+    )
 
     # Residence, not ownership (RFC-9). The dataset lives in a space; the space does not
     # belong to the dataset. A plain FK rather than a one-to-one because several datasets
@@ -99,9 +103,21 @@ class ArrayDataset(EmbeddedDescriptionMixin, Described):
         related_name="array_datasets",
         help_text="The folder this dataset is filed in. Organisational only -- it says nothing about where the data sits in space",
     )
-    created_at = models.DateTimeField(auto_now_add=True, help_text="The time the data source was created")
-    creator = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, null=True, blank=True, help_text="The user that created the data source")
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, help_text="The organization the data source belongs to")
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="The time the data source was created"
+    )
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="The user that created the data source",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization the data source belongs to",
+    )
     created_through = models.ForeignKey(
         "koherent.Task",
         on_delete=models.SET_NULL,
@@ -136,7 +152,11 @@ class ArrayDataset(EmbeddedDescriptionMixin, Described):
     class Meta:
         indexes = [
             GinIndex(fields=["stored_spec"], name="array_dataset_spec_gin"),
-            GinIndex(fields=["stored_descriptors"], name="array_dataset_desc_gin", opclasses=["jsonb_path_ops"]),
+            GinIndex(
+                fields=["stored_descriptors"],
+                name="array_dataset_desc_gin",
+                opclasses=["jsonb_path_ops"],
+            ),
             # The embedding healer's "any row not by the current model?" probe.
             *embedding_indexes("array_dataset"),
         ]
@@ -165,7 +185,9 @@ class ArrayDataset(EmbeddedDescriptionMixin, Described):
     @property
     def axis_specs(self) -> list[coords_logic.AxisSpec]:
         """The dataset's axes, coerced for :mod:`core.logic.coords`."""
-        return [coords_logic.AxisSpec(name=axis.name, type=axis.type) for axis in self.axes]
+        return [
+            coords_logic.AxisSpec(name=axis.name, type=axis.type) for axis in self.axes
+        ]
 
     @property
     def axis_names(self) -> list:
@@ -202,7 +224,9 @@ class ArrayDataset(EmbeddedDescriptionMixin, Described):
         coordinate. A per-channel unit (``{"c": 3}``) is a different fact and is not an
         answer here: a dataset whose channels disagree has no single value unit.
         """
-        spoke = ValueUnit.objects.filter(anchor__dataset=self, anchor__coordinates={}).first()
+        spoke = ValueUnit.objects.filter(
+            anchor__dataset=self, anchor__coordinates={}
+        ).first()
         return spoke.unit if spoke else None
 
 
@@ -235,8 +259,12 @@ class DataArray(models.Model):
     shape = models.JSONField(help_text="The shape of the data array")
     chunk_shape = models.JSONField(help_text="The chunk shape of the data array")
 
-    dataset = models.ForeignKey(ArrayDataset, on_delete=models.CASCADE, related_name="data_arrays")
-    level = models.IntegerField(help_text="The level of the data array in the resolution pyramid, 0 being the highest resolution")
+    dataset = models.ForeignKey(
+        ArrayDataset, on_delete=models.CASCADE, related_name="data_arrays"
+    )
+    level = models.IntegerField(
+        help_text="The level of the data array in the resolution pyramid, 0 being the highest resolution"
+    )
 
     # A fact of the level, not of the dataset -- the same reason `shape` lives here: a
     # pyramid may well have been built one level at a time by different code. Null on level
@@ -273,7 +301,9 @@ class DataArray(models.Model):
         # derivation -- keys off "the level-0 array". Two arrays claiming the
         # same level would make all of it silently ambiguous.
         constraints = [
-            models.UniqueConstraint(fields=["dataset", "level"], name="one_data_array_per_level"),
+            models.UniqueConstraint(
+                fields=["dataset", "level"], name="one_data_array_per_level"
+            ),
         ]
 
     @property
@@ -284,7 +314,9 @@ class DataArray(models.Model):
         grid, by definition, so this resolves to it. Higher levels own an ARRAY system
         and a stored edge into intrinsic.
         """
-        return getattr(self, "coordinate_system", None) or (self.dataset.intrinsic_coordinate_system if self.level == 0 else None)
+        return getattr(self, "coordinate_system", None) or (
+            self.dataset.intrinsic_coordinate_system if self.level == 0 else None
+        )
 
     @property
     def to_parent(self):
@@ -306,7 +338,9 @@ class DataArray(models.Model):
         intrinsic = self.dataset.intrinsic_coordinate_system
         if system is None or intrinsic is None or system.pk == intrinsic.pk:
             return None
-        return Transformation.objects.filter(input=system, output=intrinsic, parent__isnull=True).first()
+        return Transformation.objects.filter(
+            input=system, output=intrinsic, parent__isnull=True
+        ).first()
 
 
 # ==========================================
@@ -402,34 +436,56 @@ class CoordinateAnchor(models.Model):
 class RigState(models.Model):
     """1:1 Spoke (Hardware Truth): the state of the rig -- see :mod:`rigkit`."""
 
-    anchor = models.OneToOneField(CoordinateAnchor, related_name="rig", on_delete=models.CASCADE)
+    anchor = models.OneToOneField(
+        CoordinateAnchor, related_name="rig", on_delete=models.CASCADE
+    )
     state = models.JSONField(default=dict)
 
 
 class AcquisitionMetadata(models.Model):
     """N:1 Spoke (File Truth): whatever the acquisition format said, kept as it said it."""
 
-    anchor = models.OneToOneField(CoordinateAnchor, related_name="acquisition_metadata", on_delete=models.CASCADE)
+    anchor = models.OneToOneField(
+        CoordinateAnchor, related_name="acquisition_metadata", on_delete=models.CASCADE
+    )
     metadata = models.JSONField(default=dict)
 
 
 class ValueHistogram(models.Model):
     """N:1 Spoke (Pixel Value Distribution)"""
 
-    anchor = models.OneToOneField(CoordinateAnchor, related_name="value_histogram", on_delete=models.CASCADE)
-    histogram = models.JSONField(default=list, help_text="The histogram of the pixel values (y values)")
-    bins = models.JSONField(default=list, help_text="The bin indices of the histogram (x values)")
-    min = models.FloatField(help_text="The minimum pixel value of the histogram", null=True, blank=True)
-    max = models.FloatField(help_text="The maximum pixel value of the histogram", null=True, blank=True)
-    p1 = models.FloatField(help_text="The first percentile of the pixel values", null=True, blank=True)
-    p99 = models.FloatField(help_text="The 99th percentile of the pixel values", null=True, blank=True)
+    anchor = models.OneToOneField(
+        CoordinateAnchor, related_name="value_histogram", on_delete=models.CASCADE
+    )
+    histogram = models.JSONField(
+        default=list, help_text="The histogram of the pixel values (y values)"
+    )
+    bins = models.JSONField(
+        default=list, help_text="The bin indices of the histogram (x values)"
+    )
+    min = models.FloatField(
+        help_text="The minimum pixel value of the histogram", null=True, blank=True
+    )
+    max = models.FloatField(
+        help_text="The maximum pixel value of the histogram", null=True, blank=True
+    )
+    p1 = models.FloatField(
+        help_text="The first percentile of the pixel values", null=True, blank=True
+    )
+    p99 = models.FloatField(
+        help_text="The 99th percentile of the pixel values", null=True, blank=True
+    )
 
 
 class ChannelLabel(models.Model):
     """N:1 Spoke (Channel Truth)"""
 
-    anchor = models.OneToOneField(CoordinateAnchor, related_name="channel_label", on_delete=models.CASCADE)
-    label = models.CharField(max_length=1000, help_text="The label of the channel", null=True, blank=True)
+    anchor = models.OneToOneField(
+        CoordinateAnchor, related_name="channel_label", on_delete=models.CASCADE
+    )
+    label = models.CharField(
+        max_length=1000, help_text="The label of the channel", null=True, blank=True
+    )
 
 
 class ValueUnit(models.Model):
@@ -441,8 +497,13 @@ class ValueUnit(models.Model):
     whole dataset (``ArrayDataset.value_unit``); anchored at ``{"c": 3}`` for one channel.
     """
 
-    anchor = models.OneToOneField(CoordinateAnchor, related_name="value_unit", on_delete=models.CASCADE)
-    unit = models.CharField(max_length=64, help_text="The unit of the values, as a pint unit validated on write; 'a.u.' for arbitrary units")
+    anchor = models.OneToOneField(
+        CoordinateAnchor, related_name="value_unit", on_delete=models.CASCADE
+    )
+    unit = models.CharField(
+        max_length=64,
+        help_text="The unit of the values, as a pint unit validated on write; 'a.u.' for arbitrary units",
+    )
 
 
 class SiteBase(models.Model):
@@ -463,10 +524,29 @@ class SiteBase(models.Model):
     ``{"c": 1}`` for one channel of a multi-site recording.
     """
 
-    cell = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the cell, one of the cells the site's neuron model declares")
-    location = models.CharField(max_length=1000, null=True, blank=True, help_text="The id of the section, one of the sections of that cell of the site's neuron model")
-    position = models.FloatField(null=True, blank=True, help_text="The normalized position along the section, 0 to 1 (NEURON's section(x))")
-    label = models.CharField(max_length=1000, null=True, blank=True, help_text="A display label. Defaults to 'cell: location(position)'")
+    cell = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="The id of the cell, one of the cells the site's neuron model declares",
+    )
+    location = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="The id of the section, one of the sections of that cell of the site's neuron model",
+    )
+    position = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="The normalized position along the section, 0 to 1 (NEURON's section(x))",
+    )
+    label = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="A display label. Defaults to 'cell: location(position)'",
+    )
 
     class Meta:
         abstract = True
@@ -480,7 +560,9 @@ class SiteBase(models.Model):
 class RecordingSite(SiteBase):
     """1:1 Spoke (Site Truth): the values here were *recorded* from this site of a neuron model."""
 
-    anchor = models.OneToOneField(CoordinateAnchor, related_name="recording_site", on_delete=models.CASCADE)
+    anchor = models.OneToOneField(
+        CoordinateAnchor, related_name="recording_site", on_delete=models.CASCADE
+    )
     # After ``anchor``: the org path follows the first required FK, and a site's organization
     # is its dataset's, not its model's.
     model = models.ForeignKey(
@@ -499,7 +581,9 @@ class RecordingSite(SiteBase):
 class StimulusSite(SiteBase):
     """1:1 Spoke (Site Truth): the values here were *injected* at this site of a neuron model."""
 
-    anchor = models.OneToOneField(CoordinateAnchor, related_name="stimulus_site", on_delete=models.CASCADE)
+    anchor = models.OneToOneField(
+        CoordinateAnchor, related_name="stimulus_site", on_delete=models.CASCADE
+    )
     # After ``anchor``: the org path follows the first required FK, and a site's organization
     # is its dataset's, not its model's.
     model = models.ForeignKey(
@@ -513,7 +597,6 @@ class StimulusSite(SiteBase):
         default=enums.StimulusKindChoices.CURRENT.value,
         help_text="What was clamped: current or voltage",
     )
-
 
 
 class SimulationState(models.Model):
@@ -535,7 +618,9 @@ class SimulationState(models.Model):
     how its samples are timed is the dataset's sampling law or time lookup onto the clock.
     """
 
-    anchor = models.OneToOneField(CoordinateAnchor, related_name="simulation", on_delete=models.CASCADE)
+    anchor = models.OneToOneField(
+        CoordinateAnchor, related_name="simulation", on_delete=models.CASCADE
+    )
     # After ``anchor``: the org path follows the first required FK, and the spoke's
     # organization is its dataset's, not its model's.
     model = models.ForeignKey(
@@ -544,9 +629,17 @@ class SimulationState(models.Model):
         related_name="simulation_states",
         help_text="The neuron model that was integrated to compute these values",
     )
-    duration = QuantityField(base_unit="picosecond", help_text="How long the model was run for (NEURON's tstop), stored in picoseconds")
+    duration = QuantityField(
+        base_unit="picosecond",
+        help_text="How long the model was run for (NEURON's tstop), stored in picoseconds",
+    )
     # Nullable, with no default: an unstated time step is unknown, and says so.
-    dt = QuantityField(base_unit="picosecond", null=True, blank=True, help_text="The integration time step (NEURON's dt), stored in picoseconds. Not the sampling period")
+    dt = QuantityField(
+        base_unit="picosecond",
+        null=True,
+        blank=True,
+        help_text="The integration time step (NEURON's dt), stored in picoseconds. Not the sampling period",
+    )
 
 
 class Lens(Described):
@@ -582,8 +675,13 @@ class Lens(Described):
     per-view state.
     """
 
-    dataset = models.ForeignKey(ArrayDataset, on_delete=models.CASCADE, related_name="lenses")
-    slices = models.JSONField(help_text="The selection this lens makes over its dataset, as a list of per-dimension slices", default=list)
+    dataset = models.ForeignKey(
+        ArrayDataset, on_delete=models.CASCADE, related_name="lenses"
+    )
+    slices = models.JSONField(
+        help_text="The selection this lens makes over its dataset, as a list of per-dimension slices",
+        default=list,
+    )
 
     # Always set. An unsliced lens used to own no system, with a null standing for "the
     # dataset's grid"; under residence it lives in that grid and points at the same node.
@@ -602,12 +700,22 @@ class Lens(Described):
     provenance = ProvenanceField()
 
     class Meta:
-        indexes = [GinIndex(fields=["stored_descriptors"], name="lens_desc_gin", opclasses=["jsonb_path_ops"])]
+        indexes = [
+            GinIndex(
+                fields=["stored_descriptors"],
+                name="lens_desc_gin",
+                opclasses=["jsonb_path_ops"],
+            )
+        ]
 
     @property
     def slices_list(self) -> list[base_models.SliceModel]:
         """Return the slices of the lens as a list."""
-        return [base_models.SliceModel(**slice_dict) for slice_dict in self.slices] if isinstance(self.slices, list) else []
+        return (
+            [base_models.SliceModel(**slice_dict) for slice_dict in self.slices]
+            if isinstance(self.slices, list)
+            else []
+        )
 
     @property
     def axis_names(self) -> list:
@@ -622,7 +730,9 @@ class Lens(Described):
     @property
     def shape_list(self) -> list:
         """The shape this lens' slices cut out of its dataset."""
-        return coords_logic.lens_shape(self.dataset.shape_list, self.dataset.axis_names, self.slices_list)
+        return coords_logic.lens_shape(
+            self.dataset.shape_list, self.dataset.axis_names, self.slices_list
+        )
 
     @property
     def space(self):
@@ -633,7 +743,10 @@ class Lens(Described):
         level-0 array. A sliced lens shifts voxel coordinates, which is a real fact,
         so it owns a system and the derived edge that records the shift.
         """
-        return getattr(self, "coordinate_system", None) or self.dataset.intrinsic_coordinate_system
+        return (
+            getattr(self, "coordinate_system", None)
+            or self.dataset.intrinsic_coordinate_system
+        )
 
     @property
     def to_parent(self):
@@ -651,7 +764,9 @@ class Lens(Described):
         intrinsic = self.dataset.intrinsic_coordinate_system
         if system is None or intrinsic is None or system.pk == intrinsic.pk:
             return None
-        return Transformation.objects.filter(input=system, output=intrinsic, parent__isnull=True).first()
+        return Transformation.objects.filter(
+            input=system, output=intrinsic, parent__isnull=True
+        ).first()
 
     def get_size_of_axis(self, axis_name: str) -> int:
         """Get the size of an axis by its name."""
@@ -659,7 +774,9 @@ class Lens(Described):
         try:
             return shape[axis_names.index(axis_name)]
         except ValueError as error:
-            raise ValueError(f"Axis {axis_name} not found in lens axes {axis_names}.") from error
+            raise ValueError(
+                f"Axis {axis_name} not found in lens axes {axis_names}."
+            ) from error
 
     @property
     def active_anchors(self):
@@ -679,7 +796,12 @@ class Lens(Described):
             axis_is_global = ~Q(coordinates__has_key=axis)
 
             if slc.start is not None and slc.stop is not None:
-                axis_in_range = Q(**{f"coordinates__{axis}__gte": slc.start, f"coordinates__{axis}__lt": slc.stop})
+                axis_in_range = Q(
+                    **{
+                        f"coordinates__{axis}__gte": slc.start,
+                        f"coordinates__{axis}__lt": slc.stop,
+                    }
+                )
             else:
                 continue  # Failsafe for unhandled slice types
 
@@ -687,9 +809,13 @@ class Lens(Described):
             qs = qs.filter(axis_is_global | axis_in_range)
 
         # OPTIMIZATION: prefetch/select the spokes to prevent N+1 database death
-        return qs.select_related("rig").prefetch_related("acquisition_metadata", "value_histogram")
+        return qs.select_related("rig").prefetch_related(
+            "acquisition_metadata", "value_histogram"
+        )
 
-    def anchors_within(self, windows: "list[tuple[str, float | None, float | None]]") -> "models.QuerySet[CoordinateAnchor]":
+    def anchors_within(
+        self, windows: "list[tuple[str, float | None, float | None]]"
+    ) -> "models.QuerySet[CoordinateAnchor]":
         """:attr:`active_anchors` narrowed further to the ones inside every window, as (axis, min, max).
 
         Inclusive on both sides, either side open. An anchor that says nothing about an axis
@@ -706,4 +832,3 @@ class Lens(Described):
                 in_range &= Q(**{f"coordinates__{axis}__lte": high})
             anchors = anchors.filter(axis_is_global | in_range)
         return anchors
-

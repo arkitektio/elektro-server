@@ -1,44 +1,49 @@
-from kante.types import Info
-from elektro_server.logs import QuietErrorsSchema
-from typing import List
-import strawberry
-from strawberry import ID as StrawberryID
-from typing import Any, Type
-from core import types, models, scoping
-from core import filters as core_filters
-from core import scalars as core_scalars
-from core import mutations
-from core import queries
-from core import subscriptions
-import strawberry_django
-from strawberry_django.fields.field import StrawberryDjangoField
-from koherent.strawberry.extension import KoherentExtension
 from typing import Annotated
-from core.base_models.type.graphql.model import SynapticConnection, Exp2Synapse
-from core.base_models.type.graphql.model import ModelConfigModel
-from core.logic import sites as sites_logic
-from core.base_models.type.graphql.topology import Section
-from authentikate.strawberry.extension import AuthentikateExtension
-from strawberry_django.optimizer import DjangoOptimizerExtension
+
+import kante
+import strawberry
+import strawberry_django
 from arkitekt_datalayer import mutations as datalayer_mutations
 from arkitekt_datalayer import scalars as datalayer_scalars
 from arkitekt_datalayer.datalayer import load_config
+from arkitekt_service.collaborations import graphql as collaboration_types
+from arkitekt_service.graphql import (
+    CollaborationGate,
+    TelemetryExtension,
+    annotate_schema,
+)
 from authentikate.strawberry import AuthExtension, AuthSubscribeExtension
-from kanne_server import scalars as kanne_scalars
-import kante
+from authentikate.strawberry.extension import AuthentikateExtension
+from kante.types import Info
+from koherent.strawberry.extension import KoherentExtension
+from strawberry import ID as StrawberryID
 from strawberry.schema.config import StrawberryConfig
+from strawberry_django.fields.field import StrawberryDjangoField
+from strawberry_django.optimizer import DjangoOptimizerExtension
+
+from core import filters as core_filters
+from core import models, mutations, queries, scoping, subscriptions, types
+from core import scalars as core_scalars
+from core.base_models.type.graphql.model import (
+    Exp2Synapse,
+    SynapticConnection,
+)
+from core.base_models.type.graphql.topology import Section
 from core.input_unions import unionElementOf
 from core.inputs.coords import derived_from_union_types, transform_union_types
 from core.inputs.file_link import file_link_union_types
 from core.inputs.identification import identification_union_types
-from core.types.layers import layer_types
+from core.logic import sites as sites_logic
 from core.types.coords import transformation_types
-from arkitekt_service.graphql import CollaborationGate, TelemetryExtension, annotate_schema
-from arkitekt_service.collaborations import graphql as collaboration_types
-from elektro_server.service import service as elektro_service
+from core.types.layers import layer_types
 from elektro_server.contract import EDITOR, MODELER
+from elektro_server.logs import QuietErrorsSchema
+from elektro_server.service import service as elektro_service
+from kanne_server import scalars as kanne_scalars
 
-ID = Annotated[StrawberryID, strawberry.argument(description="The unique identifier of an object")]
+ID = Annotated[
+    StrawberryID, strawberry.argument(description="The unique identifier of an object")
+]
 
 
 def field(scope: str = "elektro_read", **kwargs):
@@ -56,21 +61,29 @@ class CreatedByCallerField(StrawberryDjangoField):
 
     def get_queryset(self, queryset, info, **kwargs):
         # Narrow before the parent paginates: a sliced queryset can no longer be filtered.
-        return super().get_queryset(queryset.filter(creator=info.context.request.user), info, **kwargs)
+        return super().get_queryset(
+            queryset.filter(creator=info.context.request.user), info, **kwargs
+        )
 
 
 #: The collaborations of elektro's objects, which a guest of the organization is granted.
-collaboration_api = collaboration_types.resolvers(fetch=lambda model, id, info: scoping.get_for_org(model, info, id=id))
+collaboration_api = collaboration_types.resolvers(
+    fetch=lambda model, id, info: scoping.get_for_org(model, info, id=id)
+)
 
 
 @strawberry.type
 class Query:
     # --- The coordinate graph ---------------------------------------------------------
-    coordinate_systems: list[types.CoordinateSystem] = field(description="List coordinate systems: the nodes of the coordinate graph -- a dataset's sample grid, a clock, an experiment's world")
+    coordinate_systems: list[types.CoordinateSystem] = field(
+        description="List coordinate systems: the nodes of the coordinate graph -- a dataset's sample grid, a clock, an experiment's world"
+    )
     transformations: list[types.Transformation] = field(
         description="List transformations: the directed edges of the coordinate graph -- a sampling law, a time lookup, an offset, a derivation. Compose them client-side; the server never stores a composed path, because the same dataset can sit in two experiments under two offsets"
     )
-    lenses: list[types.Lens] = field(description="List lenses: immutable selections over a dataset -- a sweep, an epoch window, a run of channels")
+    lenses: list[types.Lens] = field(
+        description="List lenses: immutable selections over a dataset -- a sweep, an epoch window, a run of channels"
+    )
 
     @field(description="Get a single coordinate system by ID")
     def coordinate_system(self, info: Info, id: ID) -> types.CoordinateSystem:
@@ -96,21 +109,42 @@ class Query:
         description="Walk the *derivation* edges out from one dataset and return its provenance component: everything this data was computed from, everything computed from it, transitively in both directions, and the edges between them. Distinct from `coordinateGraph`, which walks every edge touching a space -- a registration there drags in every other dataset on the same clock, which is a neighbourhood rather than a lineage. Nodes are datasets, not spaces: a dataset's sample grid and its lenses are one node in a provenance story. Kind-blind, so an UNMAPPABLE edge is included; filter on `kind` for the chain that actually places things. Root it at any dataset's coordinate system",
     )
 
-    array_datasets: list[types.ArrayDataset] = field(description="List array datasets: N-dimensional arrays with named dimensions and anchored metadata -- a recording, a stimulus, a vector of sample times, a unit's waveform templates")
-    table_datasets: list[types.TableDataset] = field(description="List table datasets: parquet-backed tables -- event lists, trial tables, a sorter's unit table. One with a TIME coordinate column is drawn as an events layer")
-    sparse_datasets: list[types.SparseDataset] = field(description="List sparse datasets: sparse matrices -- a spike raster of units by samples is one, drawn as a spikes layer")
+    array_datasets: list[types.ArrayDataset] = field(
+        description="List array datasets: N-dimensional arrays with named dimensions and anchored metadata -- a recording, a stimulus, a vector of sample times, a unit's waveform templates"
+    )
+    table_datasets: list[types.TableDataset] = field(
+        description="List table datasets: parquet-backed tables -- event lists, trial tables, a sorter's unit table. One with a TIME coordinate column is drawn as an events layer"
+    )
+    sparse_datasets: list[types.SparseDataset] = field(
+        description="List sparse datasets: sparse matrices -- a spike raster of units by samples is one, drawn as a spikes layer"
+    )
     layers: list[types.ExperimentLayer] = field(
         filters=core_filters.ExperimentLayerFilter,
         pagination=True,
         description="List the layers of experiments: traces, spike rasters, event tables and annotation collections, each drawn in one experiment",
     )
-    data_arrays: list[types.DataArray] = field(description="List data arrays: the multiscale zarr arrays backing array datasets")
-    coordinate_anchors: list[types.CoordinateAnchor] = field(description="List coordinate anchors: the hubs pinning a value unit, a channel label or the rig state to coordinates of an array, table or sparse dataset")
-    file_links: list[types.FileLink] = field(description="List file links: which file a container was read from, or written to")
-    annotation_collections: list[types.AnnotationCollection] = field(description="List annotation collections: named sets of marks, each owning the coordinate system they are drawn in")
-    annotations: list[types.Annotation] = field(description="List annotations: events, epochs and measurements, each in its collection's coordinate system")
-    folders: list[types.Folder] = field(description="List folders (collections of array, table and sparse datasets, annotation collections and files)")
-    myfolders: list[types.Folder] = field(field_cls=CreatedByCallerField, description="List folders created by the current user")
+    data_arrays: list[types.DataArray] = field(
+        description="List data arrays: the multiscale zarr arrays backing array datasets"
+    )
+    coordinate_anchors: list[types.CoordinateAnchor] = field(
+        description="List coordinate anchors: the hubs pinning a value unit, a channel label or the rig state to coordinates of an array, table or sparse dataset"
+    )
+    file_links: list[types.FileLink] = field(
+        description="List file links: which file a container was read from, or written to"
+    )
+    annotation_collections: list[types.AnnotationCollection] = field(
+        description="List annotation collections: named sets of marks, each owning the coordinate system they are drawn in"
+    )
+    annotations: list[types.Annotation] = field(
+        description="List annotations: events, epochs and measurements, each in its collection's coordinate system"
+    )
+    folders: list[types.Folder] = field(
+        description="List folders (collections of array, table and sparse datasets, annotation collections and files)"
+    )
+    myfolders: list[types.Folder] = field(
+        field_cls=CreatedByCallerField,
+        description="List folders created by the current user",
+    )
     experiments: list[types.Experiment] = field()
     neuron_models: list[types.NeuronModel] = field()
     model_collections: list[types.ModelCollection] = field()
@@ -119,11 +153,23 @@ class Query:
 
     files: list[types.File] = field()
     myfiles: list[types.File] = field(field_cls=CreatedByCallerField)
-    children = field(resolver=queries.children, description="List everything filed in a folder: its sub-folders, files, array, table and sparse datasets and annotation collections")
+    children = field(
+        resolver=queries.children,
+        description="List everything filed in a folder: its sub-folders, files, array, table and sparse datasets and annotation collections",
+    )
 
-    collaborations: list[collaboration_types.Collaboration] = field(resolver=collaboration_api.collaborations, description="List the organization's collaborations: what a guest granted one sees of it (a guest: the collaborations granted to them)")
-    collaboration: collaboration_types.Collaboration = field(resolver=collaboration_api.collaboration, description="Get a single collaboration by ID")
-    collaborations_stats: collaboration_types.CollaborationStats = field(resolver=collaboration_api.collaborations_stats, description="Count the collaborations `collaborations` lists, and the objects in them")
+    collaborations: list[collaboration_types.Collaboration] = field(
+        resolver=collaboration_api.collaborations,
+        description="List the organization's collaborations: what a guest granted one sees of it (a guest: the collaborations granted to them)",
+    )
+    collaboration: collaboration_types.Collaboration = field(
+        resolver=collaboration_api.collaboration,
+        description="Get a single collaboration by ID",
+    )
+    collaborations_stats: collaboration_types.CollaborationStats = field(
+        resolver=collaboration_api.collaborations_stats,
+        description="Count the collaborations `collaborations` lists, and the objects in them",
+    )
 
     mod_environments: list[types.ModEnvironment] = field()
     mechanisms: list[types.Mechanism] = field()
@@ -135,7 +181,7 @@ class Query:
         self,
         info: Info,
         modelId: ID,
-        ids: List[ID] | None = None,
+        ids: list[ID] | None = None,
         search: str | None = None,
     ) -> list[types.Cell]:
         model = scoping.get_for_org(models.NeuronModel, info, id=modelId)
@@ -148,25 +194,38 @@ class Query:
 
         return l.cells
 
-    @field(description="Get one cell of a neuron model by its compound id, 'model:cell' (see `Cell.compoundId`)")
+    @field(
+        description="Get one cell of a neuron model by its compound id, 'model:cell' (see `Cell.compoundId`)"
+    )
     def cell(self, info: Info, id: ID) -> types.Cell:
         model_id, cell_id = sites_logic.parse_compound_id(id, parts=2)
-        return sites_logic.cell_of(scoping.get_for_org(models.NeuronModel, info, id=model_id), cell_id)
+        return sites_logic.cell_of(
+            scoping.get_for_org(models.NeuronModel, info, id=model_id), cell_id
+        )
 
-    @field(description="Get one section of a cell of a neuron model by its compound id, 'model:cell:section' (see `Section.compoundId`)")
+    @field(
+        description="Get one section of a cell of a neuron model by its compound id, 'model:cell:section' (see `Section.compoundId`)"
+    )
     def section(self, info: Info, id: ID) -> Section:
         model_id, cell_id, section_id = sites_logic.parse_compound_id(id, parts=3)
-        return sites_logic.section_of(scoping.get_for_org(models.NeuronModel, info, id=model_id), cell_id, section_id)
+        return sites_logic.section_of(
+            scoping.get_for_org(models.NeuronModel, info, id=model_id),
+            cell_id,
+            section_id,
+        )
 
-    @field(permission_classes=[], description="The sections of one cell of a neuron model, read from the model's config")
+    @field(
+        permission_classes=[],
+        description="The sections of one cell of a neuron model, read from the model's config",
+    )
     def sections(
         self,
         info: Info,
         modelId: ID,
         cellId: ID,
-        ids: List[ID] | None = None,
+        ids: list[ID] | None = None,
         search: str | None = None,
-    ) -> List["Section"]:
+    ) -> list["Section"]:
         """Get all cells"""
         model = scoping.get_for_org(models.NeuronModel, info, id=modelId)
         l = sites_logic.config_of(model)
@@ -174,9 +233,17 @@ class Query:
         for cell in l.cells:
             if cell.id == cellId:
                 if search:
-                    return [section for section in cell.topology.sections if search in section.id]
+                    return [
+                        section
+                        for section in cell.topology.sections
+                        if search in section.id
+                    ]
                 if ids:
-                    return [section for section in cell.topology.sections if section.id in ids]
+                    return [
+                        section
+                        for section in cell.topology.sections
+                        if section.id in ids
+                    ]
 
                 return cell.topology.sections
 
@@ -254,7 +321,12 @@ class Query:
         return scoping.get_for_org(models.Folder, info, id=id)
 
 
-def mutation(scope: str = "elektro_write", roles: list[str] | None = None, guests: bool = False, **kwargs):
+def mutation(
+    scope: str = "elektro_write",
+    roles: list[str] | None = None,
+    guests: bool = False,
+    **kwargs,
+):
     """A write: an app needs ``scope`` for it, a member one of ``roles`` (``elektro_editor`` unless it says
     otherwise; ``elektro_admin`` holds every role).
 
@@ -262,12 +334,21 @@ def mutation(scope: str = "elektro_write", roles: list[str] | None = None, guest
     the resolver then holds them to what is in such a collaboration (``require_in_collaboration``); every
     other mutation refuses a guest (authentikate's ``SCOPED_READ_ONLY``).
     """
-    return strawberry_django.mutation(extensions=[AuthExtension(scopes=[scope], any_role_of=roles or [EDITOR], allow_scoped=guests)], **kwargs)
+    return strawberry_django.mutation(
+        extensions=[
+            AuthExtension(
+                scopes=[scope], any_role_of=roles or [EDITOR], allow_scoped=guests
+            )
+        ],
+        **kwargs,
+    )
 
 
 def access_mutation(**kwargs):
     """A mutation that hands out read credentials: a read, for whoever may see what it reads."""
-    return kante.django_mutation(extensions=[AuthExtension(scopes=["elektro_read"])], **kwargs)
+    return kante.django_mutation(
+        extensions=[AuthExtension(scopes=["elektro_read"])], **kwargs
+    )
 
 
 def upload_mutation(**kwargs):
@@ -277,12 +358,17 @@ def upload_mutation(**kwargs):
     once, at schema build -- a change to the config takes a restart, like every other setting.
     """
     roles = load_config().upload_roles or [EDITOR]
-    return kante.django_mutation(extensions=[AuthExtension(scopes=["elektro_write"], any_role_of=roles)], **kwargs)
+    return kante.django_mutation(
+        extensions=[AuthExtension(scopes=["elektro_write"], any_role_of=roles)],
+        **kwargs,
+    )
 
 
 def subscription(**kwargs):
     """A subscription: what it streams is read, so an app needs ``elektro_read`` for it."""
-    return strawberry.subscription(extensions=[AuthSubscribeExtension(scopes=["elektro_read"])], **kwargs)
+    return strawberry.subscription(
+        extensions=[AuthSubscribeExtension(scopes=["elektro_read"])], **kwargs
+    )
 
 
 #: Who builds neuron models: an editor, or a modeler who may do nothing else.
@@ -292,14 +378,26 @@ MODELING_ROLES = [EDITOR, MODELER]
 @strawberry.type
 class Mutation:
     # --- Collaborations ----------------------------------------------------
-    create_collaboration = mutation(scope="elektro_share", resolver=collaboration_api.create_collaboration, description="Create an empty collaboration, to put objects in and grant a guest")
+    create_collaboration = mutation(
+        scope="elektro_share",
+        resolver=collaboration_api.create_collaboration,
+        description="Create an empty collaboration, to put objects in and grant a guest",
+    )
     add_to_collaboration = mutation(
         scope="elektro_share",
         resolver=collaboration_api.add_to_collaboration,
         description="Put an object in a collaboration, with what it needs to be seen: an experiment brings the data its layers draw, a dataset its stores, its spaces and their edges, and its anchors",
     )
-    remove_from_collaboration = mutation(scope="elektro_share", resolver=collaboration_api.remove_from_collaboration, description="Take an object out of a collaboration, with what it brought that nothing else there needs")
-    delete_collaboration = mutation(scope="elektro_share", resolver=collaboration_api.delete_collaboration, description="Delete a collaboration: whoever was granted it sees nothing of it any more")
+    remove_from_collaboration = mutation(
+        scope="elektro_share",
+        resolver=collaboration_api.remove_from_collaboration,
+        description="Take an object out of a collaboration, with what it brought that nothing else there needs",
+    )
+    delete_collaboration = mutation(
+        scope="elektro_share",
+        resolver=collaboration_api.delete_collaboration,
+        description="Delete a collaboration: whoever was granted it sees nothing of it any more",
+    )
 
     # --- Datalayer actions -------------------------------------------------
     # One block per store type. Each exposes: upload (request + finish),
@@ -437,7 +535,10 @@ class Mutation:
         resolver=mutations.delete_array_dataset,
         description="Delete an existing array dataset, with its levels, its lenses, every interpretation of it, and the coordinate systems nothing else lives in. Its stores are flagged, not deleted: `purge_orphaned_stores` collects them after a grace period",
     )
-    delete_data_array = mutation(resolver=mutations.delete_data_array, description="Delete one downsampled level of a dataset. Level 0 cannot be deleted: it is the dataset")
+    delete_data_array = mutation(
+        resolver=mutations.delete_data_array,
+        description="Delete one downsampled level of a dataset. Level 0 cannot be deleted: it is the dataset",
+    )
     create_coordinate_anchor = mutation(
         resolver=mutations.create_coordinate_anchor,
         description=(
@@ -456,7 +557,10 @@ class Mutation:
             "whose contents are the ids (a FIELD edge), or a TABLE whose rows they are (a foreign key -- a spike's unit id referencing the unit table)"
         ),
     )
-    update_table_dataset = mutation(resolver=mutations.update_table_dataset, description="Rename a table dataset or redescribe it. Its store, columns and coordinate system are fixed at creation")
+    update_table_dataset = mutation(
+        resolver=mutations.update_table_dataset,
+        description="Rename a table dataset or redescribe it. Its store, columns and coordinate system are fixed at creation",
+    )
     delete_table_dataset = mutation(
         resolver=mutations.delete_table_dataset,
         description="Delete a table dataset, and the coordinate system it owned if nothing else lives in it. Refused while a layer's picker or a column elsewhere references it",
@@ -468,7 +572,10 @@ class Mutation:
             "spike raster's samples, identified by nothing and placed on a clock with `createSamplingLaw`. The spec, shape and layouts are read from the store, never declared"
         ),
     )
-    update_sparse_dataset = mutation(resolver=mutations.update_sparse_dataset, description="Rename a sparse dataset or redescribe it. Its store, axes and coordinate system are fixed at creation")
+    update_sparse_dataset = mutation(
+        resolver=mutations.update_sparse_dataset,
+        description="Rename a sparse dataset or redescribe it. Its store, axes and coordinate system are fixed at creation",
+    )
     delete_sparse_dataset = mutation(
         resolver=mutations.delete_sparse_dataset,
         description="Delete a sparse dataset, and the coordinate system it owned if nothing else lives in it. Refused while a layer's picker names it",
@@ -498,26 +605,65 @@ class Mutation:
         description="Create a mechanism from a mod file",
     )
 
-
-    create_neuron_model = mutation(scope="elektro_models", roles=MODELING_ROLES, resolver=mutations.create_neuron_model, description="Create a new neuron model")
+    create_neuron_model = mutation(
+        scope="elektro_models",
+        roles=MODELING_ROLES,
+        resolver=mutations.create_neuron_model,
+        description="Create a new neuron model",
+    )
 
     # --- Guarded deletes ---------------------------------------------------
     # One delete per model. Each enforces the deletion guard (core.guards):
     # elektro's admins, the original task assigner, or the creator may delete;
     # sub-objects defer the check to their governing anchor.
-    delete_model_collection = mutation(scope="elektro_models", roles=MODELING_ROLES, resolver=mutations.delete_model_collection, description="Delete an existing model collection")
-    delete_model_workspace = mutation(scope="elektro_models", roles=MODELING_ROLES, resolver=mutations.delete_model_workspace, description="Delete an existing model workspace")
-    delete_workspace_mapping = mutation(scope="elektro_models", roles=MODELING_ROLES, resolver=mutations.delete_workspace_mapping, description="Delete an existing workspace mapping")
-    delete_mod_environment = mutation(scope="elektro_models", roles=MODELING_ROLES, resolver=mutations.delete_mod_environment, description="Delete an existing mod environment")
-    delete_mechanism = mutation(scope="elektro_models", roles=MODELING_ROLES, resolver=mutations.delete_mechanism, description="Delete an existing mechanism")
-    delete_neuron_model = mutation(scope="elektro_models", roles=MODELING_ROLES, resolver=mutations.delete_neuron_model, description="Delete an existing neuron model")
-    delete_experiment = mutation(resolver=mutations.delete_experiment, description="Delete an experiment and its layers. Its world and everything drawn in it stay")
+    delete_model_collection = mutation(
+        scope="elektro_models",
+        roles=MODELING_ROLES,
+        resolver=mutations.delete_model_collection,
+        description="Delete an existing model collection",
+    )
+    delete_model_workspace = mutation(
+        scope="elektro_models",
+        roles=MODELING_ROLES,
+        resolver=mutations.delete_model_workspace,
+        description="Delete an existing model workspace",
+    )
+    delete_workspace_mapping = mutation(
+        scope="elektro_models",
+        roles=MODELING_ROLES,
+        resolver=mutations.delete_workspace_mapping,
+        description="Delete an existing workspace mapping",
+    )
+    delete_mod_environment = mutation(
+        scope="elektro_models",
+        roles=MODELING_ROLES,
+        resolver=mutations.delete_mod_environment,
+        description="Delete an existing mod environment",
+    )
+    delete_mechanism = mutation(
+        scope="elektro_models",
+        roles=MODELING_ROLES,
+        resolver=mutations.delete_mechanism,
+        description="Delete an existing mechanism",
+    )
+    delete_neuron_model = mutation(
+        scope="elektro_models",
+        roles=MODELING_ROLES,
+        resolver=mutations.delete_neuron_model,
+        description="Delete an existing neuron model",
+    )
+    delete_experiment = mutation(
+        resolver=mutations.delete_experiment,
+        description="Delete an experiment and its layers. Its world and everything drawn in it stay",
+    )
 
     from_file_like = mutation(
         resolver=mutations.from_file_like,
         description="Create a file from file-like data",
     )
-    delete_file = mutation(resolver=mutations.delete_file, description="Delete an existing file")
+    delete_file = mutation(
+        resolver=mutations.delete_file, description="Delete an existing file"
+    )
     link_file = mutation(
         resolver=mutations.link_file,
         description="Record a link between a file and the data it encodes, after both already exist",
@@ -581,13 +727,20 @@ class Mutation:
         resolver=mutations.ensure_folder,
         description="Create a new folder to organize data, or return the one the current user already has under this name and parent",
     )
-    update_folder = mutation(resolver=mutations.update_folder, description="Update folder metadata")
+    update_folder = mutation(
+        resolver=mutations.update_folder, description="Update folder metadata"
+    )
     revert_folder = mutation(
         resolver=mutations.revert_folder,
         description="Revert folder to a previous version",
     )
-    pin_folder = mutation(resolver=mutations.pin_folder, description="Pin a folder for quick access")
-    delete_folder = mutation(resolver=mutations.delete_folder, description="Delete an existing folder. What was filed in it is unfiled, not deleted")
+    pin_folder = mutation(
+        resolver=mutations.pin_folder, description="Pin a folder for quick access"
+    )
+    delete_folder = mutation(
+        resolver=mutations.delete_folder,
+        description="Delete an existing folder. What was filed in it is unfiled, not deleted",
+    )
     put_folders_in_folder = mutation(
         resolver=mutations.put_folders_in_folder,
         description="Add folders as children of another folder",
@@ -596,8 +749,13 @@ class Mutation:
         resolver=mutations.release_folders_from_folder,
         description="Remove folders from being children of another folder",
     )
-    put_files_in_folder = mutation(resolver=mutations.put_files_in_folder, description="File files in a folder")
-    release_files_from_folder = mutation(resolver=mutations.release_files_from_folder, description="Take files out of a folder")
+    put_files_in_folder = mutation(
+        resolver=mutations.put_files_in_folder, description="File files in a folder"
+    )
+    release_files_from_folder = mutation(
+        resolver=mutations.release_files_from_folder,
+        description="Take files out of a folder",
+    )
     put_array_datasets_in_folder = mutation(
         resolver=mutations.put_array_datasets_in_folder,
         description="File array datasets in a folder. Only root data is filed explicitly: a derived dataset follows its primary parent, and moving the parent moves it",
@@ -606,57 +764,141 @@ class Mutation:
         resolver=mutations.release_array_datasets_from_folder,
         description="Take array datasets out of a folder",
     )
-    put_annotation_collections_in_folder = mutation(resolver=mutations.put_annotation_collections_in_folder, description="File annotation collections in a folder")
+    put_annotation_collections_in_folder = mutation(
+        resolver=mutations.put_annotation_collections_in_folder,
+        description="File annotation collections in a folder",
+    )
     release_annotation_collections_from_folder = mutation(
         resolver=mutations.release_annotation_collections_from_folder,
         description="Take annotation collections out of a folder",
     )
-    put_table_datasets_in_folder = mutation(resolver=mutations.put_table_datasets_in_folder, description="File table datasets in a folder. A derived table follows its primary parent")
-    release_table_datasets_from_folder = mutation(resolver=mutations.release_table_datasets_from_folder, description="Take table datasets out of a folder")
-    put_sparse_datasets_in_folder = mutation(resolver=mutations.put_sparse_datasets_in_folder, description="File sparse datasets in a folder. A derived matrix follows its primary parent")
-    release_sparse_datasets_from_folder = mutation(resolver=mutations.release_sparse_datasets_from_folder, description="Take sparse datasets out of a folder")
+    put_table_datasets_in_folder = mutation(
+        resolver=mutations.put_table_datasets_in_folder,
+        description="File table datasets in a folder. A derived table follows its primary parent",
+    )
+    release_table_datasets_from_folder = mutation(
+        resolver=mutations.release_table_datasets_from_folder,
+        description="Take table datasets out of a folder",
+    )
+    put_sparse_datasets_in_folder = mutation(
+        resolver=mutations.put_sparse_datasets_in_folder,
+        description="File sparse datasets in a folder. A derived matrix follows its primary parent",
+    )
+    release_sparse_datasets_from_folder = mutation(
+        resolver=mutations.release_sparse_datasets_from_folder,
+        description="Take sparse datasets out of a folder",
+    )
 
     # --- Experiments and their layers (mikro's scenes and layers, over time) --------------
-    create_experiment = mutation(resolver=mutations.create_experiment, description="Create an empty experiment over a world: an existing space it adopts, or one minted for it. Fill it with the layer mutations")
+    create_experiment = mutation(
+        resolver=mutations.create_experiment,
+        description="Create an empty experiment over a world: an existing space it adopts, or one minted for it. Fill it with the layer mutations",
+    )
     create_experiment_from_coordinate_system = mutation(
         resolver=mutations.create_experiment_from_coordinate_system,
         description="Create an experiment over a coordinate system -- a session's or a run's clock -- with a layer for every trace, spike raster, event table and annotation collection laid out on it. Authors no edges",
     )
-    update_experiment = mutation(resolver=mutations.update_experiment, description="Rename or redescribe an experiment")
-    create_layer = mutation(resolver=mutations.create_layer, description="Add a layer of any kind to an experiment, with default render settings")
-    update_layer = mutation(resolver=mutations.update_layer, description="Restyle any layer's compositing: name, blending, opacity, visibility, order")
-    delete_layer = mutation(resolver=mutations.delete_layer, description="Remove a layer from its experiment. What it drew is untouched")
-    create_trace_layer = mutation(resolver=mutations.create_trace_layer, description="Draw an array dataset as a trace: a lens over it (or a `window` of time, lowered to one), and how its lines look")
-    update_trace_layer = mutation(resolver=mutations.update_trace_layer, description="Restyle a trace layer, or point it at another lens")
-    create_spikes_layer = mutation(resolver=mutations.create_spikes_layer, description="Draw a spike raster: a tick per spike and a row per unit, coloured and ordered by the unit table")
-    update_spikes_layer = mutation(resolver=mutations.update_spikes_layer, description="Restyle a spikes layer, or point it at another raster")
-    create_events_layer = mutation(resolver=mutations.create_events_layer, description="Draw an event table: a mark per row at its TIME column, or an interval with `stopColumn`")
-    update_events_layer = mutation(resolver=mutations.update_events_layer, description="Restyle an events layer, or point it at another table")
-    create_annotation_layer = mutation(resolver=mutations.create_annotation_layer, description="Draw an annotation collection's marks in an experiment")
-    create_heatmap_layer = mutation(resolver=mutations.create_heatmap_layer, description="Draw an array dataset as an image, time across and one other axis down: a spectrogram, a depth or CSD plot")
-    update_heatmap_layer = mutation(resolver=mutations.update_heatmap_layer, description="Restyle a heatmap layer, or point it at another lens")
-    create_series_layer = mutation(resolver=mutations.create_series_layer, description="Draw a numeric column of a table with a TIME column as a line over time")
-    update_series_layer = mutation(resolver=mutations.update_series_layer, description="Restyle a series layer")
-    create_waveform_layer = mutation(resolver=mutations.create_waveform_layer, description="Draw per-unit waveform templates in peri-spike time, coloured by the raster's units table")
-    update_waveform_layer = mutation(resolver=mutations.update_waveform_layer, description="Restyle a waveform layer")
-    create_point_layer = mutation(resolver=mutations.create_point_layer, description="Draw a table placed in space -- a channel map, units at their positions -- as a point per row")
-    update_point_layer = mutation(resolver=mutations.update_point_layer, description="Restyle a point layer")
+    update_experiment = mutation(
+        resolver=mutations.update_experiment,
+        description="Rename or redescribe an experiment",
+    )
+    create_layer = mutation(
+        resolver=mutations.create_layer,
+        description="Add a layer of any kind to an experiment, with default render settings",
+    )
+    update_layer = mutation(
+        resolver=mutations.update_layer,
+        description="Restyle any layer's compositing: name, blending, opacity, visibility, order",
+    )
+    delete_layer = mutation(
+        resolver=mutations.delete_layer,
+        description="Remove a layer from its experiment. What it drew is untouched",
+    )
+    create_trace_layer = mutation(
+        resolver=mutations.create_trace_layer,
+        description="Draw an array dataset as a trace: a lens over it (or a `window` of time, lowered to one), and how its lines look",
+    )
+    update_trace_layer = mutation(
+        resolver=mutations.update_trace_layer,
+        description="Restyle a trace layer, or point it at another lens",
+    )
+    create_spikes_layer = mutation(
+        resolver=mutations.create_spikes_layer,
+        description="Draw a spike raster: a tick per spike and a row per unit, coloured and ordered by the unit table",
+    )
+    update_spikes_layer = mutation(
+        resolver=mutations.update_spikes_layer,
+        description="Restyle a spikes layer, or point it at another raster",
+    )
+    create_events_layer = mutation(
+        resolver=mutations.create_events_layer,
+        description="Draw an event table: a mark per row at its TIME column, or an interval with `stopColumn`",
+    )
+    update_events_layer = mutation(
+        resolver=mutations.update_events_layer,
+        description="Restyle an events layer, or point it at another table",
+    )
+    create_annotation_layer = mutation(
+        resolver=mutations.create_annotation_layer,
+        description="Draw an annotation collection's marks in an experiment",
+    )
+    create_heatmap_layer = mutation(
+        resolver=mutations.create_heatmap_layer,
+        description="Draw an array dataset as an image, time across and one other axis down: a spectrogram, a depth or CSD plot",
+    )
+    update_heatmap_layer = mutation(
+        resolver=mutations.update_heatmap_layer,
+        description="Restyle a heatmap layer, or point it at another lens",
+    )
+    create_series_layer = mutation(
+        resolver=mutations.create_series_layer,
+        description="Draw a numeric column of a table with a TIME column as a line over time",
+    )
+    update_series_layer = mutation(
+        resolver=mutations.update_series_layer, description="Restyle a series layer"
+    )
+    create_waveform_layer = mutation(
+        resolver=mutations.create_waveform_layer,
+        description="Draw per-unit waveform templates in peri-spike time, coloured by the raster's units table",
+    )
+    update_waveform_layer = mutation(
+        resolver=mutations.update_waveform_layer, description="Restyle a waveform layer"
+    )
+    create_point_layer = mutation(
+        resolver=mutations.create_point_layer,
+        description="Draw a table placed in space -- a channel map, units at their positions -- as a point per row",
+    )
+    update_point_layer = mutation(
+        resolver=mutations.update_point_layer, description="Restyle a point layer"
+    )
 
     # --- Annotations ------------------------------------------------------------------
     create_annotation_collection = mutation(
         resolver=mutations.create_annotation_collection,
         description="Create an annotation collection, in a coordinate system of its own, optionally related to what its shapes are drawn over: a dataset's sample grid, a segment's clock. The common path for a timeline -- drawing on an experiment -- goes through createAnnotation instead, which mints the experiment's collection on first use",
     )
-    delete_annotation_collection = mutation(resolver=mutations.delete_annotation_collection, description="Delete an annotation collection. Its annotations, its experiment layers and the drawing space it owned go with it; what it was drawn over is untouched")
+    delete_annotation_collection = mutation(
+        resolver=mutations.delete_annotation_collection,
+        description="Delete an annotation collection. Its annotations, its experiment layers and the drawing space it owned go with it; what it was drawn over is untouched",
+    )
     create_annotation = mutation(
         guests=True,
         resolver=mutations.create_annotation,
         description="Draw an annotation into a collection, or onto an experiment (exactly one of the two). Drawing on an experiment finds its annotation collection or mints it on first use: a coordinate system copying the world's axes, an identity registration into the world, and one annotation layer",
     )
-    create_annotations = mutation(guests=True, resolver=mutations.create_annotations, description="Draw many annotations in one call -- a detector's whole output. One collection resolve, one chain resolve, one insert")
-    update_annotation = mutation(resolver=mutations.update_annotation, description="Edit an annotation. Only the supplied fields change; new vectors re-derive the bounding box")
-    delete_annotation = mutation(resolver=mutations.delete_annotation, description="Delete an annotation. Its collection, and the space it was drawn in, stay")
-
+    create_annotations = mutation(
+        guests=True,
+        resolver=mutations.create_annotations,
+        description="Draw many annotations in one call -- a detector's whole output. One collection resolve, one chain resolve, one insert",
+    )
+    update_annotation = mutation(
+        resolver=mutations.update_annotation,
+        description="Edit an annotation. Only the supplied fields change; new vectors re-derive the bounding box",
+    )
+    delete_annotation = mutation(
+        resolver=mutations.delete_annotation,
+        description="Delete an annotation. Its collection, and the space it was drawn in, stay",
+    )
 
     # --- The coordinate graph ---------------------------------------------------------
     create_coordinate_system = mutation(
@@ -687,13 +929,22 @@ class Mutation:
         resolver=mutations.update_transformation,
         description="Refine a transformation's parameters in place. Everything that looks through the edge moves with it, because nothing stores a composed path",
     )
-    delete_transformation = mutation(resolver=mutations.delete_transformation, description="Delete an existing transformation. A wrapper takes its children with it")
+    delete_transformation = mutation(
+        resolver=mutations.delete_transformation,
+        description="Delete an existing transformation. A wrapper takes its children with it",
+    )
     delete_registration = mutation(
         resolver=mutations.delete_registration,
         description="Un-register a source from a space by naming the source and the space rather than the edge. Deletes every edge from the source's spaces into that one -- rivals are allowed, so there is no single edge to mean -- and returns their ids. An UNMAPPABLE declaration is not a placement and is never matched",
     )
-    create_lens = mutation(resolver=mutations.create_lens, description="Create a lens: an immutable selection over a dataset. A sliced lens gets its own coordinate system and the derived edge recording the shift")
-    delete_lens = mutation(resolver=mutations.delete_lens, description="Delete a lens, and the coordinate system it owned if it was sliced")
+    create_lens = mutation(
+        resolver=mutations.create_lens,
+        description="Create a lens: an immutable selection over a dataset. A sliced lens gets its own coordinate system and the derived edge recording the shift",
+    )
+    delete_lens = mutation(
+        resolver=mutations.delete_lens,
+        description="Delete a lens, and the coordinate system it owned if it was sliced",
+    )
 
 
 @strawberry.type
@@ -704,7 +955,9 @@ class Subscription:
         resolver=subscriptions.array_datasets,
         description="Subscribe to the array datasets of this organization, or of one of its folders, as they are created, updated and deleted",
     )
-    files = subscription(resolver=subscriptions.files, description="Subscribe to real-time file updates")
+    files = subscription(
+        resolver=subscriptions.files, description="Subscribe to real-time file updates"
+    )
 
 
 class Schema(QuietErrorsSchema, kante.Schema):
@@ -741,7 +994,13 @@ schema = Schema(
         *layer_types,
     ],
     schema_directives=[unionElementOf],
-    config=StrawberryConfig(scalar_map={**core_scalars.SCALAR_MAP, **datalayer_scalars.SCALAR_MAP, **kanne_scalars.SCALAR_MAP}),
+    config=StrawberryConfig(
+        scalar_map={
+            **core_scalars.SCALAR_MAP,
+            **datalayer_scalars.SCALAR_MAP,
+            **kanne_scalars.SCALAR_MAP,
+        }
+    ),
 )
 
 # Which structure each type is (`@identified`), and, behind the gate, that elektro lets guests in.

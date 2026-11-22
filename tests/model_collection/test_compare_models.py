@@ -1,6 +1,6 @@
 """compare_models: quantity structs collapse to one human-readable change row."""
 
-from core.types import compare_models, ChangeType
+from core.types import ChangeType, compare_models
 
 
 def _kanne_q(canonical, given, unit="femtovolt"):

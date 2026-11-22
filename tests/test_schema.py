@@ -16,7 +16,9 @@ def test_datalayer_scalars_registered():
     # layer is mikro's by name, and the old TraceLike is gone with `fromTraceLike`.
     sdl = schema.as_str()
     assert "scalar TraceLike" not in sdl
-    assert sdl.count("scalar ArrayLike") == 1, "one scalar for 'a store holding an array'"
+    assert sdl.count("scalar ArrayLike") == 1, (
+        "one scalar for 'a store holding an array'"
+    )
     for scalar_name in ["scalar ArrayLike", "scalar BigFileLike"]:
         assert scalar_name in sdl, f"{scalar_name} missing from schema"
 

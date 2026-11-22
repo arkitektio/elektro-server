@@ -35,19 +35,34 @@ mutation Update($input: UpdateArrayDatasetInput!) {
 """
 
 
-async def test_a_dataset_can_be_renamed_and_redescribed(aexecute, authenticated_context):
+async def test_a_dataset_can_be_renamed_and_redescribed(
+    aexecute, authenticated_context
+):
     """The two fields that are editable, edited."""
     dataset = await seed.create_dataset(authenticated_context, "raw")
 
-    result = await aexecute(UPDATE, {"input": {"id": str(dataset.pk), "name": "soma voltage", "description": "the soma channel, low-pass filtered"}})
+    result = await aexecute(
+        UPDATE,
+        {
+            "input": {
+                "id": str(dataset.pk),
+                "name": "soma voltage",
+                "description": "the soma channel, low-pass filtered",
+            }
+        },
+    )
     assert not result.errors, result.errors
 
     updated = result.data["updateArrayDataset"]
     assert updated["name"] == "soma voltage"
     assert updated["description"] == "the soma channel, low-pass filtered"
 
-    stored = await sync_to_async(lambda: models.ArrayDataset.objects.get(pk=dataset.pk))()
-    assert stored.name == "soma voltage", "the mutation writes through, it does not merely echo"
+    stored = await sync_to_async(
+        lambda: models.ArrayDataset.objects.get(pk=dataset.pk)
+    )()
+    assert stored.name == "soma voltage", (
+        "the mutation writes through, it does not merely echo"
+    )
 
 
 async def test_a_rename_is_audited(aexecute, authenticated_context):
@@ -66,7 +81,9 @@ async def test_a_rename_is_audited(aexecute, authenticated_context):
     before = await sync_to_async(lambda: dataset.provenance_entries.count())()
     user = await sync_to_async(lambda: authenticated_context.request.user)()
 
-    result = await aexecute(UPDATE, {"input": {"id": str(dataset.pk), "name": "renamed once"}})
+    result = await aexecute(
+        UPDATE, {"input": {"id": str(dataset.pk), "name": "renamed once"}}
+    )
     assert not result.errors, result.errors
 
     entries = result.data["updateArrayDataset"]["provenanceEntries"]
@@ -77,12 +94,20 @@ async def test_a_rename_is_audited(aexecute, authenticated_context):
     # any request -- which is legitimately unattributed, and would fail this for the wrong
     # reason.
     renames = [entry for entry in entries if entry["kind"] == "UPDATE"]
-    assert len(renames) == 1, f"one rename, one UPDATE row -- got {[e['kind'] for e in entries]}"
-    assert renames[0]["user"] is not None, "an unattributed audit trail is not an audit trail"
-    assert renames[0]["user"]["id"] == str(user.pk), "and it must name the user who actually did it"
+    assert len(renames) == 1, (
+        f"one rename, one UPDATE row -- got {[e['kind'] for e in entries]}"
+    )
+    assert renames[0]["user"] is not None, (
+        "an unattributed audit trail is not an audit trail"
+    )
+    assert renames[0]["user"]["id"] == str(user.pk), (
+        "and it must name the user who actually did it"
+    )
 
     # A second edit is a second row: the trail accumulates rather than overwriting.
-    again = await aexecute(UPDATE, {"input": {"id": str(dataset.pk), "name": "renamed twice"}})
+    again = await aexecute(
+        UPDATE, {"input": {"id": str(dataset.pk), "name": "renamed twice"}}
+    )
     assert not again.errors, again.errors
 
     after = await sync_to_async(lambda: dataset.provenance_entries.count())()
@@ -94,12 +119,24 @@ async def test_a_dataset_update_cannot_reach_its_geometry():
     from elektro_server.schema import schema
 
     sdl = schema.as_str()
-    definition = sdl[sdl.find("input UpdateArrayDatasetInput ") : sdl.find("\n}", sdl.find("input UpdateArrayDatasetInput "))]
-    fields = {line.strip().split(":")[0] for line in definition.split("\n") if ":" in line and not line.strip().startswith('"')}
-    assert fields == {"id", "name", "description"}, f"updateArrayDataset must not reach the arrays, the axes or the systems, but takes {fields}"
+    definition = sdl[
+        sdl.find("input UpdateArrayDatasetInput ") : sdl.find(
+            "\n}", sdl.find("input UpdateArrayDatasetInput ")
+        )
+    ]
+    fields = {
+        line.strip().split(":")[0]
+        for line in definition.split("\n")
+        if ":" in line and not line.strip().startswith('"')
+    }
+    assert fields == {"id", "name", "description"}, (
+        f"updateArrayDataset must not reach the arrays, the axes or the systems, but takes {fields}"
+    )
 
 
-async def test_a_datasets_own_coordinate_system_is_not_updatable(aexecute, authenticated_context):
+async def test_a_datasets_own_coordinate_system_is_not_updatable(
+    aexecute, authenticated_context
+):
     """`updateCoordinateSystem` serves shared spaces alone: every other system is named by its owner.
 
     The refusal that makes "no updates on its coordinate system" true rather than merely
@@ -112,16 +149,26 @@ async def test_a_datasets_own_coordinate_system_is_not_updatable(aexecute, authe
         "mutation Update($input: UpdateCoordinateSystemInput!) { updateCoordinateSystem(input: $input) { id name } }",
         {"input": {"id": str(intrinsic.pk), "name": "hijacked"}},
     )
-    assert result.errors, "a dataset's sample grid is not a space with a lifecycle of its own"
+    assert result.errors, (
+        "a dataset's sample grid is not a space with a lifecycle of its own"
+    )
     assert "data lives in it" in str(result.errors[0])
 
-    unchanged = await sync_to_async(lambda: models.CoordinateSystem.objects.get(pk=intrinsic.pk))()
+    unchanged = await sync_to_async(
+        lambda: models.CoordinateSystem.objects.get(pk=intrinsic.pk)
+    )()
     assert unchanged.name != "hijacked"
 
 
-async def test_another_organization_cannot_rename_this_dataset(aexecute, authenticated_context, other_org_context):
+async def test_another_organization_cannot_rename_this_dataset(
+    aexecute, authenticated_context, other_org_context
+):
     """Every by-id lookup is organization-scoped here, so the rename fails before it is a rename."""
     dataset = await seed.create_dataset(authenticated_context, "raw")
-    result = await aexecute(UPDATE, {"input": {"id": str(dataset.pk), "name": "theirs"}}, context=other_org_context)
+    result = await aexecute(
+        UPDATE,
+        {"input": {"id": str(dataset.pk), "name": "theirs"}},
+        context=other_org_context,
+    )
     assert result.errors
     assert (await models.ArrayDataset.objects.aget(pk=dataset.pk)).name == "raw"

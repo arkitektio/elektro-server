@@ -26,16 +26,20 @@ request cannot go stale. See :mod:`core.models.coords`.
 
 import dataclasses
 import heapq
-from typing import TYPE_CHECKING, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING
 
 from django.db.models import F, Q
 
-from kanne_server import scalars as kanne_scalars
-
 from core import enums, models
 from core.creation import CreationContext
-from core.inputs.coords import assert_no_collapsed_factors, assert_no_collapsed_rows, assert_nonsingular_matrix
+from core.inputs.coords import (
+    assert_no_collapsed_factors,
+    assert_no_collapsed_rows,
+    assert_nonsingular_matrix,
+)
 from core.logic import coords as coords_logic
+from kanne_server import scalars as kanne_scalars
 
 if TYPE_CHECKING:
     from authentikate.models import Organization
@@ -81,12 +85,42 @@ class Container:
 #: containers would give one dataset two homes. A future probe or morphology collection is
 #: one more line with ``is_collection=True``.
 CONTAINERS: tuple[Container, ...] = (
-    Container(model=models.ArrayDataset, related_name="datasets", root_field="pk", key="dataset"),
-    Container(model=models.DataArray, related_name="data_arrays", root_field="dataset_id", key="dataset"),
-    Container(model=models.Lens, related_name="lenses", root_field="dataset_id", key="dataset"),
-    Container(model=models.TableDataset, related_name="table_datasets", root_field="pk", key="tabledataset", is_collection=True),
-    Container(model=models.AnnotationCollection, related_name="annotation_collections", root_field="pk", key="annotationcollection", is_collection=True),
-    Container(model=models.SparseDataset, related_name="sparse_datasets", root_field="pk", key="sparsedataset", is_collection=True),
+    Container(
+        model=models.ArrayDataset,
+        related_name="datasets",
+        root_field="pk",
+        key="dataset",
+    ),
+    Container(
+        model=models.DataArray,
+        related_name="data_arrays",
+        root_field="dataset_id",
+        key="dataset",
+    ),
+    Container(
+        model=models.Lens, related_name="lenses", root_field="dataset_id", key="dataset"
+    ),
+    Container(
+        model=models.TableDataset,
+        related_name="table_datasets",
+        root_field="pk",
+        key="tabledataset",
+        is_collection=True,
+    ),
+    Container(
+        model=models.AnnotationCollection,
+        related_name="annotation_collections",
+        root_field="pk",
+        key="annotationcollection",
+        is_collection=True,
+    ),
+    Container(
+        model=models.SparseDataset,
+        related_name="sparse_datasets",
+        root_field="pk",
+        key="sparsedataset",
+        is_collection=True,
+    ),
     # elektro's own, and the one container that holds no samples: a neuron model owns a space so
     # that "this model was derived from that one" is an edge like every other derivation rather
     # than the self-FK it used to be. Its space carries a single INDEX axis, so every edge
@@ -94,7 +128,13 @@ CONTAINERS: tuple[Container, ...] = (
     # `_UNINHABITED` below, and `fact_paths` will now stand on it. Harmless while nothing
     # mappable touches a model space; the day someone registers one into a world with a real
     # map, that is the line to revisit.
-    Container(model=models.NeuronModel, related_name="neuron_models", root_field="pk", key="neuronmodel", is_collection=True),
+    Container(
+        model=models.NeuronModel,
+        related_name="neuron_models",
+        root_field="pk",
+        key="neuronmodel",
+        is_collection=True,
+    ),
 )
 
 #: The reverse accessors from ``CoordinateSystem`` to the *compositions* over it: the rows
@@ -108,24 +148,37 @@ WORLD_RELATIONS: tuple[str, ...] = ("experiments",)
 
 #: The model a container key resolves back to. A key names one *node*, so the three models
 #: sharing the ``dataset`` key resolve to the one that is the node: the dataset itself.
-MODEL_BY_KEY: dict[str, type] = {container.key: container.model for container in reversed(CONTAINERS)}
+MODEL_BY_KEY: dict[str, type] = {
+    container.key: container.model for container in reversed(CONTAINERS)
+}
 
 #: **Keying order**, which is the reverse question and deliberately not the same tuple: a
 #: space several containers live in must key to the *dataset* when the dataset itself lives
 #: there, so the dataset is written last and overwrites its own parts. Two orders, both
 #: load-bearing, neither derivable from the other.
-_KEYING_ORDER: tuple[Container, ...] = tuple(sorted(CONTAINERS, key=lambda container: container.model is models.ArrayDataset))
+_KEYING_ORDER: tuple[Container, ...] = tuple(
+    sorted(CONTAINERS, key=lambda container: container.model is models.ArrayDataset)
+)
 
 #: The reverse accessors, for ``prefetch_related`` and for the "does anything live here"
 #: fan-out. Derived, so a seventh container is one line above and nothing else.
-RESIDENT_RELATIONS: tuple[str, ...] = tuple(container.related_name for container in CONTAINERS)
+RESIDENT_RELATIONS: tuple[str, ...] = tuple(
+    container.related_name for container in CONTAINERS
+)
 
 #: The collections alone -- the containers that own their space rather than sharing a
 #: dataset's. :func:`collection_in` and the seeding paths ask for exactly these.
-COLLECTION_CONTAINERS: tuple[Container, ...] = tuple(container for container in CONTAINERS if container.is_collection)
+COLLECTION_CONTAINERS: tuple[Container, ...] = tuple(
+    container for container in CONTAINERS if container.is_collection
+)
 
 
-def create_pixel_axes(system: "models.CoordinateSystem", axes: list, *, shape: "Sequence[int] | None" = None) -> list["models.Axis"]:
+def create_pixel_axes(
+    system: "models.CoordinateSystem",
+    axes: list,
+    *,
+    shape: "Sequence[int] | None" = None,
+) -> list["models.Axis"]:
     """Write a pixel-space system's axes, enumerating them so `order` is the array index.
 
     ``Axis.order`` being the array-dimension index is load-bearing: it is what ties
@@ -138,7 +191,13 @@ def create_pixel_axes(system: "models.CoordinateSystem", axes: list, *, shape: "
     axes are derived from the types -- but they never carry a unit. Units belong
     to unit-carrying systems -- physical spaces and worlds -- only.
     """
-    axis_specs = [coords_logic.AxisSpec(name=axis.name, type=axis.type.value if hasattr(axis.type, "value") else axis.type) for axis in axes]
+    axis_specs = [
+        coords_logic.AxisSpec(
+            name=axis.name,
+            type=axis.type.value if hasattr(axis.type, "value") else axis.type,
+        )
+        for axis in axes
+    ]
     coords_logic.assert_axis_names_unique(axis_specs)
     coords_logic.assert_at_most_one_time_axis(axis_specs)
 
@@ -175,8 +234,12 @@ def create_pixel_axes(system: "models.CoordinateSystem", axes: list, *, shape: "
     dataset = next(iter(system.datasets.all()[:1]), None)
     if dataset is not None:
         if shape is None:
-            raise ValueError(f"The axes of dataset {dataset.pk}'s own grid were written without its shape, so what it is cannot be said: a spec counts only the axes with more than one position.")
-        dataset.stored_spec = [spec.value for spec in coords_logic.specs_for_axes(axis_specs, shape)]
+            raise ValueError(
+                f"The axes of dataset {dataset.pk}'s own grid were written without its shape, so what it is cannot be said: a spec counts only the axes with more than one position."
+            )
+        dataset.stored_spec = [
+            spec.value for spec in coords_logic.specs_for_axes(axis_specs, shape)
+        ]
         dataset.save_without_historical_record(update_fields=["stored_spec"])
 
     return created
@@ -193,7 +256,9 @@ class _TableAxisSpec:
     description: object
 
 
-def create_table_axes(system: "models.CoordinateSystem", axes: list) -> list["models.Axis"]:
+def create_table_axes(
+    system: "models.CoordinateSystem", axes: list
+) -> list["models.Axis"]:
     """Write a table dataset's system axes from its declared axes, in the order given.
 
     Neither pixel nor calibrated: a table's coordinate columns carry a unit exactly
@@ -235,20 +300,47 @@ def create_table_axes(system: "models.CoordinateSystem", axes: list) -> list["mo
     # order, its axes are named columns, and an edge wanting a different order states its own
     # axis lists.
     coordinate_columns = [
-        _TableAxisSpec(name=column.name, axis_type=column.axis_type, unit=column.unit, long_name=column.long_name, description=column.description)
+        _TableAxisSpec(
+            name=column.name,
+            axis_type=column.axis_type,
+            unit=column.unit,
+            long_name=column.long_name,
+            description=column.description,
+        )
         for column in axes
     ]
-    specs = [coords_logic.AxisSpec(name=col.name, type=col.axis_type.value if hasattr(col.axis_type, "value") else col.axis_type) for col in coordinate_columns]
+    specs = [
+        coords_logic.AxisSpec(
+            name=col.name,
+            type=col.axis_type.value
+            if hasattr(col.axis_type, "value")
+            else col.axis_type,
+        )
+        for col in coordinate_columns
+    ]
     coords_logic.assert_axis_names_unique(specs)
     coords_logic.assert_at_most_one_time_axis(specs)
 
-    spatial_units = [col.unit for col in coordinate_columns if (col.axis_type.value if hasattr(col.axis_type, "value") else col.axis_type) == enums.AxisTypeChoices.SPACE.value]
-    if spatial_units and any(u is None for u in spatial_units) and any(u is not None for u in spatial_units):
-        raise ValueError("A table's spatial coordinate columns must be all calibrated (each with a unit) or all pixel-index (none with a unit). A half-calibrated space composes wrongly into one matrix.")
+    spatial_units = [
+        col.unit
+        for col in coordinate_columns
+        if (col.axis_type.value if hasattr(col.axis_type, "value") else col.axis_type)
+        == enums.AxisTypeChoices.SPACE.value
+    ]
+    if (
+        spatial_units
+        and any(u is None for u in spatial_units)
+        and any(u is not None for u in spatial_units)
+    ):
+        raise ValueError(
+            "A table's spatial coordinate columns must be all calibrated (each with a unit) or all pixel-index (none with a unit). A half-calibrated space composes wrongly into one matrix."
+        )
 
     rows = []
     for index, col in enumerate(coordinate_columns):
-        axis_type = col.axis_type.value if hasattr(col.axis_type, "value") else col.axis_type
+        axis_type = (
+            col.axis_type.value if hasattr(col.axis_type, "value") else col.axis_type
+        )
         unit = None
         if col.unit is not None:
             unit = kanne_scalars.parse_unit(col.unit)
@@ -267,7 +359,9 @@ def create_table_axes(system: "models.CoordinateSystem", axes: list) -> list["mo
     return models.Axis.objects.bulk_create(rows)
 
 
-def create_physical_axes(system: "models.CoordinateSystem", axes: list) -> list["models.Axis"]:
+def create_physical_axes(
+    system: "models.CoordinateSystem", axes: list
+) -> list["models.Axis"]:
     """Write a unit-carrying system's axes -- a dataset's physical space, a shared world -- with their units.
 
     Every axis must carry a unit: a unit-carrying space without units is a pixel
@@ -290,9 +384,17 @@ def create_physical_axes(system: "models.CoordinateSystem", axes: list) -> list[
         # A space with no axes is not a space. It composes into nothing, renders nothing,
         # and every edge into it fails the rank check -- so it is rejected at the door
         # rather than left to be discovered by whatever tries to use it.
-        raise ValueError(f"Coordinate system '{system.name}' was given no axes. A coordinate space needs at least one axis.")
+        raise ValueError(
+            f"Coordinate system '{system.name}' was given no axes. A coordinate space needs at least one axis."
+        )
 
-    specs = [coords_logic.AxisSpec(name=axis.name, type=axis.type.value if hasattr(axis.type, "value") else axis.type) for axis in axes]
+    specs = [
+        coords_logic.AxisSpec(
+            name=axis.name,
+            type=axis.type.value if hasattr(axis.type, "value") else axis.type,
+        )
+        for axis in axes
+    ]
     coords_logic.assert_axis_names_unique(specs)
     coords_logic.assert_at_most_one_time_axis(specs)
 
@@ -300,7 +402,9 @@ def create_physical_axes(system: "models.CoordinateSystem", axes: list) -> list[
     for index, axis in enumerate(axes):
         axis_type = axis.type.value if hasattr(axis.type, "value") else axis.type
         if axis.unit is None:
-            raise ValueError(f"Axis '{axis.name}' of unit-carrying system '{system.name}' has no unit. Use 'a.u.' for arbitrary units; a unitless axis belongs to a pixel system.")
+            raise ValueError(
+                f"Axis '{axis.name}' of unit-carrying system '{system.name}' has no unit. Use 'a.u.' for arbitrary units; a unitless axis belongs to a pixel system."
+            )
 
         # Parseable first, then dimensionally right: a unit pint cannot read has no
         # dimension to check, and "furlongs_per_fortnight is not a valid unit" is the
@@ -381,7 +485,9 @@ def create_level_edge(
     Derived once, here, at write time. If it were re-derived at read, every reader
     would have to agree on how -- and one of them would not.
     """
-    scale, translation = coords_logic.pyramid_transform(shape_0, shape_level, axis_specs)
+    scale, translation = coords_logic.pyramid_transform(
+        shape_0, shape_level, axis_specs
+    )
 
     if all(offset == 0 for offset in translation):
         # Level 0, or any level that happens not to be downsampled: a scale suffices.
@@ -394,7 +500,13 @@ def create_level_edge(
             organization=ctx.organization,
         )
 
-    return _sequence(input_system=array_system, output_system=intrinsic, scale=scale, translation=translation, ctx=ctx)
+    return _sequence(
+        input_system=array_system,
+        output_system=intrinsic,
+        scale=scale,
+        translation=translation,
+        ctx=ctx,
+    )
 
 
 def create_lens_edge(
@@ -595,7 +707,11 @@ def weakest_invariance(invariances: Iterable[str]) -> str:
     Empty is ISOMETRY: the identity element of the order, and the honest answer for a
     placement path with no steps -- a space is isometric to itself.
     """
-    return min(invariances, key=lambda value: _INVARIANCE_RANK.get(value, 0), default=enums.TransformInvariance.ISOMETRY.value)
+    return min(
+        invariances,
+        key=lambda value: _INVARIANCE_RANK.get(value, 0),
+        default=enums.TransformInvariance.ISOMETRY.value,
+    )
 
 
 def weakest_validity(validities: Iterable[str]) -> str:
@@ -606,7 +722,11 @@ def weakest_validity(validities: Iterable[str]) -> str:
     statement and not this function's to make: a caller that found no path says UNKNOWN
     itself, because the absence of a path is a fact about the caller's search.
     """
-    return min(validities, key=lambda value: _VALIDITY_RANK.get(value, 0), default=enums.PlacementValidityChoices.VALIDATED.value)
+    return min(
+        validities,
+        key=lambda value: _VALIDITY_RANK.get(value, 0),
+        default=enums.PlacementValidityChoices.VALIDATED.value,
+    )
 
 
 def _scale_invariance(scale: list[float]) -> str:
@@ -617,7 +737,11 @@ def _scale_invariance(scale: list[float]) -> str:
     that is not the xy pixel size, which is the ordinary microscopy case -- keeps neither, and
     reporting SIMILARITY there would tell a client an angle transfers when it does not.
     """
-    return enums.TransformInvariance.SIMILARITY.value if len(set(scale)) <= 1 else enums.TransformInvariance.AFFINE.value
+    return (
+        enums.TransformInvariance.SIMILARITY.value
+        if len(set(scale)) <= 1
+        else enums.TransformInvariance.AFFINE.value
+    )
 
 
 def _params_invariance(params: dict) -> str:
@@ -628,7 +752,9 @@ def _params_invariance(params: dict) -> str:
     still read AFFINE. No parameters at all is a pure axis selection: an identity on the axes
     the edge names.
     """
-    stated = [invariance for key, invariance in _PARAM_INVARIANCE.items() if key in params]
+    stated = [
+        invariance for key, invariance in _PARAM_INVARIANCE.items() if key in params
+    ]
     if "scale" in params:
         stated.append(_scale_invariance(params["scale"] or []))
     return weakest_invariance(stated)
@@ -681,7 +807,11 @@ def is_reverse_traversable(edge: "models.Transformation") -> bool:
     writable kind happened to be invertible, which stopped being true the moment a
     field became writable.
     """
-    return is_traversable(edge) and is_invertible(edge) and len(edge_axis_names(edge, "input")) == len(edge_axis_names(edge, "output"))
+    return (
+        is_traversable(edge)
+        and is_invertible(edge)
+        and len(edge_axis_names(edge, "input")) == len(edge_axis_names(edge, "output"))
+    )
 
 
 #: The kinds whose form is square by construction, so a rank change is not something they can
@@ -734,7 +864,10 @@ def is_condensable(edge: "models.Transformation") -> bool:
     :func:`is_invertible`, which excludes FIELD and UNMAPPABLE, and equal rank on the two
     sides -- so every step a walk offers inverted is square and closed-form already.
     """
-    if _INVARIANCE_RANK.get(invariance_of(edge), 0) < _INVARIANCE_RANK[enums.TransformInvariance.AFFINE.value]:
+    if (
+        _INVARIANCE_RANK.get(invariance_of(edge), 0)
+        < _INVARIANCE_RANK[enums.TransformInvariance.AFFINE.value]
+    ):
         return False
 
     if edge.kind not in _SQUARE_FORM_KINDS:
@@ -873,10 +1006,16 @@ def self_placed_axes(system: "models.CoordinateSystem") -> set[str]:
     """
     if next(iter(system.sparse_datasets.all()[:1]), None) is None:
         return set()
-    return {axis.name for axis in system.axes.all() if axis.type == enums.AxisTypeChoices.TIME.value}
+    return {
+        axis.name
+        for axis in system.axes.all()
+        if axis.type == enums.AxisTypeChoices.TIME.value
+    }
 
 
-def assert_field_produces(*, field: "models.CoordinateSystem", output_axes: list[str]) -> None:
+def assert_field_produces(
+    *, field: "models.CoordinateSystem", output_axes: list[str]
+) -> None:
     """Enforce a FIELD's value axis against the rank the edge says its values produce.
 
     The value axis is deliberately **elidable**. A label mask is a plain (y,x) array whose
@@ -916,7 +1055,12 @@ _SELECTABLE_AXIS_TYPES: frozenset[str] = frozenset(
 )
 
 
-def selector_admits(edge: "models.Transformation", at: dict[str, int] | None, *, admit_scoped: bool = False) -> bool:
+def selector_admits(
+    edge: "models.Transformation",
+    at: dict[str, int] | None,
+    *,
+    admit_scoped: bool = False,
+) -> bool:
     """Whether a query standing at ``at`` may cross this edge.
 
     The one reader of the selector convention, so every walk and the validator agree about what
@@ -949,7 +1093,9 @@ def selector_admits(edge: "models.Transformation", at: dict[str, int] | None, *,
     return axis in at and at[axis] == selector.get("index")
 
 
-def assert_selector(selector: dict | None, input_system: "models.CoordinateSystem") -> None:
+def assert_selector(
+    selector: dict | None, input_system: "models.CoordinateSystem"
+) -> None:
     """Reject a selector that names no axis of the input system, or one it cannot index.
 
     Scoped to the **input** side deliberately: the selector says where in the *source* the map
@@ -960,15 +1106,21 @@ def assert_selector(selector: dict | None, input_system: "models.CoordinateSyste
     if selector is None:
         return
     if not isinstance(selector, dict) or set(selector) != {"axis", "index"}:
-        raise ValueError("A selector is {'axis': <name>, 'index': <int>} and takes no other keys: it names one discrete position along one axis of the input system.")
+        raise ValueError(
+            "A selector is {'axis': <name>, 'index': <int>} and takes no other keys: it names one discrete position along one axis of the input system."
+        )
 
     axis_name, index = selector.get("axis"), selector.get("index")
     if not isinstance(index, int) or isinstance(index, bool) or index < 0:
-        raise ValueError(f"A selector's `index` is a non-negative whole number -- a position along an axis -- but got {index!r}.")
+        raise ValueError(
+            f"A selector's `index` is a non-negative whole number -- a position along an axis -- but got {index!r}."
+        )
 
     axes = {axis.name: axis for axis in input_system.axes.all()}
     if axis_name not in axes:
-        raise ValueError(f"A selector names axis '{axis_name}', which coordinate system '{input_system.name}' does not have (its axes are {sorted(axes)}).")
+        raise ValueError(
+            f"A selector names axis '{axis_name}', which coordinate system '{input_system.name}' does not have (its axes are {sorted(axes)})."
+        )
 
     axis_type = axes[axis_name].type
     if axis_type not in _SELECTABLE_AXIS_TYPES:
@@ -1027,7 +1179,11 @@ def _assert_units_interchangeable(
     The repair is to say what was meant: a SCALE of 1000, which is a map that carries numbers and
     is therefore allowed to relate the two.
     """
-    mismatched = [f"'{a.name}' ({a.unit}) -> '{b.name}' ({b.unit})" for a, b in pairs if not coords_logic.units_are_interchangeable(a.unit, b.unit)]
+    mismatched = [
+        f"'{a.name}' ({a.unit}) -> '{b.name}' ({b.unit})"
+        for a, b in pairs
+        if not coords_logic.units_are_interchangeable(a.unit, b.unit)
+    ]
     if mismatched:
         raise ValueError(
             f"An {kind} transformation carries no numbers, so it claims the two spaces measure in the same units -- but '{input_system.name}' and '{output_system.name}' disagree on {', '.join(mismatched)}. "
@@ -1063,7 +1219,11 @@ def _assert_axis_types_correspond(
     this check broke `test_a_field_step_errors_and_names_the_edge`.
     """
     index = enums.AxisTypeChoices.INDEX.value
-    crossed = [f"'{a.name}' ({a.type}) -> '{b.name}' ({b.type})" for a, b in pairs if a.type != b.type and index not in (a.type, b.type)]
+    crossed = [
+        f"'{a.name}' ({a.type}) -> '{b.name}' ({b.type})"
+        for a, b in pairs
+        if a.type != b.type and index not in (a.type, b.type)
+    ]
     if crossed:
         raise ValueError(
             f"A {kind} transformation puts axes in correspondence, but {', '.join(crossed)} relates two different kinds of axis on '{input_system.name}' and '{output_system.name}'. "
@@ -1071,7 +1231,13 @@ def _assert_axis_types_correspond(
         )
 
 
-def _assert_epochs_agree(input_system: "models.CoordinateSystem", output_system: "models.CoordinateSystem", *, kind: str | None = None, params: dict | None = None) -> None:
+def _assert_epochs_agree(
+    input_system: "models.CoordinateSystem",
+    output_system: "models.CoordinateSystem",
+    *,
+    kind: str | None = None,
+    params: dict | None = None,
+) -> None:
     """Refuse to relate two clocks that start at different instants *without saying how*.
 
     ``CoordinateSystem.epoch`` states that ``wall_clock = epoch + t * unit``. Nothing in either
@@ -1094,7 +1260,13 @@ def _assert_epochs_agree(input_system: "models.CoordinateSystem", output_system:
     left, right = input_system.epoch, output_system.epoch
     if left is None or right is None or left == right:
         return
-    has_clock = any(axis.type == enums.AxisTypeChoices.TIME.value for axis in input_system.axes.all()) and any(axis.type == enums.AxisTypeChoices.TIME.value for axis in output_system.axes.all())
+    has_clock = any(
+        axis.type == enums.AxisTypeChoices.TIME.value
+        for axis in input_system.axes.all()
+    ) and any(
+        axis.type == enums.AxisTypeChoices.TIME.value
+        for axis in output_system.axes.all()
+    )
     if not has_clock:
         return
     if _states_an_offset(kind, params or {}):
@@ -1108,7 +1280,9 @@ def _assert_epochs_agree(input_system: "models.CoordinateSystem", output_system:
 
 #: The kinds whose parameters can state a constant term on an axis. Everything else -- IDENTITY,
 #: SCALE, MAP_AXIS -- maps zero onto zero by construction.
-_OFFSET_KINDS = frozenset({"TRANSLATION", "AFFINE", "ROTATION", "BY_DIMENSION", "FIELD", "SEQUENCE"})
+_OFFSET_KINDS = frozenset(
+    {"TRANSLATION", "AFFINE", "ROTATION", "BY_DIMENSION", "FIELD", "SEQUENCE"}
+)
 
 
 def _states_an_offset(kind: str | None, params: dict) -> bool:
@@ -1197,7 +1371,10 @@ def assert_edge_rank(
         # subset the two lists *are* the systems' axes, so this is a no-op.
         indexed = [
             f"'{axis.name}' on '{system.name}'"
-            for system, names in ((input_system, input_names), (output_system, output_names))
+            for system, names in (
+                (input_system, input_names),
+                (output_system, output_names),
+            )
             for axis in system.axes.all()
             if axis.type == enums.AxisTypeChoices.INDEX.value and axis.name in names
         ]
@@ -1213,8 +1390,15 @@ def assert_edge_rank(
         # rank-changing claim wearing an identity's clothes. A derivation that drops or
         # adds an axis (a projection) is a BY_DIMENSION naming the axes it keeps.
         if input_names != output_names:
-            raise ValueError(f"An IDENTITY transformation says the two spaces are the same, but '{input_system.name}' has axes {input_names} and '{output_system.name}' has {output_names}. Use BY_DIMENSION, naming the axes it acts on, for a map that drops or reorders axes.")
-        _assert_units_interchangeable(kind=kind, pairs=_axis_pairs(input_system, output_system, input_names, output_names), input_system=input_system, output_system=output_system)
+            raise ValueError(
+                f"An IDENTITY transformation says the two spaces are the same, but '{input_system.name}' has axes {input_names} and '{output_system.name}' has {output_names}. Use BY_DIMENSION, naming the axes it acts on, for a map that drops or reorders axes."
+            )
+        _assert_units_interchangeable(
+            kind=kind,
+            pairs=_axis_pairs(input_system, output_system, input_names, output_names),
+            input_system=input_system,
+            output_system=output_system,
+        )
         return
 
     if kind == enums.TransformKindChoices.FIELD.value:
@@ -1224,14 +1408,25 @@ def assert_edge_rank(
         # Deliberately NOT the one-for-one rule below: a FIELD is many-to-one on purpose,
         # (y,x) collapsing to one object id.
         if not input_axes or not output_axes:
-            raise ValueError("A FIELD transformation must name the axes it consumes in `inputAxes` and the axes its values produce in `outputAxes`. That naming IS the map: the axes it does not consume pass through by name.")
-        for names, axes, side, system in ((input_names, input_axes, "input", input_system), (output_names, output_axes, "output", output_system)):
+            raise ValueError(
+                "A FIELD transformation must name the axes it consumes in `inputAxes` and the axes its values produce in `outputAxes`. That naming IS the map: the axes it does not consume pass through by name."
+            )
+        for names, axes, side, system in (
+            (input_names, input_axes, "input", input_system),
+            (output_names, output_axes, "output", output_system),
+        ):
             if len(set(axes)) != len(axes):
-                raise ValueError(f"A FIELD transformation names the {side} axis {axes} more than once")
+                raise ValueError(
+                    f"A FIELD transformation names the {side} axis {axes} more than once"
+                )
             unknown = [axis for axis in axes if axis not in names]
             if unknown:
-                raise ValueError(f"A FIELD transformation names {side} axes {unknown} that do not exist on coordinate system '{system.name}' (its axes are {names})")
-        implied = [axis for axis in input_names if axis not in set(input_axes)] + list(output_axes)
+                raise ValueError(
+                    f"A FIELD transformation names {side} axes {unknown} that do not exist on coordinate system '{system.name}' (its axes are {names})"
+                )
+        implied = [axis for axis in input_names if axis not in set(input_axes)] + list(
+            output_axes
+        )
         # Every axis of the target has to be accounted for -- but not necessarily by this edge.
         # An axis the target identifies itself (an INDEX coordinate naming the table its
         # positions enumerate) is one the *reader* selects a position along, so the edge says
@@ -1247,24 +1442,44 @@ def assert_edge_rank(
         optional = self_placed_axes(output_system) - set(implied)
         accountable = sorted(set(output_names) - identified - optional)
         if sorted(implied) != accountable:
-            unaccounted = "" if not identified else f" ('{output_system.name}' identifies {sorted(identified)} by `references`, which this edge is not expected to supply)"
+            unaccounted = (
+                ""
+                if not identified
+                else f" ('{output_system.name}' identifies {sorted(identified)} by `references`, which this edge is not expected to supply)"
+            )
             raise ValueError(
                 f"A FIELD transformation consuming {input_axes} of '{input_system.name}' {input_names} and producing {list(output_axes)} implies the axes {sorted(implied)}, but '{output_system.name}' has {accountable} to account for{unaccounted}. The axes it does not consume pass through by name."
             )
         return
 
-    if kind in (enums.TransformKindChoices.BY_DIMENSION.value, enums.TransformKindChoices.MAP_AXIS.value):
+    if kind in (
+        enums.TransformKindChoices.BY_DIMENSION.value,
+        enums.TransformKindChoices.MAP_AXIS.value,
+    ):
         if not input_axes or not output_axes:
-            raise ValueError(f"A {kind} transformation must name the axes it acts on, in `inputAxes` and `outputAxes`. That naming IS the map: the axes it does not name are the ones it leaves untouched.")
+            raise ValueError(
+                f"A {kind} transformation must name the axes it acts on, in `inputAxes` and `outputAxes`. That naming IS the map: the axes it does not name are the ones it leaves untouched."
+            )
         if len(input_axes) != len(output_axes):
-            raise ValueError(f"A {kind} transformation maps its input axes onto its output axes one for one, but was given {len(input_axes)} ({input_axes}) and {len(output_axes)} ({output_axes})")
-        for names, axes, side, system in ((input_names, input_axes, "input", input_system), (output_names, output_axes, "output", output_system)):
+            raise ValueError(
+                f"A {kind} transformation maps its input axes onto its output axes one for one, but was given {len(input_axes)} ({input_axes}) and {len(output_axes)} ({output_axes})"
+            )
+        for names, axes, side, system in (
+            (input_names, input_axes, "input", input_system),
+            (output_names, output_axes, "output", output_system),
+        ):
             if len(set(axes)) != len(axes):
-                raise ValueError(f"A {kind} transformation names the {side} axis {axes} more than once")
+                raise ValueError(
+                    f"A {kind} transformation names the {side} axis {axes} more than once"
+                )
             unknown = [axis for axis in axes if axis not in names]
             if unknown:
-                raise ValueError(f"A {kind} transformation names {side} axes {unknown} that do not exist on coordinate system '{system.name}' (its axes are {names})")
-        if kind == enums.TransformKindChoices.MAP_AXIS.value and sorted(input_names) != sorted(output_names):
+                raise ValueError(
+                    f"A {kind} transformation names {side} axes {unknown} that do not exist on coordinate system '{system.name}' (its axes are {names})"
+                )
+        if kind == enums.TransformKindChoices.MAP_AXIS.value and sorted(
+            input_names
+        ) != sorted(output_names):
             # A permutation relabels; it does not reshape. `permutation_matrix` synthesizes
             # the matrix over the *input* system's axis order and sends each axis to
             # `mapping.get(axis, axis)` -- so an axis name the input system does not have is
@@ -1285,7 +1500,12 @@ def assert_edge_rank(
         # (see `_assert_units_interchangeable`), and its *unnamed* pass-through axes are
         # already converted correctly by `_by_dimension_forms` rather than being a divergence
         # to close.
-        _assert_axis_types_correspond(kind=kind, pairs=_axis_pairs(input_system, output_system, input_axes, output_axes), input_system=input_system, output_system=output_system)
+        _assert_axis_types_correspond(
+            kind=kind,
+            pairs=_axis_pairs(input_system, output_system, input_axes, output_axes),
+            input_system=input_system,
+            output_system=output_system,
+        )
 
         # A BY_DIMENSION's optional parameters act on the *named* axes -- that is the
         # whole point of naming them -- so the rank they are checked against is the
@@ -1348,14 +1568,20 @@ def assert_edge_rank(
     for field in ("scale", "translation"):
         vector = params.get(field)
         if vector is not None and len(vector) != rank_in:
-            raise ValueError(f"A {kind} transformation's `{field}` has one entry per input axis: expected {rank_in}, got {len(vector)}")
+            raise ValueError(
+                f"A {kind} transformation's `{field}` has one entry per input axis: expected {rank_in}, got {len(vector)}"
+            )
 
     affine = params.get("affine")
     if affine is not None:
         if len(affine) != rank_out:
-            raise ValueError(f"A {kind} transformation's `affine` has one row per output axis: expected {rank_out} rows, got {len(affine)}")
+            raise ValueError(
+                f"A {kind} transformation's `affine` has one row per output axis: expected {rank_out} rows, got {len(affine)}"
+            )
         if any(len(row) != rank_in + 1 for row in affine):
-            raise ValueError(f"A {kind} transformation's `affine` rows have one column per input axis plus the translation: expected {rank_in + 1} entries per row, got {[len(row) for row in affine]}")
+            raise ValueError(
+                f"A {kind} transformation's `affine` rows have one column per input axis plus the translation: expected {rank_in + 1} entries per row, got {[len(row) for row in affine]}"
+            )
 
 
 def write_relation_edge(
@@ -1498,15 +1724,25 @@ def _assemble_edge_params(
     supplied = {"scale": scale, "translation": translation, "affine": affine}
     allowed = set(_PARAMS_BY_KIND[kind]) | set(_OPTIONAL_PARAMS_BY_KIND.get(kind, ()))
 
-    stray = sorted(param for param, value in supplied.items() if value is not None and param not in allowed)
+    stray = sorted(
+        param
+        for param, value in supplied.items()
+        if value is not None and param not in allowed
+    )
     if stray:
-        raise ValueError(f"A {kind} {noun} does not read `{stray[0]}`: drop it, or use the kind whose map it is.")
+        raise ValueError(
+            f"A {kind} {noun} does not read `{stray[0]}`: drop it, or use the kind whose map it is."
+        )
 
     if (input_axes or output_axes) and kind not in _AXIS_KINDS:
-        raise ValueError(f"A {kind} {noun} acts on every axis, in the input system's own order, so it takes no `inputAxes`/`outputAxes`. Use BY_DIMENSION or MAP_AXIS to act on named axes.")
+        raise ValueError(
+            f"A {kind} {noun} acts on every axis, in the input system's own order, so it takes no `inputAxes`/`outputAxes`. Use BY_DIMENSION or MAP_AXIS to act on named axes."
+        )
 
     if reason and kind != enums.TransformKind.UNMAPPABLE.value:
-        raise ValueError(f"`reason` belongs to an UNMAPPABLE edge; a {kind} {noun}'s story is its parameters.")
+        raise ValueError(
+            f"`reason` belongs to an UNMAPPABLE edge; a {kind} {noun}'s story is its parameters."
+        )
 
     params: dict = {}
     for param in _PARAMS_BY_KIND[kind]:
@@ -1566,16 +1802,23 @@ def updatable_params(kind: str) -> tuple[str, ...]:
     """
     return tuple(
         param
-        for param in (*_PARAMS_BY_KIND.get(kind, ()), *_OPTIONAL_PARAMS_BY_KIND.get(kind, ()))
+        for param in (
+            *_PARAMS_BY_KIND.get(kind, ()),
+            *_OPTIONAL_PARAMS_BY_KIND.get(kind, ()),
+        )
         if param in ("scale", "translation", "affine")
     )
+
 
 #: The axis types that make an array readable as a FIELD's map: its *value* axis, whose
 #: positions enumerate the components of each value. The type is the whole statement --
 #: COORDINATE for absolute positions, DISPLACEMENT for offsets -- and it lives here, on the
 #: array, rather than on the edge, because it is a property of the data. Two edges reading
 #: one field cannot disagree about what its numbers mean.
-_VALUE_AXIS_TYPES = (enums.AxisTypeChoices.COORDINATE.value, enums.AxisTypeChoices.DISPLACEMENT.value)
+_VALUE_AXIS_TYPES = (
+    enums.AxisTypeChoices.COORDINATE.value,
+    enums.AxisTypeChoices.DISPLACEMENT.value,
+)
 
 #: The metric kinds: the ones whose parameters do arithmetic on a coordinate. None of them
 #: may touch an INDEX axis. An INDEX coordinate is an id -- object 3, row 7 -- and it has no
@@ -1612,7 +1855,13 @@ _PER_AXIS_KINDS = (
 #: The parameter fields an UNMAPPABLE edge must not carry: it declares that no point of one
 #: space corresponds to a point of the other, so a scale on it would assert a correspondence
 #: and deny one in the same breath, and nothing downstream would ever read the number.
-_FORBIDDEN_ON_UNMAPPABLE = ("scale", "translation", "affine", "input_axes", "output_axes")
+_FORBIDDEN_ON_UNMAPPABLE = (
+    "scale",
+    "translation",
+    "affine",
+    "input_axes",
+    "output_axes",
+)
 
 
 def build_registration_edge(
@@ -1651,14 +1900,26 @@ def build_registration_edge(
     kind = kind.value if hasattr(kind, "value") else kind
 
     if kind not in _PARAMS_BY_KIND:
-        raise ValueError(f"{kind} cannot be created directly. A SEQUENCE wrapper is built by the ingest, which writes its children with it")
+        raise ValueError(
+            f"{kind} cannot be created directly. A SEQUENCE wrapper is built by the ingest, which writes its children with it"
+        )
 
-    supplied = {"scale": scale, "translation": translation, "affine": affine, "input_axes": input_axes, "output_axes": output_axes}
+    supplied = {
+        "scale": scale,
+        "translation": translation,
+        "affine": affine,
+        "input_axes": input_axes,
+        "output_axes": output_axes,
+    }
 
     if kind == enums.TransformKind.UNMAPPABLE.value:
-        offending = [param for param in _FORBIDDEN_ON_UNMAPPABLE if supplied[param] is not None]
+        offending = [
+            param for param in _FORBIDDEN_ON_UNMAPPABLE if supplied[param] is not None
+        ]
         if offending:
-            raise ValueError(f"An UNMAPPABLE transformation declares that no point of one space corresponds to a point of the other, so it carries no map: drop {', '.join(offending)}, or use a kind that does map.")
+            raise ValueError(
+                f"An UNMAPPABLE transformation declares that no point of one space corresponds to a point of the other, so it carries no map: drop {', '.join(offending)}, or use a kind that does map."
+            )
 
     params = _assemble_edge_params(
         kind=kind,
@@ -1677,13 +1938,17 @@ def build_registration_edge(
     # otherwise make a dereferenced mask undeletable.
     if kind == enums.TransformKind.FIELD.value:
         if field is None:
-            raise ValueError("A FIELD transformation's map is the values of an array, so it requires `field`: the coordinate system of that array. Pass the input's own system when the array's pixels are themselves the map, as for a label mask.")
+            raise ValueError(
+                "A FIELD transformation's map is the values of an array, so it requires `field`: the coordinate system of that array. Pass the input's own system when the array's pixels are themselves the map, as for a label mask."
+            )
         assert_field_is_dereferenceable(field)
         assert_field_produces(field=field, output_axes=output_axes or [])
         if field.pk == input_system.pk:
             field = None
     elif field is not None:
-        raise ValueError(f"A {kind} transformation's map is in its parameters, not in an array, so it takes no `field`")
+        raise ValueError(
+            f"A {kind} transformation's map is in its parameters, not in an array, so it takes no `field`"
+        )
 
     assert_edge_rank(
         kind=kind,
@@ -1704,7 +1969,9 @@ def build_registration_edge(
     # thinks it describes -- there is no longer a class of edge across which values are known
     # not to travel, because there is no longer a class of edge.
     validity = validity.value if hasattr(validity, "value") else validity
-    value_relation = value_relation.value if hasattr(value_relation, "value") else value_relation
+    value_relation = (
+        value_relation.value if hasattr(value_relation, "value") else value_relation
+    )
     keeps_axes = kind in _AXIS_KINDS
     edge = models.Transformation.objects.create(
         kind=kind,
@@ -1725,7 +1992,9 @@ def build_registration_edge(
     return edge
 
 
-def _project_by_dimension_children(edge: "models.Transformation", ctx: CreationContext) -> None:
+def _project_by_dimension_children(
+    edge: "models.Transformation", ctx: CreationContext
+) -> None:
     """Write a BY_DIMENSION's own parameters out as child rows as well as into ``params``.
 
     **The problem this solves is that the numbers were unreadable.** A BY_DIMENSION carrying an
@@ -1764,7 +2033,9 @@ def _project_by_dimension_children(edge: "models.Transformation", ctx: CreationC
 
     params = edge.params or {}
     if "affine" in params:
-        projected = [(enums.TransformKindChoices.AFFINE.value, {"affine": params["affine"]})]
+        projected = [
+            (enums.TransformKindChoices.AFFINE.value, {"affine": params["affine"]})
+        ]
     else:
         projected = [
             (child_kind, {name: params[name]})
@@ -1833,14 +2104,24 @@ def derivation_edges(dataset: "models.ArrayDataset") -> list["models.Transformat
     if intrinsic is None:
         return []
 
-    candidates = list(models.Transformation.objects.filter(input=intrinsic, parent__isnull=True).select_related("output").order_by("pk"))
+    candidates = list(
+        models.Transformation.objects.filter(input=intrinsic, parent__isnull=True)
+        .select_related("output")
+        .order_by("pk")
+    )
     # One batched key lookup for every candidate's output, rather than a `system_dataset`
     # per edge -- which was a handful of queries each and grew with the dataset's fan-out.
     keys = container_map({edge.output_id for edge in candidates if edge.output_id})
-    return [edge for edge in candidates if is_derivation_edge(edge, of_container=("dataset", dataset.pk), keys=keys)]
+    return [
+        edge
+        for edge in candidates
+        if is_derivation_edge(edge, of_container=("dataset", dataset.pk), keys=keys)
+    ]
 
 
-def _datasets_derived_into(output_filter: "Q", exclude_pk: int) -> list["models.ArrayDataset"]:
+def _datasets_derived_into(
+    output_filter: "Q", exclude_pk: int
+) -> list["models.ArrayDataset"]:
     """The datasets whose derivation edges land in the systems `output_filter` selects.
 
     The other end of :func:`derivation_edges`, read from the source's side: a derivation
@@ -1854,7 +2135,9 @@ def _datasets_derived_into(output_filter: "Q", exclude_pk: int) -> list["models.
     reports; neither is a path any placement walk crosses.
     """
     edges = (
-        models.Transformation.objects.filter(output_filter, parent__isnull=True, input__datasets__isnull=False)
+        models.Transformation.objects.filter(
+            output_filter, parent__isnull=True, input__datasets__isnull=False
+        )
         .prefetch_related("input__datasets")
         .order_by("pk")
     )
@@ -1874,7 +2157,9 @@ def _datasets_derived_into(output_filter: "Q", exclude_pk: int) -> list["models.
 def derived_datasets(dataset: "models.ArrayDataset") -> list["models.ArrayDataset"]:
     """The datasets computed from this one: every dataset whose `derivedFrom` names a space of ours."""
     return _datasets_derived_into(
-        Q(output__datasets=dataset) | Q(output__lenses__dataset=dataset) | Q(output__data_arrays__dataset=dataset),
+        Q(output__datasets=dataset)
+        | Q(output__lenses__dataset=dataset)
+        | Q(output__data_arrays__dataset=dataset),
         exclude_pk=dataset.pk,
     )
 
@@ -1892,8 +2177,16 @@ def derived_containers(dataset: "models.ArrayDataset") -> list:
     Kind-blind and priority-blind, as the narrow one is: an UNMAPPABLE child still came from
     here, and a fusion that named this source second is still a child.
     """
-    spaces = Q(output__datasets=dataset) | Q(output__lenses__dataset=dataset) | Q(output__data_arrays__dataset=dataset)
-    edges = list(models.Transformation.objects.filter(spaces, parent__isnull=True).select_related("input", "output").order_by("pk"))
+    spaces = (
+        Q(output__datasets=dataset)
+        | Q(output__lenses__dataset=dataset)
+        | Q(output__data_arrays__dataset=dataset)
+    )
+    edges = list(
+        models.Transformation.objects.filter(spaces, parent__isnull=True)
+        .select_related("input", "output")
+        .order_by("pk")
+    )
     if not edges:
         return []
 
@@ -1905,7 +2198,11 @@ def derived_containers(dataset: "models.ArrayDataset") -> list:
     wanted: list[tuple] = []
     for edge in edges:
         key = keys.get(edge.input_id) if edge.input_id else None
-        if key is None or key in seen or not is_derivation_edge(edge, of_container=key, keys=keys):
+        if (
+            key is None
+            or key in seen
+            or not is_derivation_edge(edge, of_container=key, keys=keys)
+        ):
             continue
         seen.add(key)
         wanted.append(key)
@@ -1916,7 +2213,12 @@ def derived_containers(dataset: "models.ArrayDataset") -> list:
 
     found: dict[tuple, object] = {}
     for label, pks in by_kind.items():
-        found.update({(label, row.pk): row for row in MODEL_BY_KEY[label].objects.filter(pk__in=pks)})
+        found.update(
+            {
+                (label, row.pk): row
+                for row in MODEL_BY_KEY[label].objects.filter(pk__in=pks)
+            }
+        )
     return [found[key] for key in wanted if key in found]
 
 
@@ -1940,7 +2242,11 @@ def containers_derived_into(system: "models.CoordinateSystem | None") -> list:
     if system is None:
         return []
 
-    edges = list(models.Transformation.objects.filter(output=system, parent__isnull=True).select_related("input", "output").order_by("pk"))
+    edges = list(
+        models.Transformation.objects.filter(output=system, parent__isnull=True)
+        .select_related("input", "output")
+        .order_by("pk")
+    )
     if not edges:
         return []
 
@@ -1951,7 +2257,11 @@ def containers_derived_into(system: "models.CoordinateSystem | None") -> list:
     wanted: list[tuple] = []
     for edge in edges:
         key = keys.get(edge.input_id) if edge.input_id else None
-        if key is None or key in seen or not is_derivation_edge(edge, of_container=key, keys=keys):
+        if (
+            key is None
+            or key in seen
+            or not is_derivation_edge(edge, of_container=key, keys=keys)
+        ):
             continue
         seen.add(key)
         wanted.append(key)
@@ -1962,7 +2272,12 @@ def containers_derived_into(system: "models.CoordinateSystem | None") -> list:
 
     found: dict[tuple, object] = {}
     for label, pks in by_kind.items():
-        found.update({(label, row.pk): row for row in MODEL_BY_KEY[label].objects.filter(pk__in=pks)})
+        found.update(
+            {
+                (label, row.pk): row
+                for row in MODEL_BY_KEY[label].objects.filter(pk__in=pks)
+            }
+        )
     return [found[key] for key in wanted if key in found]
 
 
@@ -1980,7 +2295,9 @@ def lens_derived_datasets(lens: "models.Lens") -> list["models.ArrayDataset"]:
     return _datasets_derived_into(Q(output=space), exclude_pk=lens.dataset_id)
 
 
-def primary_derivation_edge(dataset: "models.ArrayDataset") -> "models.Transformation | None":
+def primary_derivation_edge(
+    dataset: "models.ArrayDataset",
+) -> "models.Transformation | None":
     """The derivation edge that places a derived dataset: the first, by its creator's declared order."""
     edges = derivation_edges(dataset)
     return edges[0] if edges else None
@@ -2070,15 +2387,22 @@ def frames_into(space: "models.CoordinateSystem | None") -> set[int]:
     frames = {space.pk}
     frontier = {space.pk}
     while frontier:
-        upstream = set(
-            models.Transformation.objects.filter(parent__isnull=True, output_id__in=frontier, input_id__isnull=False)
-            .exclude(kind=enums.TransformKindChoices.UNMAPPABLE.value)
-            .values_list("input_id", flat=True)
-        ) - frames
+        upstream = (
+            set(
+                models.Transformation.objects.filter(
+                    parent__isnull=True, output_id__in=frontier, input_id__isnull=False
+                )
+                .exclude(kind=enums.TransformKindChoices.UNMAPPABLE.value)
+                .values_list("input_id", flat=True)
+            )
+            - frames
+        )
         if not upstream:
             break
         keys = container_map(upstream)
-        frontier = {system_id for system_id in upstream if keys[system_id][0] == "system"}
+        frontier = {
+            system_id for system_id in upstream if keys[system_id][0] == "system"
+        }
         frames |= frontier
     return frames
 
@@ -2100,7 +2424,11 @@ def _placement_universe(
     world = space
 
     dataset = system_dataset(source_system)
-    lineage_ids = [dataset.pk] + [ancestor.pk for ancestor in lineage_ancestors(dataset)] if dataset else []
+    lineage_ids = (
+        [dataset.pk] + [ancestor.pk for ancestor in lineage_ancestors(dataset)]
+        if dataset
+        else []
+    )
     frames = frames_into(world)
 
     edges = list(
@@ -2165,10 +2493,16 @@ def container_map(system_ids: "Iterable[int]") -> dict[int, tuple]:
     for container in _KEYING_ORDER:
         # Descending pk so the lowest wins each slot, matching `residence_map`'s rule: this
         # exists to scope a search, and any resident anchors the same scope.
-        for system_id, root_id in container.model.objects.filter(coordinate_system_id__in=ids).order_by("-pk").values_list("coordinate_system_id", container.root_field):
+        for system_id, root_id in (
+            container.model.objects.filter(coordinate_system_id__in=ids)
+            .order_by("-pk")
+            .values_list("coordinate_system_id", container.root_field)
+        ):
             mapping[system_id] = (container.key, root_id)
 
-    return {system_id: mapping.get(system_id, ("system", system_id)) for system_id in ids}
+    return {
+        system_id: mapping.get(system_id, ("system", system_id)) for system_id in ids
+    }
 
 
 def container_q(keys: "Iterable[tuple]", *, field: str) -> Q:
@@ -2195,12 +2529,18 @@ def container_q(keys: "Iterable[tuple]", *, field: str) -> Q:
         # A dataset key matches its own grid *and* its levels' and lenses': three containers
         # share that key, so this loop contributes three joins for it.
         # `root_field` names the column holding the root's id (`dataset_id`); the join goes through the relation (`dataset`).
-        lookup = f"{field}__{container.related_name}__in" if container.root_field == "pk" else f"{field}__{container.related_name}__{container.root_field.removesuffix('_id')}__in"
+        lookup = (
+            f"{field}__{container.related_name}__in"
+            if container.root_field == "pk"
+            else f"{field}__{container.related_name}__{container.root_field.removesuffix('_id')}__in"
+        )
         query |= Q(**{lookup: pks})
     return query
 
 
-def is_derivation_edge(edge: "models.Transformation", *, of_container: tuple | None, keys: dict[int, tuple]) -> bool:
+def is_derivation_edge(
+    edge: "models.Transformation", *, of_container: tuple | None, keys: dict[int, tuple]
+) -> bool:
     """Whether this edge records *where its input came from*, rather than where it was put.
 
     **Both halves are load-bearing.** An edge is a derivation when its output lands in a
@@ -2238,7 +2578,9 @@ def is_derivation_edge(edge: "models.Transformation", *, of_container: tuple | N
     return target != of_container
 
 
-def reachable_in(adjacency: dict[int, list[tuple["models.Transformation", bool, int]]], start: int) -> set[int]:
+def reachable_in(
+    adjacency: dict[int, list[tuple["models.Transformation", bool, int]]], start: int
+) -> set[int]:
     """Every node the walk reaches from ``start``, including ``start`` itself.
 
     The bare traversal, shared by the two questions that ask it of different universes:
@@ -2261,7 +2603,12 @@ def reachable_in(adjacency: dict[int, list[tuple["models.Transformation", bool, 
     return reached
 
 
-def _fact_reachable(source_system: "models.CoordinateSystem", edges: list["models.Transformation"], *, require_affine: bool = False) -> set[int]:
+def _fact_reachable(
+    source_system: "models.CoordinateSystem",
+    edges: list["models.Transformation"],
+    *,
+    require_affine: bool = False,
+) -> set[int]:
     """Every system the source reaches, across every traversable edge.
 
     No fact/claim filter any more (RFC-9): an edge is an edge, and how far to trust one is
@@ -2281,10 +2628,18 @@ def _fact_reachable(source_system: "models.CoordinateSystem", edges: list["model
     / UNMAPPABLE split -- want the wide answer, and a narrow one would make them call an
     unregistered thing unmappable.
     """
-    return reachable_in(adjacency_of(edges, admit_scoped=True, require_affine=require_affine), source_system.pk)
+    return reachable_in(
+        adjacency_of(edges, admit_scoped=True, require_affine=require_affine),
+        source_system.pk,
+    )
 
 
-def is_placeable_in(space: "models.CoordinateSystem | None", source_system: "models.CoordinateSystem | None", *, require_affine: bool = False) -> bool:
+def is_placeable_in(
+    space: "models.CoordinateSystem | None",
+    source_system: "models.CoordinateSystem | None",
+    *,
+    require_affine: bool = False,
+) -> bool:
     """Whether a registration into this space that places this source exists.
 
     True when one of the space's registrations anchors a space the source fact-reaches, or
@@ -2378,12 +2733,16 @@ def assert_placeable_in(
     universe to classify which gap it is, and pays for a verdict nobody reads twice.
     """
     if source_system is None:
-        raise ValueError("The layer's data has no coordinate system, so it has no space to be placed by. Nothing sourceless can be composed into a scene.")
+        raise ValueError(
+            "The layer's data has no coordinate system, so it has no space to be placed by. Nothing sourceless can be composed into a scene."
+        )
 
     if is_placeable_in(space, source_system, require_affine=True):
         return
 
-    where = destination or (f"space '{space.name}'" if space is not None else "the destination space")
+    where = destination or (
+        f"space '{space.name}'" if space is not None else "the destination space"
+    )
     _space, lineage_ids, edges = _placement_universe(space, source_system)
 
     # Asked before either gap, because it is not a gap: the wide question passing while the
@@ -2395,7 +2754,13 @@ def assert_placeable_in(
         # to fix a registration that was never on the route.
         reached = _fact_reachable(source_system, edges, require_affine=True)
         blocking = sorted(
-            {f"{edge.pk} ({edge.kind})" for edge in edges if edge.input_id in reached and is_traversable(edge) and not is_condensable(edge)}
+            {
+                f"{edge.pk} ({edge.kind})"
+                for edge in edges
+                if edge.input_id in reached
+                and is_traversable(edge)
+                and not is_condensable(edge)
+            }
         )
         raise ValueError(
             f"'{source_system.name}' is registered into {where}, but nothing places it there *affinely*: "
@@ -2458,7 +2823,15 @@ def _blocked_by_unmappable(
 
     # The reason half. A collection owns its system outright, so an edge leaving that system
     # is its own; a dataset's are found through its lineage.
-    return any(not is_traversable(edge) and (edge.input_id == source_system.pk or owner_dataset_id(edge.input) in lineage_ids) for edge in edges if edge.input_id)
+    return any(
+        not is_traversable(edge)
+        and (
+            edge.input_id == source_system.pk
+            or owner_dataset_id(edge.input) in lineage_ids
+        )
+        for edge in edges
+        if edge.input_id
+    )
 
 
 def residents_exist(system: "models.CoordinateSystem") -> bool:
@@ -2507,7 +2880,11 @@ def residence_map(system_ids: "Iterable[int]") -> dict[int, int]:
     for container in _KEYING_ORDER:
         if container.key != "dataset":
             continue
-        for system_id, dataset_id in container.model.objects.filter(coordinate_system_id__in=ids).order_by("-pk").values_list("coordinate_system_id", container.root_field):
+        for system_id, dataset_id in (
+            container.model.objects.filter(coordinate_system_id__in=ids)
+            .order_by("-pk")
+            .values_list("coordinate_system_id", container.root_field)
+        ):
             mapping[system_id] = dataset_id
     return mapping
 
@@ -2527,7 +2904,9 @@ def _fk_dataset_id(system: "models.CoordinateSystem | None") -> int | None:
 
 def _keys_for(edges: "Iterable[models.Transformation]") -> dict[int, tuple]:
     """The container key of every endpoint of these edges, in one batch."""
-    endpoints = {edge.input_id for edge in edges if edge.input_id} | {edge.output_id for edge in edges if edge.output_id}
+    endpoints = {edge.input_id for edge in edges if edge.input_id} | {
+        edge.output_id for edge in edges if edge.output_id
+    }
     return container_map(endpoints)
 
 
@@ -2557,7 +2936,11 @@ def _derivation_descendants(container_keys: set[tuple]) -> set[tuple]:
     seen = set(container_keys)
 
     while frontier:
-        edges = list(models.Transformation.objects.filter(parent__isnull=True).filter(container_q(frontier, field="output")).select_related("input", "output"))
+        edges = list(
+            models.Transformation.objects.filter(parent__isnull=True)
+            .filter(container_q(frontier, field="output"))
+            .select_related("input", "output")
+        )
         keys = _keys_for(edges)
 
         candidates: set[tuple] = set()
@@ -2574,13 +2957,18 @@ def _derivation_descendants(container_keys: set[tuple]) -> set[tuple]:
         next_frontier: set[tuple] = set()
         if candidates:
             out_edges = list(
-                models.Transformation.objects.filter(parent__isnull=True).filter(container_q(candidates, field="input")).select_related("input", "output").order_by("pk")
+                models.Transformation.objects.filter(parent__isnull=True)
+                .filter(container_q(candidates, field="input"))
+                .select_related("input", "output")
+                .order_by("pk")
             )
             out_keys = _keys_for(out_edges)
             primary: dict[tuple, models.Transformation] = {}
             for edge in out_edges:
                 child = out_keys.get(edge.input_id) if edge.input_id else None
-                if child is None or not is_derivation_edge(edge, of_container=child, keys=out_keys):
+                if child is None or not is_derivation_edge(
+                    edge, of_container=child, keys=out_keys
+                ):
                     continue
                 primary.setdefault(child, edge)
             for child, edge in primary.items():
@@ -2611,7 +2999,9 @@ def _placement_seeds(space: "models.CoordinateSystem") -> set[tuple]:
         # `output__in=frames_into(world)`, where mikro has `output=world`: a dataset sampled onto
         # a clock that is itself laid into this world is placed here as surely as one
         # registered directly.
-        models.Transformation.objects.filter(parent__isnull=True, output__in=frames_into(world))
+        models.Transformation.objects.filter(
+            parent__isnull=True, output__in=frames_into(world)
+        )
         # Both endpoints, because `system_dataset` reads each side's residence to bucket the
         # edge; unselected, that reverse walk is a query per registration, which made this grow
         # one query per source in the space.
@@ -2627,8 +3017,14 @@ def _placement_seeds(space: "models.CoordinateSystem") -> set[tuple]:
     # registration here would hide the fetch of everything affinely upstream of it. The
     # narrowing belongs at the walk, where it is one line and cannot lose a route -- the
     # agreement `tests/test_placeable_in_filter.py` pins is between the walks, not the fetches.
-    walkable_inputs = {edge.input_id for edge in registrations if edge.input_id and is_traversable(edge)}
-    seeds = {key for key in container_map(walkable_inputs).values() if key[0] != "system"}
+    walkable_inputs = {
+        edge.input_id
+        for edge in registrations
+        if edge.input_id and is_traversable(edge)
+    }
+    seeds = {
+        key for key in container_map(walkable_inputs).values() if key[0] != "system"
+    }
 
     # An owned world (a scene rooted at a dataset's intrinsic pixels, its physical space, or
     # a collection's own space) anchors its own container with no registration at all: the
@@ -2643,15 +3039,26 @@ def _placement_seeds(space: "models.CoordinateSystem") -> set[tuple]:
         # and reaching a collection's source is the one hop that goes the other way.
         if world_key[0] != "dataset":
             derivation = collection_derivation_edge(world)
-            if derivation is not None and derivation.output_id is not None and is_traversable(derivation):
-                source_key = container_map([derivation.output_id]).get(derivation.output_id)
+            if (
+                derivation is not None
+                and derivation.output_id is not None
+                and is_traversable(derivation)
+            ):
+                source_key = container_map([derivation.output_id]).get(
+                    derivation.output_id
+                )
                 if source_key is not None and source_key[0] != "system":
                     seeds.add(source_key)
 
     return seeds
 
 
-def placeable_system_ids_in(space: "models.CoordinateSystem", *, derived_only: bool = False, require_affine: bool = True) -> set[int]:
+def placeable_system_ids_in(
+    space: "models.CoordinateSystem",
+    *,
+    derived_only: bool = False,
+    require_affine: bool = True,
+) -> set[int]:
     """The ids of every coordinate system with an affinely composable path into this space.
 
     The batched dual of :func:`is_placeable_in`: rather than ask "can *this* source
@@ -2710,7 +3117,12 @@ def placeable_system_ids_in(space: "models.CoordinateSystem", *, derived_only: b
     edges = list(
         models.Transformation.objects.filter(parent__isnull=True)
         # `frames`, where mikro has the world alone: see `frames_into`.
-        .filter(container_q(container_keys, field="input") | container_q(container_keys, field="output") | Q(input__in=frames) | Q(output__in=frames))
+        .filter(
+            container_q(container_keys, field="input")
+            | container_q(container_keys, field="output")
+            | Q(input__in=frames)
+            | Q(output__in=frames)
+        )
         .distinct()
         .select_related("input", "output")
         .prefetch_related("children", "input__axes", "output__axes")
@@ -2756,16 +3168,32 @@ def placeable_system_ids_in(space: "models.CoordinateSystem", *, derived_only: b
     return {system_id for system_id in reachable if keys.get(system_id) in descendants}
 
 
-def _placeable_systems(space: "models.CoordinateSystem", *, derived_only: bool = False, require_affine: bool = True) -> list["models.CoordinateSystem"]:
+def _placeable_systems(
+    space: "models.CoordinateSystem",
+    *,
+    derived_only: bool = False,
+    require_affine: bool = True,
+) -> list["models.CoordinateSystem"]:
     """The placeable coordinate systems as rows.
 
     No `select_related` of owners any more: a space has none. Callers that need to know what
     lives in these spaces ask :func:`residence_map` over their ids, in three queries.
     """
-    return list(models.CoordinateSystem.objects.filter(pk__in=placeable_system_ids_in(space, derived_only=derived_only, require_affine=require_affine)))
+    return list(
+        models.CoordinateSystem.objects.filter(
+            pk__in=placeable_system_ids_in(
+                space, derived_only=derived_only, require_affine=require_affine
+            )
+        )
+    )
 
 
-def placeable_lens_dataset_ids(space: "models.CoordinateSystem", *, derived_only: bool = False, require_affine: bool = True) -> set[int]:
+def placeable_lens_dataset_ids(
+    space: "models.CoordinateSystem",
+    *,
+    derived_only: bool = False,
+    require_affine: bool = True,
+) -> set[int]:
     """The datasets every one of whose lenses is placeable in this space.
 
     Placeability is a property of the *dataset*, not the individual lens: an unsliced lens'
@@ -2780,17 +3208,35 @@ def placeable_lens_dataset_ids(space: "models.CoordinateSystem", *, derived_only
     ``require_affine=False`` is elektro's, and only the *opt-in* ``placeableIn.requireAffine``
     passes it: "what is in this session", which a variable-step run answers across a FIELD.
     """
-    return {dataset_id for system in _placeable_systems(space, derived_only=derived_only, require_affine=require_affine) if (dataset_id := _fk_dataset_id(system)) is not None}
+    return {
+        dataset_id
+        for system in _placeable_systems(
+            space, derived_only=derived_only, require_affine=require_affine
+        )
+        if (dataset_id := _fk_dataset_id(system)) is not None
+    }
 
 
-def placeable_table_dataset_ids(space: "models.CoordinateSystem", *, require_affine: bool = True) -> set[int]:
+def placeable_table_dataset_ids(
+    space: "models.CoordinateSystem", *, require_affine: bool = True
+) -> set[int]:
     """The table datasets whose own coordinate system is placeable in this space.
 
     A table owns its system one-to-one, so there is no dataset reduction as there is for a
     lens: the placeable table datasets are exactly those whose system is in the placeable set.
     """
-    placeable = {system.pk for system in _placeable_systems(space, require_affine=require_affine)}
-    return set(models.TableDataset.objects.filter(coordinate_system_id__in=placeable).values_list("pk", flat=True)) if placeable else set()
+    placeable = {
+        system.pk for system in _placeable_systems(space, require_affine=require_affine)
+    }
+    return (
+        set(
+            models.TableDataset.objects.filter(
+                coordinate_system_id__in=placeable
+            ).values_list("pk", flat=True)
+        )
+        if placeable
+        else set()
+    )
 
 
 def categorized_dataset_ids(dataset_ids: "Iterable[int]") -> set[int]:
@@ -2818,26 +3264,40 @@ def categorized_dataset_ids(dataset_ids: "Iterable[int]") -> set[int]:
         return set()
 
     edges = list(
-        models.Transformation.objects.filter(parent__isnull=True, input__datasets__in=dataset_ids)
+        models.Transformation.objects.filter(
+            parent__isnull=True, input__datasets__in=dataset_ids
+        )
         .annotate(_source_dataset=F("input__datasets__id"))
         .select_related("input", "output")
         .order_by("pk")
     )
     keys = container_map({edge.output_id for edge in edges if edge.output_id})
 
-    primary: dict[int, "models.Transformation"] = {}
+    primary: dict[int, models.Transformation] = {}
     for edge in edges:
         dataset_id = edge._source_dataset
-        if dataset_id not in dataset_ids or not is_derivation_edge(edge, of_container=("dataset", dataset_id), keys=keys):
+        if dataset_id not in dataset_ids or not is_derivation_edge(
+            edge, of_container=("dataset", dataset_id), keys=keys
+        ):
             continue
         # First by pk wins, kind-blind: the creator's declared order is the primary parent,
         # exactly `derivation_edges`' rule, and an UNMAPPABLE primary is still the primary.
         primary.setdefault(dataset_id, edge)
 
-    return {dataset_id for dataset_id, edge in primary.items() if edge.value_relation == enums.ValueRelationChoices.CATEGORIZED.value}
+    return {
+        dataset_id
+        for dataset_id, edge in primary.items()
+        if edge.value_relation == enums.ValueRelationChoices.CATEGORIZED.value
+    }
 
 
-def adjacency_of(edges, *, at: dict[str, int] | None = None, admit_scoped: bool = False, require_affine: bool = False) -> dict[int, list[tuple["models.Transformation", bool, int]]]:
+def adjacency_of(
+    edges,
+    *,
+    at: dict[str, int] | None = None,
+    admit_scoped: bool = False,
+    require_affine: bool = False,
+) -> dict[int, list[tuple["models.Transformation", bool, int]]]:
     """Build the BFS adjacency of an edge collection.
 
     Forwards, unless the edge says there is nothing to walk: an UNMAPPABLE edge relates
@@ -2875,7 +3335,9 @@ def adjacency_of(edges, *, at: dict[str, int] | None = None, admit_scoped: bool 
         if not selector_admits(edge, at, admit_scoped=admit_scoped):
             continue
         if is_traversable(edge) and (not require_affine or is_condensable(edge)):
-            adjacency.setdefault(edge.input_id, []).append((edge, False, edge.output_id))
+            adjacency.setdefault(edge.input_id, []).append(
+                (edge, False, edge.output_id)
+            )
         if is_reverse_traversable(edge):
             adjacency.setdefault(edge.output_id, []).append((edge, True, edge.input_id))
     return adjacency
@@ -2974,8 +3436,13 @@ def lineage_graph(
 
     while frontier and (max_depth is None or depth < max_depth):
         touching = list(
-            models.Transformation.objects.filter(parent__isnull=True, organization=organization)
-            .filter(container_q(frontier, field="input") | container_q(frontier, field="output"))
+            models.Transformation.objects.filter(
+                parent__isnull=True, organization=organization
+            )
+            .filter(
+                container_q(frontier, field="input")
+                | container_q(frontier, field="output")
+            )
             .distinct()
             .select_related("input", "output")
         )
@@ -2984,7 +3451,9 @@ def lineage_graph(
         discovered: set[tuple] = set()
         for edge in touching:
             child = keys.get(edge.input_id) if edge.input_id else None
-            if child is None or not is_derivation_edge(edge, of_container=child, keys=keys):
+            if child is None or not is_derivation_edge(
+                edge, of_container=child, keys=keys
+            ):
                 continue
             parent = keys.get(edge.output_id) if edge.output_id else None
             if parent is None:
@@ -3003,7 +3472,11 @@ def lineage_graph(
     # Both endpoints inside the component, so no edge dangles off a node that is not in
     # `nodes` -- at a `maxDepth` cutoff the boundary edges are precisely the ones that would.
     keys = _keys_for(edges.values())
-    kept = [edge for edge in edges.values() if keys.get(edge.input_id) in reached and keys.get(edge.output_id) in reached]
+    kept = [
+        edge
+        for edge in edges.values()
+        if keys.get(edge.input_id) in reached and keys.get(edge.output_id) in reached
+    ]
 
     by_kind: dict[str, list[int]] = {}
     for kind, pk in reached:
@@ -3070,7 +3543,13 @@ def traverse(
             touching = Q(output_id__in=frontier)
         else:
             touching = Q(input_id__in=frontier) | Q(output_id__in=frontier)
-        endpoints = models.Transformation.objects.filter(parent__isnull=True, organization=organization).filter(touching).values_list("input_id", "output_id")
+        endpoints = (
+            models.Transformation.objects.filter(
+                parent__isnull=True, organization=organization
+            )
+            .filter(touching)
+            .values_list("input_id", "output_id")
+        )
 
         discovered: set[int] = set()
         for input_id, output_id in endpoints:
@@ -3110,7 +3589,13 @@ def traverse(
             output_id__in=reached,
         )
         .select_related("input", "output", "parent")
-        .prefetch_related("children", "input__axes", "output__axes", "parent__input__axes", "parent__output__axes")
+        .prefetch_related(
+            "children",
+            "input__axes",
+            "output__axes",
+            "parent__input__axes",
+            "parent__output__axes",
+        )
         .order_by("pk")
     )
 
@@ -3132,7 +3617,9 @@ def traverse(
 #: was added to the model layer and never to this dict, so a space holding only a sparse dataset
 #: answered "nothing lives here" and was refused as a world. Deriving it means a container is
 #: still one line in `CONTAINERS` and nothing else, which is what that tuple promises.
-_UNINHABITED: dict[str, bool] = {f"{related_name}__isnull": True for related_name in RESIDENT_RELATIONS}
+_UNINHABITED: dict[str, bool] = {
+    f"{related_name}__isnull": True for related_name in RESIDENT_RELATIONS
+}
 
 
 def fact_paths(
@@ -3169,11 +3656,22 @@ def fact_paths(
 
     while frontier and (max_depth is None or depth < max_depth):
         endpoints = (
-            models.Transformation.objects.filter(parent__isnull=True, organization=organization)
+            models.Transformation.objects.filter(
+                parent__isnull=True, organization=organization
+            )
             .filter(Q(input_id__in=frontier) | Q(output_id__in=frontier))
-            .exclude(kind__in=[enums.TransformKindChoices.UNMAPPABLE.value, enums.TransformKindChoices.FIELD.value])
-            .exclude(**{f"input__{lookup}": value for lookup, value in _UNINHABITED.items()})
-            .exclude(**{f"output__{lookup}": value for lookup, value in _UNINHABITED.items()})
+            .exclude(
+                kind__in=[
+                    enums.TransformKindChoices.UNMAPPABLE.value,
+                    enums.TransformKindChoices.FIELD.value,
+                ]
+            )
+            .exclude(
+                **{f"input__{lookup}": value for lookup, value in _UNINHABITED.items()}
+            )
+            .exclude(
+                **{f"output__{lookup}": value for lookup, value in _UNINHABITED.items()}
+            )
             .values_list("input_id", "output_id")
         )
 
@@ -3188,20 +3686,30 @@ def fact_paths(
         depth += 1
 
     edges = list(
-        models.Transformation.objects.filter(parent__isnull=True, organization=organization)
+        models.Transformation.objects.filter(
+            parent__isnull=True, organization=organization
+        )
         .filter(Q(input_id__in=reached) | Q(output_id__in=reached))
         .select_related("input", "output")
         .prefetch_related("children", "input__axes", "output__axes")
         .order_by("pk")
     )
 
-    connectivity = [edge for edge in edges if edge.kind != enums.TransformKindChoices.FIELD.value and edge.input_id in reached and edge.output_id in reached]
+    connectivity = [
+        edge
+        for edge in edges
+        if edge.kind != enums.TransformKindChoices.FIELD.value
+        and edge.input_id in reached
+        and edge.output_id in reached
+    ]
     parents = _bfs_tree(adjacency_of(connectivity), root.pk, max_depth=max_depth)
 
     return {pk: _steps_from_parents(parents, root.pk, pk) for pk in parents}
 
 
-def walk_towards_intrinsic(system: "models.CoordinateSystem") -> tuple[list["models.Transformation"], "models.CoordinateSystem"]:
+def walk_towards_intrinsic(
+    system: "models.CoordinateSystem",
+) -> tuple[list["models.Transformation"], "models.CoordinateSystem"]:
     """The composable edges from a system down towards intrinsic pixels, and where they end.
 
     **One definition, not one traversal.** A bounding box, the frame it is denominated in and
@@ -3249,7 +3757,11 @@ def walk_towards_intrinsic(system: "models.CoordinateSystem") -> tuple[list["mod
         seen.add(current.pk)
 
         edge = _edge_towards_intrinsic(current, dataset)
-        if edge is None or edge.output is None or not coords_logic.has_matrix(edge.kind):
+        if (
+            edge is None
+            or edge.output is None
+            or not coords_logic.has_matrix(edge.kind)
+        ):
             break
 
         edges.append(edge)
@@ -3277,7 +3789,9 @@ def intrinsic_frame(system: "models.CoordinateSystem") -> "models.CoordinateSyst
     return walk_towards_intrinsic(system)[1]
 
 
-def record_bbox_frame(collection: "models.AnnotationCollection", system: "models.CoordinateSystem") -> None:
+def record_bbox_frame(
+    collection: "models.AnnotationCollection", system: "models.CoordinateSystem"
+) -> None:
     """Name the frame this collection's stored boxes will be in, once, at creation.
 
     Named now, while the answer is unambiguous, because every box the collection stores is a
@@ -3299,7 +3813,9 @@ def record_bbox_frame(collection: "models.AnnotationCollection", system: "models
     collection.save_without_historical_record(update_fields=["bbox_system"])
 
 
-def _edge_towards_intrinsic(system: "models.CoordinateSystem", dataset: "models.ArrayDataset | None") -> "models.Transformation | None":
+def _edge_towards_intrinsic(
+    system: "models.CoordinateSystem", dataset: "models.ArrayDataset | None"
+) -> "models.Transformation | None":
     """The edge leading out of a system and *towards the data*, never out into a scene.
 
     Ordered by pk so the choice between two candidates is deterministic rather than
@@ -3323,9 +3839,20 @@ def _edge_towards_intrinsic(system: "models.CoordinateSystem", dataset: "models.
     so it is a placement, not a lineage, and this walk has no business crossing it.
     """
     if dataset is None:
-        return next((edge for edge in collection_derivation_edges(system) if edge.output is not None and is_traversable(edge)), None)
+        return next(
+            (
+                edge
+                for edge in collection_derivation_edges(system)
+                if edge.output is not None and is_traversable(edge)
+            ),
+            None,
+        )
 
-    candidates = models.Transformation.objects.filter(input=system, parent__isnull=True).select_related("output").order_by("pk")
+    candidates = (
+        models.Transformation.objects.filter(input=system, parent__isnull=True)
+        .select_related("output")
+        .order_by("pk")
+    )
 
     for edge in candidates:
         if edge.output is None or not is_traversable(edge):
@@ -3345,7 +3872,11 @@ def _edge_params(edge: "models.Transformation") -> tuple[str, dict]:
     """
     if edge.kind == enums.TransformKindChoices.MAP_AXIS.value:
         axis_order = [axis.name for axis in edge.input.axes.all()] if edge.input else []
-        return edge.kind, {"affine": coords_logic.permutation_matrix(edge.input_axes or [], edge.output_axes or [], axis_order)}
+        return edge.kind, {
+            "affine": coords_logic.permutation_matrix(
+                edge.input_axes or [], edge.output_axes or [], axis_order
+            )
+        }
 
     if edge.kind != enums.TransformKindChoices.SEQUENCE.value:
         return edge.kind, edge.params
@@ -3356,7 +3887,9 @@ def _edge_params(edge: "models.Transformation") -> tuple[str, dict]:
     return edge.kind, params
 
 
-def _edge_step(edge: "models.Transformation", *, inverted: bool = False) -> "coords_logic.AxedStep":
+def _edge_step(
+    edge: "models.Transformation", *, inverted: bool = False
+) -> "coords_logic.AxedStep":
     """An edge as an `AxedStep`: its map, plus both endpoints' full axis orders.
 
     Deliberately not built on :func:`edge_axis_names`, which returns the *stored subset* for a
@@ -3373,7 +3906,12 @@ def _edge_step(edge: "models.Transformation", *, inverted: bool = False) -> "coo
     """
     children: tuple[tuple[str, dict], ...] = ()
     if edge.kind in _COMPOSITE_KINDS:
-        children = tuple((child.kind, child.params) for child in sorted(edge.children.all(), key=lambda child: (child.order, child.pk)))
+        children = tuple(
+            (child.kind, child.params)
+            for child in sorted(
+                edge.children.all(), key=lambda child: (child.order, child.pk)
+            )
+        )
 
     # Each endpoint's axes read once. `axes.all()` builds a fresh queryset per call unless a
     # prefetch upstream has filled the cache, and this runs once per edge per placement per
@@ -3467,7 +4005,12 @@ def condense_path(
 
     forms = coords_logic.compose_forms(axed, source_axes)
     matrix, rows = coords_logic.forms_to_matrix(forms, destination_axes)
-    return CondensedPlacement(matrix=matrix, input_axes=source_axes, output_axes=rows, total=len(rows) == len(destination_axes))
+    return CondensedPlacement(
+        matrix=matrix,
+        input_axes=source_axes,
+        output_axes=rows,
+        total=len(rows) == len(destination_axes),
+    )
 
 
 def dataset_behind(system: "models.CoordinateSystem") -> "models.ArrayDataset | None":
@@ -3492,12 +4035,17 @@ def dataset_behind(system: "models.CoordinateSystem") -> "models.ArrayDataset | 
         .order_by("pk")
     )
     for edge in incoming:
-        if edge.input is not None and (dataset := system_dataset(edge.input)) is not None:
+        if (
+            edge.input is not None
+            and (dataset := system_dataset(edge.input)) is not None
+        ):
             return dataset
     return None
 
 
-def physical_neighbours(system: "models.CoordinateSystem") -> list["models.CoordinateSystem"]:
+def physical_neighbours(
+    system: "models.CoordinateSystem",
+) -> list["models.CoordinateSystem"]:
     """The spaces one edge out of this one whose axes carry units: its physical frames.
 
     What replaced `dataset.calibrations` (RFC-9). A physical space is not a thing a dataset
@@ -3562,7 +4110,9 @@ def transform_version(system: "models.CoordinateSystem") -> int:
     # itself: `Transformation.provenance` is a HistoricalRecords on the class and a manager on
     # an instance, so reading `.model` off the class is a runtime-only truth. The relation is
     # an ordinary field either way, and it is the same one `provenanceEntries` reads.
-    historical = models.Transformation._meta.get_field("provenance_entries").related_model
+    historical = models.Transformation._meta.get_field(
+        "provenance_entries"
+    ).related_model
     return historical.objects.filter(id__in=edge_ids).count()
 
 
@@ -3596,7 +4146,9 @@ def vertex_padding(system: "models.CoordinateSystem") -> float:
     re-derive them (``created_with_transforms`` is how a client sees that).
     """
     edge = (
-        models.Transformation.objects.filter(input=system, parent__isnull=True, output__isnull=False)
+        models.Transformation.objects.filter(
+            input=system, parent__isnull=True, output__isnull=False
+        )
         .exclude(kind=enums.TransformKindChoices.UNMAPPABLE.value)
         .select_related("output")
         .prefetch_related("output__axes")
@@ -3608,7 +4160,9 @@ def vertex_padding(system: "models.CoordinateSystem") -> float:
     return 0.0 if any(axis.unit for axis in edge.output.axes.all()) else 0.5
 
 
-def bbox_along_chain(chain: list, vectors: list[list[float]], *, padding: float = 0.5) -> dict | None:
+def bbox_along_chain(
+    chain: list, vectors: list[list[float]], *, padding: float = 0.5
+) -> dict | None:
     """The bounding box of one shape's geometry, pushed along an already-resolved chain.
 
     Pushes **every corner** of the box, not just the two extremes. An
@@ -3622,7 +4176,12 @@ def bbox_along_chain(chain: list, vectors: list[list[float]], *, padding: float 
     return coords_logic.transformed_bbox(low, high, chain)
 
 
-def compute_intrinsic_bbox(system: "models.CoordinateSystem", vectors: list[list[float]], *, padding: float = 0.5) -> dict | None:
+def compute_intrinsic_bbox(
+    system: "models.CoordinateSystem",
+    vectors: list[list[float]],
+    *,
+    padding: float = 0.5,
+) -> dict | None:
     """The bounding box of a shape's geometry, pushed into the nearest intrinsic space."""
     return bbox_along_chain(intrinsic_chain(system), vectors, padding=padding)
 
@@ -3632,10 +4191,15 @@ def lens_source_system(lens: "models.Lens") -> "models.CoordinateSystem | None":
 
     An unsliced lens owns no system: its space is the dataset's intrinsic space.
     """
-    return getattr(lens, "coordinate_system", None) or lens.dataset.intrinsic_coordinate_system
+    return (
+        getattr(lens, "coordinate_system", None)
+        or lens.dataset.intrinsic_coordinate_system
+    )
 
 
-def layer_source_system(layer: "models.ExperimentLayer") -> "models.CoordinateSystem | None":
+def layer_source_system(
+    layer: "models.ExperimentLayer",
+) -> "models.CoordinateSystem | None":
     """The coordinate system a layer's data is expressed in, per kind.
 
     mikro's function, over elektro's kinds. A trace, heatmap or waveform layer's data lives in its
@@ -3647,11 +4211,17 @@ def layer_source_system(layer: "models.ExperimentLayer") -> "models.CoordinateSy
     """
     if layer.kind in enums.LENS_BACKED_KINDS and layer.lens_id:
         return lens_source_system(layer.lens)
-    if layer.kind == enums.ExperimentLayerKindChoices.SPIKES.value and layer.sparse_dataset_id:
+    if (
+        layer.kind == enums.ExperimentLayerKindChoices.SPIKES.value
+        and layer.sparse_dataset_id
+    ):
         return getattr(layer.sparse_dataset, "coordinate_system", None)
     if layer.kind in enums.TABLE_BACKED_KINDS and layer.table_dataset_id:
         return getattr(layer.table_dataset, "coordinate_system", None)
-    if layer.kind == enums.ExperimentLayerKindChoices.ANNOTATION.value and layer.annotation_collection_id:
+    if (
+        layer.kind == enums.ExperimentLayerKindChoices.ANNOTATION.value
+        and layer.annotation_collection_id
+    ):
         return getattr(layer.annotation_collection, "coordinate_system", None)
     return None
 
@@ -3684,7 +4254,9 @@ def system_dataset(system: "models.CoordinateSystem") -> "models.ArrayDataset | 
     return None
 
 
-def collection_derivation_edge(system: "models.CoordinateSystem") -> "models.Transformation | None":
+def collection_derivation_edge(
+    system: "models.CoordinateSystem",
+) -> "models.Transformation | None":
     """The edge relating a collection's own system to the data it was derived from.
 
     Optional by design: a mesh in some absolute space, belonging to no dataset, has none,
@@ -3700,7 +4272,9 @@ def collection_derivation_edge(system: "models.CoordinateSystem") -> "models.Tra
     return next(iter(collection_derivation_edges(system)), None)
 
 
-def collection_derivation_edges(system: "models.CoordinateSystem") -> list["models.Transformation"]:
+def collection_derivation_edges(
+    system: "models.CoordinateSystem",
+) -> list["models.Transformation"]:
     """Every edge relating a collection's own system to data it was computed from, in order.
 
     A list, because a collection may name several sources exactly as a fused dataset does --
@@ -3710,16 +4284,28 @@ def collection_derivation_edges(system: "models.CoordinateSystem") -> list["mode
     Screened by :func:`is_derivation_edge`, so a registration into a world -- which also
     leaves this system -- is not reported as something the collection came from.
     """
-    candidates = list(models.Transformation.objects.filter(input=system, parent__isnull=True).select_related("output").order_by("pk"))
+    candidates = list(
+        models.Transformation.objects.filter(input=system, parent__isnull=True)
+        .select_related("output")
+        .order_by("pk")
+    )
     if not candidates:
         return []
 
-    keys = container_map({edge.output_id for edge in candidates if edge.output_id} | {system.pk})
+    keys = container_map(
+        {edge.output_id for edge in candidates if edge.output_id} | {system.pk}
+    )
     own = keys.get(system.pk)
-    return [edge for edge in candidates if is_derivation_edge(edge, of_container=own, keys=keys)]
+    return [
+        edge
+        for edge in candidates
+        if is_derivation_edge(edge, of_container=own, keys=keys)
+    ]
 
 
-def collection_source_dataset(system: "models.CoordinateSystem") -> "models.ArrayDataset | None":
+def collection_source_dataset(
+    system: "models.CoordinateSystem",
+) -> "models.ArrayDataset | None":
     """The dataset a collection's system was derived from, or None if it is freestanding."""
     edge = collection_derivation_edge(system)
     if edge is None or edge.output is None:
@@ -3765,7 +4351,9 @@ def _bfs_tree(
     best = enums.PlacementValidityChoices.VALIDATED.value
     source_key = (-_VALIDITY_RANK.get(best, 0), 0)
 
-    parents: dict[int, tuple[int, "models.Transformation", bool] | None] = {source_pk: None}
+    parents: dict[int, tuple[int, models.Transformation, bool] | None] = {
+        source_pk: None
+    }
     #: node -> (-bottleneck validity rank, hops) of the best path found to it so far.
     keys: dict[int, tuple[int, int]] = {source_pk: source_key}
 
@@ -3784,7 +4372,9 @@ def _bfs_tree(
         if max_depth is not None and hops >= max_depth:
             continue
 
-        for edge, inverted, neighbor in sorted(adjacency.get(node, []), key=lambda step: step[0].pk):
+        for edge, inverted, neighbor in sorted(
+            adjacency.get(node, []), key=lambda step: step[0].pk
+        ):
             if neighbor in settled:
                 continue
             # The bottleneck of the extended path: this edge's validity, or the path's, whichever
@@ -3807,7 +4397,7 @@ def _steps_from_parents(
     node: int,
 ) -> list[tuple["models.Transformation", bool]]:
     """Read the (edge, inverted) steps source -> node back out of a BFS parents map."""
-    steps: list[tuple["models.Transformation", bool]] = []
+    steps: list[tuple[models.Transformation, bool]] = []
     while node != source_pk:
         previous, edge, inverted = parents[node]
         steps.append((edge, inverted))

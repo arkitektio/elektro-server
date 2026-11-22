@@ -24,7 +24,6 @@ from kante.types import Info
 from core import models
 from elektro_server.contract import ADMIN
 
-
 # Attribute chain from a model to its governing anchor. An empty tuple means
 # the model is its own anchor (it carries creator/provenance directly).
 ANCHOR_PATHS: dict[type, tuple[str, ...]] = {

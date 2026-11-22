@@ -68,7 +68,12 @@ async def test_an_assumed_placement_reads_unknown(aexecute, authenticated_contex
                 "input": str(dataset.coordinate_system_id),
                 "output": str(experiment.world_id),
                 "validity": "UNKNOWN",
-                "transform": {"kind": "BY_DIMENSION", "inputAxes": ["y", "x"], "outputAxes": ["y", "x"], "scale": [1.0, 1.0]},
+                "transform": {
+                    "kind": "BY_DIMENSION",
+                    "inputAxes": ["y", "x"],
+                    "outputAxes": ["y", "x"],
+                    "scale": [1.0, 1.0],
+                },
             }
         },
     )
@@ -79,7 +84,9 @@ async def test_an_assumed_placement_reads_unknown(aexecute, authenticated_contex
     assert (await _view(aexecute, experiment))["placementValidity"] == "UNKNOWN"
 
 
-async def test_an_authored_registration_reads_manual_and_validating_it_needs_no_layer_write(aexecute, authenticated_context):
+async def test_an_authored_registration_reads_manual_and_validating_it_needs_no_layer_write(
+    aexecute, authenticated_context
+):
     """MANUAL when someone authors the edge; VALIDATED the moment the edge says so.
 
     The second half is the point of the move: validating a registration touches the
@@ -97,18 +104,27 @@ async def test_an_authored_registration_reads_manual_and_validating_it_needs_no_
             "input": {
                 "input": str(dataset.coordinate_system_id),
                 "output": str(experiment.world_id),
-                "transform": {"kind": "BY_DIMENSION", "inputAxes": ["y", "x"], "outputAxes": ["y", "x"], "affine": [[1.0, 0.0, 10.0], [0.0, 1.0, 20.0]]},
+                "transform": {
+                    "kind": "BY_DIMENSION",
+                    "inputAxes": ["y", "x"],
+                    "outputAxes": ["y", "x"],
+                    "affine": [[1.0, 0.0, 10.0], [0.0, 1.0, 20.0]],
+                },
             }
         },
     )
     assert not registered.errors, registered.errors
-    assert registered.data["createTransformation"]["validity"] == "MANUAL", "an edge that arrived through the API was authored by someone"
+    assert registered.data["createTransformation"]["validity"] == "MANUAL", (
+        "an edge that arrived through the API was authored by someone"
+    )
     edge_id = registered.data["createTransformation"]["id"]
     await add_layer(ctx, experiment, lens)
 
     assert (await _view(aexecute, experiment))["placementValidity"] == "MANUAL"
 
-    refined = await aexecute(REFINE, {"input": {"id": edge_id, "validity": "VALIDATED"}})
+    refined = await aexecute(
+        REFINE, {"input": {"id": edge_id, "validity": "VALIDATED"}}
+    )
     assert not refined.errors, refined.errors
     assert refined.data["updateTransformation"]["validity"] == "VALIDATED"
 
@@ -141,15 +157,22 @@ async def test_the_weakest_edge_on_the_path_wins(aexecute, authenticated_context
         ],
         scale=[1.0, 0.325, 0.325],
     )
-    sliced = await seed.create_lens(ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}])
+    sliced = await seed.create_lens(
+        ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}]
+    )
     experiment = await create_experiment(ctx, "Physical", world=calibration)
     await add_layer(ctx, experiment, sliced)
 
     view = await _view(aexecute, experiment)
-    assert [hop["transformation"]["validity"] for hop in view["pathToWorld"]] == ["VALIDATED", "INFERRED"], (
+    assert [hop["transformation"]["validity"] for hop in view["pathToWorld"]] == [
+        "VALIDATED",
+        "INFERRED",
+    ], (
         f"the path must have two hops of differing validity or the minimum below asserts nothing: {view['pathToWorld']}"
     )
-    assert view["placementValidity"] == "INFERRED", "the calibration is the weakest claim on the path"
+    assert view["placementValidity"] == "INFERRED", (
+        "the calibration is the weakest claim on the path"
+    )
 
     def validate_calibration() -> None:
         edge = models.Transformation.objects.get(output=calibration)
@@ -158,7 +181,9 @@ async def test_the_weakest_edge_on_the_path_wins(aexecute, authenticated_context
 
     await sync_to_async(validate_calibration)()
 
-    assert (await _view(aexecute, experiment))["placementValidity"] == "VALIDATED", "fixing the one edge fixes every view that looks through it"
+    assert (await _view(aexecute, experiment))["placementValidity"] == "VALIDATED", (
+        "fixing the one edge fixes every view that looks through it"
+    )
 
 
 async def test_the_layer_carries_no_placement_columns():
@@ -167,13 +192,31 @@ async def test_the_layer_carries_no_placement_columns():
 
     for model in (models.ExperimentLayer,):
         columns = {field.name for field in model._meta.get_fields()}
-        assert not columns & {"status", "validity", "offset", "duration"}, f"{model.__name__} stores a placement fact: {columns}"
+        assert not columns & {"status", "validity", "offset", "duration"}, (
+            f"{model.__name__} stores a placement fact: {columns}"
+        )
 
     sdl = str(schema)
-    definition = sdl[sdl.find("interface ExperimentLayer ") : sdl.find("\n}", sdl.find("interface ExperimentLayer "))]
+    definition = sdl[
+        sdl.find("interface ExperimentLayer ") : sdl.find(
+            "\n}", sdl.find("interface ExperimentLayer ")
+        )
+    ]
     assert "\n  status" not in definition
-    assert "placementValidity(" in definition and "): PlacementValidity!" in definition, "the derived aggregate survives, under its own name and taking the coordinate to answer at"
-    assert "\n  validity" not in definition, "the bare word belongs to the edge, not the view"
+    assert (
+        "placementValidity(" in definition and "): PlacementValidity!" in definition
+    ), (
+        "the derived aggregate survives, under its own name and taking the coordinate to answer at"
+    )
+    assert "\n  validity" not in definition, (
+        "the bare word belongs to the edge, not the view"
+    )
 
-    transformation = sdl[sdl.find("interface Transformation ") : sdl.find("\n}", sdl.find("interface Transformation "))]
-    assert "validity: PlacementValidity" in transformation, "the stored fact lives on the edge"
+    transformation = sdl[
+        sdl.find("interface Transformation ") : sdl.find(
+            "\n}", sdl.find("interface Transformation ")
+        )
+    ]
+    assert "validity: PlacementValidity" in transformation, (
+        "the stored fact lives on the edge"
+    )

@@ -38,15 +38,21 @@ explicitly fileable.
 
 from typing import Any, cast
 
+from kante.types import Info
+
 from core import models
 from core.creation import CreationContext
 from core.logic import graph as graph_logic
 from core.scoping import get_for_org
-from kante.types import Info
 
 #: Anything fileable that can also be derived: the four containers. A `File` is fileable but
 #: has no lineage, so nothing here ever sees one.
-Container = models.ArrayDataset | models.TableDataset | models.AnnotationCollection | models.SparseDataset
+Container = (
+    models.ArrayDataset
+    | models.TableDataset
+    | models.AnnotationCollection
+    | models.SparseDataset
+)
 
 #: The models a `derivedFrom` entry can name, by its source kind. `LENS` is absent on
 #: purpose: a lens is a selection over a dataset, not a filed thing, so a child derived
@@ -59,12 +65,16 @@ _SOURCE_MODELS: dict[str, type] = {
 
 #: The container keys that name something fileable. `container_map` also returns
 #: `("system", pk)` for a space owned by nothing, which has no folder to inherit.
-_FILEABLE_KEYS = frozenset({"dataset", "tabledataset", "annotationcollection", "sparsedataset"})
+_FILEABLE_KEYS = frozenset(
+    {"dataset", "tabledataset", "annotationcollection", "sparsedataset"}
+)
 
 _DERIVED_REFUSAL = "{label} was computed from {parent}, so it is filed with it and cannot be filed on its own. Derived data follows its primary parent's folder: move {parent} instead, and everything derived from it moves with it"
 
 
-def resolve_folder(info: Info, ctx: CreationContext, folder_id: str | None) -> models.Folder:
+def resolve_folder(
+    info: Info, ctx: CreationContext, folder_id: str | None
+) -> models.Folder:
     """The folder named by the input, or the user's default folder (created on first use)."""
     if folder_id:
         return cast(models.Folder, get_for_org(models.Folder, info, id=folder_id))
@@ -139,7 +149,11 @@ def derivation_parent(container: Container) -> Container | None:
 
 def _label(container: Container) -> str:
     """A container in an error message: its kind and the name a user would recognise."""
-    name = getattr(container, "name", None) or getattr(container, "version", None) or container.pk
+    name = (
+        getattr(container, "name", None)
+        or getattr(container, "version", None)
+        or container.pk
+    )
     return f"{type(container).__name__} '{name}'"
 
 
@@ -147,10 +161,17 @@ def assert_explicitly_fileable(container: Container) -> None:
     """Refuse to file a derived container: it goes where its primary parent goes."""
     parent = derivation_parent(container)
     if parent is not None:
-        raise ValueError(_DERIVED_REFUSAL.format(label=_label(container), parent=_label(parent)))
+        raise ValueError(
+            _DERIVED_REFUSAL.format(label=_label(container), parent=_label(parent))
+        )
 
 
-def folder_for_new_container(info: Info, ctx: CreationContext, folder_id: str | None, derived_from: list[Any] | None) -> "models.Folder | None":
+def folder_for_new_container(
+    info: Info,
+    ctx: CreationContext,
+    folder_id: str | None,
+    derived_from: list[Any] | None,
+) -> "models.Folder | None":
     """The folder a container being created is filed in.
 
     Derived data inherits, and naming a folder for it is refused rather than ignored -- a
@@ -162,7 +183,9 @@ def folder_for_new_container(info: Info, ctx: CreationContext, folder_id: str | 
         return resolve_folder(info, ctx, folder_id)
 
     if folder_id:
-        raise ValueError(_DERIVED_REFUSAL.format(label="This data", parent=_label(parent)))
+        raise ValueError(
+            _DERIVED_REFUSAL.format(label="This data", parent=_label(parent))
+        )
     return parent.folder
 
 
@@ -185,11 +208,20 @@ def _primary_children(container: Container) -> list[Container]:
     if key is None:
         return []
 
-    edges = list(models.Transformation.objects.filter(graph_logic.container_q([key], field="output"), parent__isnull=True).select_related("input", "output").order_by("pk"))
+    edges = list(
+        models.Transformation.objects.filter(
+            graph_logic.container_q([key], field="output"), parent__isnull=True
+        )
+        .select_related("input", "output")
+        .order_by("pk")
+    )
     if not edges:
         return []
 
-    keys = graph_logic.container_map({edge.input.pk for edge in edges if edge.input} | {edge.output.pk for edge in edges if edge.output})
+    keys = graph_logic.container_map(
+        {edge.input.pk for edge in edges if edge.input}
+        | {edge.output.pk for edge in edges if edge.output}
+    )
 
     seen: set[tuple[str, int]] = {key}
     children = []
@@ -200,7 +232,11 @@ def _primary_children(container: Container) -> list[Container]:
         if not graph_logic.is_derivation_edge(edge, of_container=child_key, keys=keys):
             continue
         seen.add(child_key)
-        child = graph_logic.MODEL_BY_KEY[child_key[0]].objects.filter(pk=child_key[1]).first()
+        child = (
+            graph_logic.MODEL_BY_KEY[child_key[0]]
+            .objects.filter(pk=child_key[1])
+            .first()
+        )
         # Only the primary parent carries the filing, and only this container's primary
         # children follow it. A fusion listing this source second stays where its own first
         # source is.

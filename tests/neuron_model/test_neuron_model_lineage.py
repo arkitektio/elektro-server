@@ -8,7 +8,11 @@ and every walk that answers for a table or a dataset now answers for a model too
 
 import pytest
 
-from core.models import Axis, CoordinateSystem, ModEnvironment, NeuronModel, Transformation
+from core.models import (
+    ModEnvironment,
+    NeuronModel,
+    Transformation,
+)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -49,10 +53,14 @@ def _config(v_init="-67 mV"):
 
 
 async def _env(context, name):
-    return await ModEnvironment.objects.acreate(name=name, organization=context.request.organization)
+    return await ModEnvironment.objects.acreate(
+        name=name, organization=context.request.organization
+    )
 
 
-async def test_a_created_model_owns_a_space_with_one_index_axis(aexecute, authenticated_context):
+async def test_a_created_model_owns_a_space_with_one_index_axis(
+    aexecute, authenticated_context
+):
     env = await _env(authenticated_context, "env-space")
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -65,12 +73,16 @@ async def test_a_created_model_owns_a_space_with_one_index_axis(aexecute, authen
     # One INDEX axis and nothing placeable -- the same degenerate space a table with no
     # coordinate columns gets. Named "object", not "cell": an INDEX axis claims integer
     # positions, and a model's cells are addressed by string id.
-    assert [(axis["name"], axis["type"]) for axis in system["axes"]] == [("object", "INDEX")]
+    assert [(axis["name"], axis["type"]) for axis in system["axes"]] == [
+        ("object", "INDEX")
+    ]
     # A model written from scratch came from nothing.
     assert res.data["createNeuronModel"]["derivedFrom"] == []
 
 
-async def test_derived_from_records_the_parent_as_an_unmappable_edge(aexecute, make_neuron_model):
+async def test_derived_from_records_the_parent_as_an_unmappable_edge(
+    aexecute, make_neuron_model
+):
     parent = await make_neuron_model(name="Ancestor")
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -78,7 +90,13 @@ async def test_derived_from_records_the_parent_as_an_unmappable_edge(aexecute, m
             "input": {
                 "name": "Descendant",
                 "config": _config(),
-                "derivedFrom": [{"kind": "NEURON_MODEL", "neuronModel": str(parent.id), "valueRelation": "TRANSFORMED"}],
+                "derivedFrom": [
+                    {
+                        "kind": "NEURON_MODEL",
+                        "neuronModel": str(parent.id),
+                        "valueRelation": "TRANSFORMED",
+                    }
+                ],
             }
         },
     )
@@ -90,12 +108,20 @@ async def test_derived_from_records_the_parent_as_an_unmappable_edge(aexecute, m
     assert edges[0]["output"]["id"] == str(parent.coordinate_system_id)
 
 
-async def test_parent_sugar_and_derived_from_produce_the_same_edge(aexecute, make_neuron_model):
+async def test_parent_sugar_and_derived_from_produce_the_same_edge(
+    aexecute, make_neuron_model
+):
     parent = await make_neuron_model(name="SugarParent")
 
     sugared = await aexecute(
         CREATE_NEURON_MODEL,
-        {"input": {"name": "ViaSugar", "parent": str(parent.id), "config": _config("-60 mV")}},
+        {
+            "input": {
+                "name": "ViaSugar",
+                "parent": str(parent.id),
+                "config": _config("-60 mV"),
+            }
+        },
     )
     explicit = await aexecute(
         CREATE_NEURON_MODEL,
@@ -103,7 +129,9 @@ async def test_parent_sugar_and_derived_from_produce_the_same_edge(aexecute, mak
             "input": {
                 "name": "ViaDerivedFrom",
                 "config": _config("-61 mV"),
-                "derivedFrom": [{"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}],
+                "derivedFrom": [
+                    {"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}
+                ],
             }
         },
     )
@@ -111,7 +139,10 @@ async def test_parent_sugar_and_derived_from_produce_the_same_edge(aexecute, mak
     assert not explicit.errors, explicit.errors
 
     def shape(res):
-        return [(edge["kind"], edge["output"]["id"]) for edge in res.data["createNeuronModel"]["derivedFrom"]]
+        return [
+            (edge["kind"], edge["output"]["id"])
+            for edge in res.data["createNeuronModel"]["derivedFrom"]
+        ]
 
     assert shape(sugared) == shape(explicit)
 
@@ -126,7 +157,9 @@ async def test_naming_the_parent_twice_is_refused(aexecute, make_neuron_model):
                 "name": "Ambiguous",
                 "parent": str(parent.id),
                 "config": _config(),
-                "derivedFrom": [{"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}],
+                "derivedFrom": [
+                    {"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}
+                ],
             }
         },
     )
@@ -134,7 +167,9 @@ async def test_naming_the_parent_twice_is_refused(aexecute, make_neuron_model):
     assert not await NeuronModel.objects.filter(name="Ambiguous").aexists()
 
 
-async def test_environment_is_inherited_through_the_derivation(aexecute, authenticated_context, make_neuron_model):
+async def test_environment_is_inherited_through_the_derivation(
+    aexecute, authenticated_context, make_neuron_model
+):
     # Inheritance used to ride on the `parent` column. It now reads the first NEURON_MODEL
     # source, which is the primary parent whichever way it was written.
     env = await _env(authenticated_context, "inherited-env")
@@ -145,7 +180,9 @@ async def test_environment_is_inherited_through_the_derivation(aexecute, authent
             "input": {
                 "name": "Inheritor",
                 "config": _config(),
-                "derivedFrom": [{"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}],
+                "derivedFrom": [
+                    {"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}
+                ],
             }
         },
     )
@@ -154,7 +191,9 @@ async def test_environment_is_inherited_through_the_derivation(aexecute, authent
     assert child.environment_id == env.id
 
 
-async def test_derived_into_is_the_other_end_of_derived_from(aexecute, make_neuron_model):
+async def test_derived_into_is_the_other_end_of_derived_from(
+    aexecute, make_neuron_model
+):
     parent = await make_neuron_model(name="Upstream")
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -162,7 +201,9 @@ async def test_derived_into_is_the_other_end_of_derived_from(aexecute, make_neur
             "input": {
                 "name": "Downstream",
                 "config": _config(),
-                "derivedFrom": [{"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}],
+                "derivedFrom": [
+                    {"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}
+                ],
             }
         },
     )
@@ -171,7 +212,9 @@ async def test_derived_into_is_the_other_end_of_derived_from(aexecute, make_neur
     back = await aexecute(MODEL_LINEAGE, {"id": str(parent.id)})
     assert not back.errors, back.errors
     # Read off the same edges, never a stored back-reference that could disagree with them.
-    assert [node["name"] for node in back.data["neuronModel"]["derivedInto"]] == ["Downstream"]
+    assert [node["name"] for node in back.data["neuronModel"]["derivedInto"]] == [
+        "Downstream"
+    ]
     assert back.data["neuronModel"]["derivedFrom"] == []
 
 
@@ -183,21 +226,33 @@ async def test_a_model_is_a_node_of_the_lineage_graph(aexecute, make_neuron_mode
             "input": {
                 "name": "GraphChild",
                 "config": _config(),
-                "derivedFrom": [{"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}],
+                "derivedFrom": [
+                    {"kind": "NEURON_MODEL", "neuronModel": str(parent.id)}
+                ],
             }
         },
     )
     assert not res.errors, res.errors
 
-    graph = await aexecute(LINEAGE_GRAPH, {"coordinateSystem": str(parent.coordinate_system_id)})
+    graph = await aexecute(
+        LINEAGE_GRAPH, {"coordinateSystem": str(parent.coordinate_system_id)}
+    )
     assert not graph.errors, graph.errors
-    names = {node["name"] for node in graph.data["lineageGraph"]["nodes"] if node["__typename"] == "NeuronModel"}
+    names = {
+        node["name"]
+        for node in graph.data["lineageGraph"]["nodes"]
+        if node["__typename"] == "NeuronModel"
+    }
     # This is the whole point of the change: the walk had no node to stand on before.
     assert names == {"GraphRoot", "GraphChild"}
-    assert [edge["kind"] for edge in graph.data["lineageGraph"]["edges"]] == ["UNMAPPABLE"]
+    assert [edge["kind"] for edge in graph.data["lineageGraph"]["edges"]] == [
+        "UNMAPPABLE"
+    ]
 
 
-async def test_recreating_an_identical_config_does_not_duplicate_the_space_or_the_edge(aexecute, make_neuron_model):
+async def test_recreating_an_identical_config_does_not_duplicate_the_space_or_the_edge(
+    aexecute, make_neuron_model
+):
     # createNeuronModel dedups on the config hash, so an unchanged re-create lands on a row that
     # already has a space and already has its edges. Minting again would abandon the old space
     # (PROTECT makes it undeletable) and write_derivation_edges does not dedup, so a second
@@ -216,9 +271,19 @@ async def test_recreating_an_identical_config_does_not_duplicate_the_space_or_th
     second = await aexecute(CREATE_NEURON_MODEL, payload)
     assert not second.errors, second.errors
 
-    assert first.data["createNeuronModel"]["id"] == second.data["createNeuronModel"]["id"]
-    assert first.data["createNeuronModel"]["coordinateSystem"]["id"] == second.data["createNeuronModel"]["coordinateSystem"]["id"]
+    assert (
+        first.data["createNeuronModel"]["id"] == second.data["createNeuronModel"]["id"]
+    )
+    assert (
+        first.data["createNeuronModel"]["coordinateSystem"]["id"]
+        == second.data["createNeuronModel"]["coordinateSystem"]["id"]
+    )
 
     child = await NeuronModel.objects.aget(name="Stable")
-    assert await Transformation.objects.filter(input=child.coordinate_system_id, parent__isnull=True).acount() == 1
+    assert (
+        await Transformation.objects.filter(
+            input=child.coordinate_system_id, parent__isnull=True
+        ).acount()
+        == 1
+    )
     assert await NeuronModel.objects.filter(name="Stable").acount() == 1

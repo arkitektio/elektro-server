@@ -1,6 +1,7 @@
-from django.db import models
-from django.core.exceptions import ValidationError
 import re
+
+from django.core.exceptions import ValidationError
+from django.db import models
 
 
 def validate_s3(value: str) -> None:
@@ -68,7 +69,11 @@ class CubeField(models.Field):
         if isinstance(value, dict):
             # The intrinsic_bbox dict itself: {'min': [...], 'max': [...]}.
             return cube_literal(value["min"], value["max"])
-        if isinstance(value, (list, tuple)) and value and isinstance(value[0], (list, tuple)):
+        if (
+            isinstance(value, (list, tuple))
+            and value
+            and isinstance(value[0], (list, tuple))
+        ):
             return cube_literal(value[0], value[1])
         return cube_literal(value)
 

@@ -56,7 +56,9 @@ async def test_pinned_is_per_user(aexecute, authenticated_context, bot_context):
     await sync_to_async(folder.pinned_by.add)(bot_context.request.user)
 
     assert await names(aexecute, {"pinned": True}) == set()
-    assert await names(aexecute, {"pinned": True}, context=bot_context) == {"Theirs to pin"}
+    assert await names(aexecute, {"pinned": True}, context=bot_context) == {
+        "Theirs to pin"
+    }
 
 
 async def test_filter_by_owner(aexecute, authenticated_context, bot_context):
@@ -83,7 +85,9 @@ async def test_filter_by_owner(aexecute, authenticated_context, bot_context):
 )
 async def test_filter_by_search(aexecute, authenticated_context):
     """The `search` half of mikro's `test_filter_by_search_and_description`."""
-    await create_folder(authenticated_context, "Experiment", description="control slices")
+    await create_folder(
+        authenticated_context, "Experiment", description="control slices"
+    )
     await create_folder(authenticated_context, "Other", description="treated slices")
 
     assert await names(aexecute, {"search": "Experiment"}) == {"Experiment"}
@@ -91,10 +95,14 @@ async def test_filter_by_search(aexecute, authenticated_context):
 
 async def test_filter_by_description(aexecute, authenticated_context):
     """The `description` half of mikro's `test_filter_by_search_and_description`."""
-    await create_folder(authenticated_context, "Experiment", description="control slices")
+    await create_folder(
+        authenticated_context, "Experiment", description="control slices"
+    )
     await create_folder(authenticated_context, "Other", description="treated slices")
 
-    assert await names(aexecute, {"description": {"iContains": "control"}}) == {"Experiment"}
+    assert await names(aexecute, {"description": {"iContains": "control"}}) == {
+        "Experiment"
+    }
 
 
 async def test_filter_by_parent(aexecute, authenticated_context):
@@ -113,7 +121,16 @@ async def test_an_explicit_null_is_no_constraint(aexecute, authenticated_context
     root = await create_folder(authenticated_context, "Root")
     await create_folder(authenticated_context, "Child", parent=root)
 
-    nothing_asked = {"parentless": None, "parent": None, "pinned": None, "tags": None, "owner": None, "search": None, "createdBefore": None, "createdAfter": None}
+    nothing_asked = {
+        "parentless": None,
+        "parent": None,
+        "pinned": None,
+        "tags": None,
+        "owner": None,
+        "search": None,
+        "createdBefore": None,
+        "createdAfter": None,
+    }
     for field in nothing_asked:
         assert await names(aexecute, {field: None}) == {"Root", "Child"}, field
     assert await names(aexecute, nothing_asked) == {"Root", "Child"}
@@ -129,14 +146,18 @@ async def test_an_explicit_null_is_no_constraint(aexecute, authenticated_context
         "with `if value is None: return Q()`; these two have no resolver to put the guard in."
     ),
 )
-async def test_an_explicit_null_on_a_plain_field_is_no_constraint(aexecute, authenticated_context, field: str):
+async def test_an_explicit_null_on_a_plain_field_is_no_constraint(
+    aexecute, authenticated_context, field: str
+):
     root = await create_folder(authenticated_context, "Root")
     await create_folder(authenticated_context, "Child", parent=root)
 
     assert await names(aexecute, {field: None}) == {"Root", "Child"}
 
 
-async def test_folders_are_listed_per_organization(aexecute, authenticated_context, other_org_context):
+async def test_folders_are_listed_per_organization(
+    aexecute, authenticated_context, other_org_context
+):
     """Every list here is organization-scoped, whatever the filter says."""
     mine = await create_folder(authenticated_context, "Mine")
     await create_folder(authenticated_context, "Mine too", parent=mine)
@@ -144,4 +165,7 @@ async def test_folders_are_listed_per_organization(aexecute, authenticated_conte
 
     assert await names(aexecute, {}) == {"Mine", "Mine too"}
     assert await names(aexecute, {}, context=other_org_context) == {"Theirs"}
-    assert await names(aexecute, {"parent": str(mine.id)}, context=other_org_context) == set(), "naming another organization's folder lists nothing under it"
+    assert (
+        await names(aexecute, {"parent": str(mine.id)}, context=other_org_context)
+        == set()
+    ), "naming another organization's folder lists nothing under it"

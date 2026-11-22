@@ -1,71 +1,101 @@
-from core.base_models.type.model import ModelConfigModel
-from core.analysis import compute_dominance
-from core.analysis.dominance import DEFAULT_WEIGHTS
-from pydantic import BaseModel
+import datetime
+from enum import Enum
+from itertools import chain
+from typing import Annotated, Any, List, Optional, Union, cast
+
+import kante
 import strawberry
-from strawberry.scalars import JSON
 import strawberry_django
-from strawberry import auto
-from typing import Any, List, Optional, Annotated, Union, cast
-import strawberry_django
-from core import models, scalars, filters, enums, scoping
-from kanne_server import scalars as quantities
+from arkitekt_datalayer import types as dt
+from arkitekt_datalayer.datalayer import get_current_datalayer
+from asgiref.sync import sync_to_async
+from authentikate.strawberry.types import Client, User
 from django.contrib.auth import get_user_model
 from kante.types import Info
-import datetime
-from asgiref.sync import sync_to_async
-from itertools import chain
-from enum import Enum
-from arkitekt_datalayer.datalayer import get_current_datalayer
-from strawberry.experimental import pydantic
-from typing import Union
-from core.base_models.type.graphql.cell import Cell
-from core.base_models.type.graphql.topology import Topology
-from core.base_models.type.graphql.model import ModelConfig
-from authentikate.strawberry.types import Client, User
 from koherent.strawberry.types import ProvenanceEntry
-from core.type_gen import create_stats_type
-from arkitekt_datalayer import types as dt
-import kante
+from pydantic import BaseModel
+from strawberry import auto
+from strawberry.experimental import pydantic
+from strawberry.scalars import JSON
+
+from core import enums, filters, models, scalars, scoping
+from core.analysis import compute_dominance
+from core.analysis.dominance import DEFAULT_WEIGHTS
+from core.base_models.type.graphql.cell import Cell
+from core.base_models.type.graphql.model import ModelConfig
+from core.base_models.type.graphql.topology import Topology
+from core.base_models.type.model import ModelConfigModel
 from core.parameters import Parameter, ParameterModel
+from core.type_gen import create_stats_type
+from core.types._shared import (  # noqa: E402,F401  (re-exported: mutations and tests import them from here)
+    DESCRIPTORS_DESCRIPTION,
+    OrgScoped,
+    build_prescoped_queryset,
+    build_prescoper,
+    resolve_descriptors,
+)
+from kanne_server import scalars as quantities
 
 
-from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, build_prescoped_queryset, build_prescoper  # noqa: E402,F401  (re-exported: mutations and tests import them from here)
-
-
-@kante.django_type(models.ModEnvironment, filters=filters.ModEnvironmentFilter, pagination=True, ordering=filters.ModEnvironmentOrder)
+@kante.django_type(
+    models.ModEnvironment,
+    filters=filters.ModEnvironmentFilter,
+    pagination=True,
+    ordering=filters.ModEnvironmentOrder,
+)
 class ModEnvironment(OrgScoped):
     id: auto
     name: auto
     description: str | None
     store: dt.BigFileStore
-    mechanisms: List["Mechanism"] = strawberry_django.field()
+    mechanisms: list["Mechanism"] = strawberry_django.field()
 
 
-@strawberry_django.type(models.Mechanism, filters=filters.MechanismFilter, pagination=True, ordering=filters.MechanismOrder)
+@strawberry_django.type(
+    models.Mechanism,
+    filters=filters.MechanismFilter,
+    pagination=True,
+    ordering=filters.MechanismOrder,
+)
 class Mechanism(OrgScoped):
     id: auto
     name: auto
     description: str | None
 
-    @kante.django_field(only=["parameters"], description="The parameter ports of the mechanism")
+    @kante.django_field(
+        only=["parameters"], description="The parameter ports of the mechanism"
+    )
     def parameters(self, info: Info) -> list[Parameter]:
         return [ParameterModel(**param) for param in self.parameters]
 
 
-@strawberry_django.type(models.ModelCollection, filters=filters.ModelCollectionFilter, ordering=filters.ModelCollectionOrder, pagination=True)
+@strawberry_django.type(
+    models.ModelCollection,
+    filters=filters.ModelCollectionFilter,
+    ordering=filters.ModelCollectionOrder,
+    pagination=True,
+)
 class ModelCollection(OrgScoped):
-    descriptors: JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = strawberry_django.field(
+        resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION
+    )
 
     id: auto
     name: str
-    models: List["NeuronModel"] = strawberry_django.field()
+    models: list["NeuronModel"] = strawberry_django.field()
     description: str | None
     creator: User | None
-    created_at: datetime.datetime = strawberry_django.field(description="When the collection was made")
+    created_at: datetime.datetime = strawberry_django.field(
+        description="When the collection was made"
+    )
 
 
-@strawberry_django.type(models.ModelWorkspace, filters=filters.ModelWorkspaceFilter, ordering=filters.ModelWorkspaceOrder, pagination=True)
+@strawberry_django.type(
+    models.ModelWorkspace,
+    filters=filters.ModelWorkspaceFilter,
+    ordering=filters.ModelWorkspaceOrder,
+    pagination=True,
+)
 class ModelWorkspace(OrgScoped):
     """A shared space for collaboratively developing neuron models.
 
@@ -82,14 +112,25 @@ class ModelWorkspace(OrgScoped):
     description: str | None
     creator: User | None
     created_at: datetime.datetime
-    mappings: List["WorkspaceMapping"] = strawberry_django.field()
+    mappings: list["WorkspaceMapping"] = strawberry_django.field()
 
-    @strawberry_django.field(description="Whether the current user has pinned this workspace")
+    @strawberry_django.field(
+        description="Whether the current user has pinned this workspace"
+    )
     def pinned(self, info: Info) -> bool:
-        return cast(models.ModelWorkspace, self).pinned_by.filter(id=info.context.request.user.id).exists()
+        return (
+            cast(models.ModelWorkspace, self)
+            .pinned_by.filter(id=info.context.request.user.id)
+            .exists()
+        )
 
 
-@strawberry_django.type(models.WorkspaceMapping, filters=filters.WorkspaceMappingFilter, ordering=filters.WorkspaceMappingOrder, pagination=True)
+@strawberry_django.type(
+    models.WorkspaceMapping,
+    filters=filters.WorkspaceMappingFilter,
+    ordering=filters.WorkspaceMappingOrder,
+    pagination=True,
+)
 class WorkspaceMapping(OrgScoped):
     """The link between a neuron model and a workspace.
 
@@ -114,12 +155,12 @@ class ChangeType(str, Enum):
 @strawberry.type
 class Change:
     type: ChangeType
-    path: List[str]
-    value_a: Optional[scalars.Any]
-    value_b: Optional[scalars.Any]
+    path: list[str]
+    value_a: scalars.Any | None
+    value_b: scalars.Any | None
 
 
-def quantity_display(value: Any) -> Optional[str]:
+def quantity_display(value: Any) -> str | None:
     """If ``value`` is a serialized quantity struct, render it as a single compact,
     human-readable string; otherwise return None.
 
@@ -147,9 +188,9 @@ def _leaf(value: Any) -> Any:
     return display if display is not None else value
 
 
-def _compare_values(val_a: Any, val_b: Any, path: List[str]) -> List[Change]:
+def _compare_values(val_a: Any, val_b: Any, path: list[str]) -> list[Change]:
     """Diff two values at ``path``, treating quantity structs as single human-readable leaves."""
-    changes: List[Change] = []
+    changes: list[Change] = []
 
     disp_a = quantity_display(val_a)
     disp_b = quantity_display(val_b)
@@ -159,7 +200,9 @@ def _compare_values(val_a: Any, val_b: Any, path: List[str]) -> List[Change]:
         left = disp_a if disp_a is not None else val_a
         right = disp_b if disp_b is not None else val_b
         if left != right:
-            changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=left, value_b=right))
+            changes.append(
+                Change(type=ChangeType.CHANGED, path=path, value_a=left, value_b=right)
+            )
         return changes
 
     if isinstance(val_a, dict) and isinstance(val_b, dict):
@@ -167,35 +210,69 @@ def _compare_values(val_a: Any, val_b: Any, path: List[str]) -> List[Change]:
         if deeper_changes:
             changes.extend(deeper_changes)
         elif val_a != val_b:
-            changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b))
+            changes.append(
+                Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b)
+            )
     elif isinstance(val_a, list) and isinstance(val_b, list):
         min_len = min(len(val_a), len(val_b))
         for i in range(min_len):
             changes.extend(_compare_values(val_a[i], val_b[i], path + [str(i)]))
         for i in range(min_len, len(val_a)):
-            changes.append(Change(type=ChangeType.REMOVED, path=path + [str(i)], value_a=_leaf(val_a[i]), value_b=None))
+            changes.append(
+                Change(
+                    type=ChangeType.REMOVED,
+                    path=path + [str(i)],
+                    value_a=_leaf(val_a[i]),
+                    value_b=None,
+                )
+            )
         for i in range(min_len, len(val_b)):
-            changes.append(Change(type=ChangeType.ADDED, path=path + [str(i)], value_a=None, value_b=_leaf(val_b[i])))
+            changes.append(
+                Change(
+                    type=ChangeType.ADDED,
+                    path=path + [str(i)],
+                    value_a=None,
+                    value_b=_leaf(val_b[i]),
+                )
+            )
     elif val_a != val_b:
-        changes.append(Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b))
+        changes.append(
+            Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b)
+        )
 
     return changes
 
 
-def compare_models(dict_a: dict, dict_b: dict, path: Optional[List[str]] = None) -> List[Change]:
+def compare_models(
+    dict_a: dict, dict_b: dict, path: list[str] | None = None
+) -> list[Change]:
     if path is None:
         path = []
 
-    changes: List[Change] = []
+    changes: list[Change] = []
 
     keys_a = set(dict_a.keys())
     keys_b = set(dict_b.keys())
 
     for key in keys_a - keys_b:
-        changes.append(Change(type=ChangeType.REMOVED, path=path + [key], value_a=_leaf(dict_a[key]), value_b=None))
+        changes.append(
+            Change(
+                type=ChangeType.REMOVED,
+                path=path + [key],
+                value_a=_leaf(dict_a[key]),
+                value_b=None,
+            )
+        )
 
     for key in keys_b - keys_a:
-        changes.append(Change(type=ChangeType.ADDED, path=path + [key], value_a=None, value_b=_leaf(dict_b[key])))
+        changes.append(
+            Change(
+                type=ChangeType.ADDED,
+                path=path + [key],
+                value_a=None,
+                value_b=_leaf(dict_b[key]),
+            )
+        )
 
     for key in keys_a & keys_b:
         changes.extend(_compare_values(dict_a[key], dict_b[key], path + [key]))
@@ -206,7 +283,7 @@ def compare_models(dict_a: dict, dict_b: dict, path: Optional[List[str]] = None)
 @strawberry.type
 class Comparison:
     collection: ModelCollection
-    changes: List[Change]
+    changes: list[Change]
 
 
 @strawberry.type
@@ -237,47 +314,80 @@ class SectionDominance:
     is_reference: bool
 
 
-def sessions_of(info: Info, datasets: "models.QuerySet") -> List["NeuronModelSession"]:
+def sessions_of(info: Info, datasets: "models.QuerySet") -> list["NeuronModelSession"]:
     """The viewer's datasets among ``datasets``, grouped by the clock they are timed onto (`sites.sessions_of`)."""
-    from core.logic import sites
-
-    from core.logic import listed_datasets
+    from core.logic import listed_datasets, sites
 
     # Each session lists its datasets as list rows: their levels, axes, unit and run load with them.
-    scoped = list(listed_datasets.with_list_facts(scoping.for_org(models.ArrayDataset, info).filter(pk__in=datasets.values("pk")).order_by("pk")))
-    return [NeuronModelSession(clock=clock, datasets=grouped) for clock, grouped in sites.sessions_of(scoped)]
+    scoped = list(
+        listed_datasets.with_list_facts(
+            scoping.for_org(models.ArrayDataset, info)
+            .filter(pk__in=datasets.values("pk"))
+            .order_by("pk")
+        )
+    )
+    return [
+        NeuronModelSession(clock=clock, datasets=grouped)
+        for clock, grouped in sites.sessions_of(scoped)
+    ]
 
 
-@strawberry.type(description="One session of a neuron model: a clock, and the model's datasets timed onto it -- one run, since a run is its clock")
+@strawberry.type(
+    description="One session of a neuron model: a clock, and the model's datasets timed onto it -- one run, since a run is its clock"
+)
 class NeuronModelSession:
-    clock: Optional[Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")]] = strawberry.field(
+    clock: (
+        Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")] | None
+    ) = strawberry.field(
         description="The clock the datasets are timed onto: the run. Null for the model's simulated datasets timed onto no clock yet"
     )
-    datasets: List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]] = strawberry.field(description="The datasets timed onto this clock, in creation order")
+    datasets: list[
+        Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]
+    ] = strawberry.field(
+        description="The datasets timed onto this clock, in creation order"
+    )
 
 
-@strawberry_django.type(models.NeuronModel, filters=filters.NeuronModelFilter, pagination=True, ordering=filters.NeuronModelOrder)
+@strawberry_django.type(
+    models.NeuronModel,
+    filters=filters.NeuronModelFilter,
+    pagination=True,
+    ordering=filters.NeuronModelOrder,
+)
 class NeuronModel(OrgScoped):
-    descriptors: JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = strawberry_django.field(
+        resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION
+    )
 
     id: auto
     name: auto
     description: str | None
     creator: User | None
-    created_at: datetime.datetime = strawberry_django.field(description="When the model was made")
+    created_at: datetime.datetime = strawberry_django.field(
+        description="When the model was made"
+    )
     environment: ModEnvironment
-    coordinate_system: Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")] | None = strawberry_django.field(
+    coordinate_system: (
+        Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")] | None
+    ) = strawberry_django.field(
         description="The coordinate system this model owns. It carries one INDEX axis and nothing placeable; its derivation edges are the model's lineage"
     )
     model_collections: list[ModelCollection] | None
-    mappings: List["WorkspaceMapping"] = strawberry_django.field()
-    provenance_entries: List["ProvenanceEntry"] = strawberry_django.field()
+    mappings: list["WorkspaceMapping"] = strawberry_django.field()
+    provenance_entries: list["ProvenanceEntry"] = strawberry_django.field()
 
     @strawberry_django.field(
         description="The array datasets computed by integrating this model: those carrying a `simulation` anchor on it, in the viewer's organization. A run is its clock: the outputs of one run are those timed onto one clock"
     )
-    def simulated_datasets(self, info: Info) -> List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
-        return list(scoping.for_org(models.ArrayDataset, info).filter(anchors__simulation__model=self).distinct().order_by("pk"))
+    def simulated_datasets(
+        self, info: Info
+    ) -> list[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]]:
+        return list(
+            scoping.for_org(models.ArrayDataset, info)
+            .filter(anchors__simulation__model=self)
+            .distinct()
+            .order_by("pk")
+        )
 
     @strawberry_django.field(
         description=(
@@ -285,9 +395,11 @@ class NeuronModel(OrgScoped):
             "A dataset timed onto two clocks is in both; the datasets timed onto none come last, under a null clock"
         )
     )
-    def sessions(self, info: Info) -> List[NeuronModelSession]:
+    def sessions(self, info: Info) -> list[NeuronModelSession]:
         """Group :meth:`simulated_datasets` by the clock they are timed onto, in clock order."""
-        return sessions_of(info, models.ArrayDataset.objects.filter(anchors__simulation__model=self))
+        return sessions_of(
+            info, models.ArrayDataset.objects.filter(anchors__simulation__model=self)
+        )
 
     @strawberry_django.field(
         description=(
@@ -296,7 +408,9 @@ class NeuronModel(OrgScoped):
             "scratch. This replaces the old `parent` field, which recorded no validity, no value relation and no provenance, and which `lineageGraph` could not see"
         )
     )
-    def derived_from(self, info: Info) -> List[Annotated["Transformation", strawberry.lazy("core.types.coords")]]:
+    def derived_from(
+        self, info: Info
+    ) -> list[Annotated["Transformation", strawberry.lazy("core.types.coords")]]:
         """The edges relating this model's space to whatever it came from."""
         system = getattr(self, "coordinate_system", None)
         from core.logic import graph as graph_logic
@@ -310,19 +424,29 @@ class NeuronModel(OrgScoped):
             "question as `simulatedDatasets`**, which reads the `simulation` spoke and answers for every run of this model whether or not anyone authored a derivation"
         )
     )
-    def derived_into(self, info: Info) -> List[Annotated["Resident", strawberry.lazy("core.types.coords")]]:
+    def derived_into(
+        self, info: Info
+    ) -> list[Annotated["Resident", strawberry.lazy("core.types.coords")]]:
         """The containers computed from this model."""
         system = getattr(self, "coordinate_system", None)
         from core.logic import graph as graph_logic
 
         return graph_logic.containers_derived_into(system) if system else []
 
-    @strawberry_django.field(description="The recording sites that are part of this model: every place on it some dataset's values were recorded from, in the viewer's organization")
-    def recording_sites(self, info: Info) -> List[Annotated["RecordingSite", strawberry.lazy("core.types.array_dataset")]]:
+    @strawberry_django.field(
+        description="The recording sites that are part of this model: every place on it some dataset's values were recorded from, in the viewer's organization"
+    )
+    def recording_sites(
+        self, info: Info
+    ) -> list[Annotated["RecordingSite", strawberry.lazy("core.types.array_dataset")]]:
         return list(scoping.for_org(models.RecordingSite, info).filter(model=self))
 
-    @strawberry_django.field(description="The stimulus sites that are part of this model: every place on it some dataset's values were injected at, in the viewer's organization")
-    def stimulus_sites(self, info: Info) -> List[Annotated["StimulusSite", strawberry.lazy("core.types.array_dataset")]]:
+    @strawberry_django.field(
+        description="The stimulus sites that are part of this model: every place on it some dataset's values were injected at, in the viewer's organization"
+    )
+    def stimulus_sites(
+        self, info: Info
+    ) -> list[Annotated["StimulusSite", strawberry.lazy("core.types.array_dataset")]]:
         return list(scoping.for_org(models.StimulusSite, info).filter(model=self))
 
     @strawberry_django.field(only=["id", "json_model"])
@@ -332,7 +456,7 @@ class NeuronModel(OrgScoped):
         return sites.config_of(cast(models.NeuronModel, self))
 
     @strawberry_django.field(only=["json_model"])
-    def changes(self, info: Info, to: strawberry.ID | None = None) -> List[Change]:
+    def changes(self, info: Info, to: strawberry.ID | None = None) -> list[Change]:
         """Gets the changes"""
         if to is None:
             to_model = self.model_collections.first().models.first()
@@ -343,7 +467,7 @@ class NeuronModel(OrgScoped):
         return changes
 
     @strawberry_django.field(only=["json_model"])
-    def comparisons(self, info: Info) -> List["Comparison"]:
+    def comparisons(self, info: Info) -> list["Comparison"]:
         """Gets the changes"""
         comparisons = []
         for col in self.model_collections.all():
@@ -358,7 +482,7 @@ class NeuronModel(OrgScoped):
         reference_cell: strawberry.ID | None = None,
         reference_section: strawberry.ID | None = None,
         weight_conductance: Annotated[
-            Optional[float],
+            float | None,
             strawberry.argument(
                 description=(
                     "Weight of the conductance load factor (Σ gbar · area — driven by channel "
@@ -367,7 +491,7 @@ class NeuronModel(OrgScoped):
             ),
         ] = None,
         weight_capacitance: Annotated[
-            Optional[float],
+            float | None,
             strawberry.argument(
                 description=(
                     "Weight of the membrane capacitance factor (cm · area — driven by specific "
@@ -376,7 +500,7 @@ class NeuronModel(OrgScoped):
             ),
         ] = None,
         weight_axial: Annotated[
-            Optional[float],
+            float | None,
             strawberry.argument(
                 description=(
                     "Weight of the axial coupling factor (∝ diam² / (Ra · length) — driven by "
@@ -385,7 +509,7 @@ class NeuronModel(OrgScoped):
                 ),
             ),
         ] = None,
-    ) -> List["SectionDominance"]:
+    ) -> list["SectionDominance"]:
         """Per-section dominance scores — how much each section shapes the simulation.
 
         Computed analytically from the stored geometry + biophysics (no NEURON run).
@@ -401,8 +525,12 @@ class NeuronModel(OrgScoped):
             reference = {"cell_id": reference_cell, "section_id": reference_section}
         default_conductance, default_capacitance, default_axial = DEFAULT_WEIGHTS
         weights = (
-            weight_conductance if weight_conductance is not None else default_conductance,
-            weight_capacitance if weight_capacitance is not None else default_capacitance,
+            weight_conductance
+            if weight_conductance is not None
+            else default_conductance,
+            weight_capacitance
+            if weight_capacitance is not None
+            else default_capacitance,
             weight_axial if weight_axial is not None else default_axial,
         )
         config = ModelConfigModel(**self.json_model)
@@ -429,57 +557,61 @@ class NeuronModel(OrgScoped):
 
 # The coordinate graph lives in its own module, at the path mikro keeps it. Imported last:
 # its lazy annotations point back at the types above.
-from core.types.coords import (  # noqa: E402,F401
-    Axis,
-    CoordinateSystem,
-    Transformation,
-    Selector,
-    PlacementStep,
-    AffinePlacement,
-    AxisExtent,
-    SourcePlacement,
-    CoordinateGraph,
-    LineageGraph,
-    transformation_types,
+# Annotations are drawn in a space of the graph, and experiments compose over it and show them: in that order.
+from core.types.annotation import (  # noqa: E402,F401
+    Annotation,
+    AnnotationCollection,
+    BoundingBox,
+    Coordinate,
 )
 
 # The data layer, at the paths mikro keeps it: what lives in a space, and where it is filed.
 from core.types.array_dataset import (  # noqa: E402,F401
-    ArrayDataset,
-    DataArray,
-    CoordinateAnchor,
-    RigState,
-    ValueHistogram,
-    ChannelLabel,
-    ValueUnit,
-    RecordingSite,
-    StimulusSite,
-    SimulationState,
     AcquisitionMetadata,
+    ArrayDataset,
+    ChannelLabel,
+    CoordinateAnchor,
+    DataArray,
     Lens,
+    RecordingSite,
+    RigState,
+    SimulationState,
     Slice,
+    StimulusSite,
+    ValueHistogram,
+    ValueUnit,
 )
-from core.types.table_dataset import TableDataset, Column  # noqa: E402,F401
-from core.types.sparse_dataset import SparseDataset, SparseArray, SparseAxisReference  # noqa: E402,F401
-from core.types.folder import File, Folder  # noqa: E402,F401
-from core.types.file_link import FileLink, FileLinkContainer  # noqa: E402,F401
-
-# Annotations are drawn in a space of the graph, and experiments compose over it and show them: in that order.
-from core.types.annotation import Annotation, AnnotationCollection, BoundingBox, Coordinate  # noqa: E402,F401
+from core.types.coords import (  # noqa: E402,F401
+    AffinePlacement,
+    Axis,
+    AxisExtent,
+    CoordinateGraph,
+    CoordinateSystem,
+    LineageGraph,
+    PlacementStep,
+    Selector,
+    SourcePlacement,
+    Transformation,
+    transformation_types,
+)
 from core.types.experiment import Experiment  # noqa: E402,F401
+from core.types.file_link import FileLink, FileLinkContainer  # noqa: E402,F401
+from core.types.folder import File, Folder  # noqa: E402,F401
 from core.types.layers import (  # noqa: E402,F401
-    ExperimentLayer,
-    TraceLayer,
-    SpikesLayer,
-    EventsLayer,
     AnnotationLayer,
-    HeatmapLayer,
-    SeriesLayer,
-    WaveformLayer,
-    PointLayer,
     ColorBy,
+    EventsLayer,
+    ExperimentLayer,
     FilterBy,
+    HeatmapLayer,
     JoinStep,
     LevelPlacement,
+    PointLayer,
+    SeriesLayer,
+    SpikesLayer,
+    TraceLayer,
+    WaveformLayer,
     layer_types,
 )
+from core.types.sparse_dataset import SparseArray, SparseAxisReference, SparseDataset  # noqa: E402,F401
+from core.types.table_dataset import Column, TableDataset  # noqa: E402,F401

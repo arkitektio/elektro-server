@@ -83,10 +83,10 @@ writer translates them back to ``{path, name}`` on serialization. The API shape
 and the on-disk shape are deliberately not the same document.
 """
 
+from authentikate.models import Organization
 from django.contrib.auth import get_user_model
 from django.db import models
 from django_choices_field import TextChoicesField
-from authentikate.models import Organization
 from koherent.fields import ProvenanceField
 
 from core import enums
@@ -128,7 +128,9 @@ class CoordinateSystem(models.Model):
     now point at that grid like everything else.
     """
 
-    name = models.CharField(max_length=255, help_text="The name of the coordinate space")
+    name = models.CharField(
+        max_length=255, help_text="The name of the coordinate space"
+    )
 
     epoch = models.DateTimeField(
         null=True,
@@ -146,9 +148,21 @@ class CoordinateSystem(models.Model):
     # path to follow and every scoped read would raise LookupError without this column. It
     # was already required when the owner FKs existed, because all seven were nullable and
     # that walk follows only required ones.
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, help_text="The organization this coordinate space belongs to")
-    creator = models.ForeignKey(get_user_model(), on_delete=models.SET_NULL, null=True, blank=True, help_text="The user that created this coordinate space")
-    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this coordinate space was created")
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this coordinate space belongs to",
+    )
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The user that created this coordinate space",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="The time this coordinate space was created"
+    )
 
     provenance = ProvenanceField()
 
@@ -188,9 +202,19 @@ class Axis(models.Model):
     the store's shape, and every writer assigns ``order`` by enumeration.
     """
 
-    coordinate_system = models.ForeignKey(CoordinateSystem, on_delete=models.CASCADE, related_name="axes", help_text="The coordinate system this axis belongs to")
-    order = models.PositiveSmallIntegerField(help_text="This axis' position in the system's canonical axis order. For an array-backed system it is the index into the array shape; for a table system it is the order of the coordinate columns")
-    name = models.CharField(max_length=32, help_text="The name of the axis, e.g. 'z', 'c' or 'tau'. Free-form")
+    coordinate_system = models.ForeignKey(
+        CoordinateSystem,
+        on_delete=models.CASCADE,
+        related_name="axes",
+        help_text="The coordinate system this axis belongs to",
+    )
+    order = models.PositiveSmallIntegerField(
+        help_text="This axis' position in the system's canonical axis order. For an array-backed system it is the index into the array shape; for a table system it is the order of the coordinate columns"
+    )
+    name = models.CharField(
+        max_length=32,
+        help_text="The name of the axis, e.g. 'z', 'c' or 'tau'. Free-form",
+    )
     type = TextChoicesField(
         choices_enum=enums.AxisTypeChoices,
         default=enums.AxisTypeChoices.SPACE.value,
@@ -202,14 +226,27 @@ class Axis(models.Model):
         blank=True,
         help_text="The physical unit of the axis, e.g. 'micrometer'. A pint unit (the kanne `Unit` scalar), validated on write; 'a.u.' for arbitrary units. Set on unit-carrying axes (a physical space, a world), always null on pixel-grid axes",
     )
-    long_name = models.CharField(max_length=255, null=True, blank=True, help_text="A human-readable name for the axis")
-    description = models.CharField(max_length=1000, null=True, blank=True, help_text="A free-form description of what the axis measures, e.g. 'distance from the coverslip'")
+    long_name = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="A human-readable name for the axis",
+    )
+    description = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="A free-form description of what the axis measures, e.g. 'distance from the coverslip'",
+    )
 
     class Meta:
         """Meta options for the axis."""
 
         ordering = ["order"]
-        unique_together = [("coordinate_system", "order"), ("coordinate_system", "name")]
+        unique_together = [
+            ("coordinate_system", "order"),
+            ("coordinate_system", "name"),
+        ]
         constraints = [
             # A system carries at most one clock. Two TIME axes are otherwise legal --
             # they share an ordering rank, so nothing complains -- and the render-axis
@@ -280,22 +317,59 @@ class Transformation(models.Model):
         default=enums.TransformKindChoices.IDENTITY.value,
         help_text="The kind of transformation, which fixes how `params` is interpreted",
     )
-    name = models.CharField(max_length=255, null=True, blank=True, help_text="The name of the transformation")
+    name = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="The name of the transformation",
+    )
 
     # Null only for a child of a SEQUENCE / BY_DIMENSION wrapper --
     # RFC-5 permits omitting them there, because the wrapper supplies them.
-    input = models.ForeignKey(CoordinateSystem, on_delete=models.CASCADE, null=True, blank=True, related_name="+", help_text="The coordinate system this transformation maps from")
-    output = models.ForeignKey(CoordinateSystem, on_delete=models.CASCADE, null=True, blank=True, related_name="+", help_text="The coordinate system this transformation maps to")
+    input = models.ForeignKey(
+        CoordinateSystem,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="The coordinate system this transformation maps from",
+    )
+    output = models.ForeignKey(
+        CoordinateSystem,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="The coordinate system this transformation maps to",
+    )
 
-    parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="children", help_text="The wrapping SEQUENCE / BY_DIMENSION transformation, if this is a child")
-    order = models.PositiveSmallIntegerField(default=0, help_text="The position of this child within its wrapping SEQUENCE, applied first to last")
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+        help_text="The wrapping SEQUENCE / BY_DIMENSION transformation, if this is a child",
+    )
+    order = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="The position of this child within its wrapping SEQUENCE, applied first to last",
+    )
 
     # BY_DIMENSION only: which axes this child acts on, by NAME. RFC-5's
     # transformation table says List[str] while its byDimension prose says
     # integer indices into the axes; the two contradict. Names are
     # self-documenting and survive a reordering, so we use names.
-    input_axes = models.JSONField(null=True, blank=True, help_text="(byDimension) The names of the input axes this child acts on, e.g. ['z', 'y', 'x']")
-    output_axes = models.JSONField(null=True, blank=True, help_text="(byDimension) The names of the output axes this child produces")
+    input_axes = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="(byDimension) The names of the input axes this child acts on, e.g. ['z', 'y', 'x']",
+    )
+    output_axes = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="(byDimension) The names of the output axes this child produces",
+    )
 
     params = models.JSONField(
         default=dict,
@@ -410,9 +484,21 @@ class Transformation(models.Model):
 
     # See CoordinateSystem.organization: a wrapper child has input, output and
     # every non-self FK null, so there is no path to an organization without it.
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, help_text="The organization this transformation belongs to")
-    creator = models.ForeignKey(get_user_model(), on_delete=models.SET_NULL, null=True, blank=True, help_text="The user that created this transformation")
-    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this transformation was created")
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this transformation belongs to",
+    )
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The user that created this transformation",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="The time this transformation was created"
+    )
 
     provenance = ProvenanceField()
 

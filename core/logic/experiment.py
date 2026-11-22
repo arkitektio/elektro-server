@@ -71,7 +71,9 @@ def assert_reaches(world: "models.CoordinateSystem", source) -> None:  # noqa: A
     """Refuse a layer whose data has no route into the world. Deliberately looser than mikro's gate: a FIELD route counts."""
     system = source_system_of(source)
     if system is None:
-        raise ValueError(f"{source_label(source)} has no coordinate system, so it is not in the graph and cannot be laid out on a timeline.")
+        raise ValueError(
+            f"{source_label(source)} has no coordinate system, so it is not in the graph and cannot be laid out on a timeline."
+        )
     if graph_logic.is_placeable_in(world, system, require_affine=False):
         return
     raise ValueError(
@@ -89,9 +91,14 @@ def assert_kind(kind: str, source) -> None:  # noqa: ANN001
     elif kind in enums.TABLE_BACKED_KINDS:
         expected = models.TableDataset
     else:
-        expected = {_KIND.SPIKES.value: models.SparseDataset, _KIND.ANNOTATION.value: models.AnnotationCollection}[kind]
+        expected = {
+            _KIND.SPIKES.value: models.SparseDataset,
+            _KIND.ANNOTATION.value: models.AnnotationCollection,
+        }[kind]
     if not isinstance(source, expected):
-        raise ValueError(f"A {kind} layer draws a {expected.__name__}, but {source_label(source)} is a {type(source).__name__}.")
+        raise ValueError(
+            f"A {kind} layer draws a {expected.__name__}, but {source_label(source)} is a {type(source).__name__}."
+        )
 
     if kind == _KIND.SPIKES.value and not has_time_axis(source.coordinate_system):
         raise ValueError(
@@ -109,9 +116,17 @@ def assert_kind(kind: str, source) -> None:  # noqa: ANN001
                 "units at their positions -- whose coordinate columns are SPACE only."
             )
         if len(space_columns(source)) < 2:
-            raise ValueError(f"Table {source_label(source)} has fewer than two SPACE coordinate columns, so a row is not a point in a plane. Declare its x and y columns with `axisType: SPACE`.")
-    if kind in (_KIND.TRACE.value, _KIND.HEATMAP.value, _KIND.WAVEFORM.value) and not lens_axes(source, _AXIS.TIME.value):
-        raise ValueError(f"The dataset under {source_label(source)} has no TIME axis, so there is nothing to draw it along. A {kind} layer draws samples over time.")
+            raise ValueError(
+                f"Table {source_label(source)} has fewer than two SPACE coordinate columns, so a row is not a point in a plane. Declare its x and y columns with `axisType: SPACE`."
+            )
+    if kind in (
+        _KIND.TRACE.value,
+        _KIND.HEATMAP.value,
+        _KIND.WAVEFORM.value,
+    ) and not lens_axes(source, _AXIS.TIME.value):
+        raise ValueError(
+            f"The dataset under {source_label(source)} has no TIME axis, so there is nothing to draw it along. A {kind} layer draws samples over time."
+        )
     if kind == _KIND.WAVEFORM.value and len(lens_axes(source, _AXIS.INDEX.value)) != 1:
         raise ValueError(
             f"The dataset under {source_label(source)} has {len(lens_axes(source, _AXIS.INDEX.value))} INDEX axes, but waveform templates have exactly one: the units, "
@@ -124,7 +139,11 @@ def lens_axes(lens: "models.Lens", axis_type: str) -> list[str]:
     system = lens.dataset.coordinate_system
     if system is None:
         return []
-    return [axis.name for axis in system.axes.all().order_by("order") if axis.type == axis_type]
+    return [
+        axis.name
+        for axis in system.axes.all().order_by("order")
+        if axis.type == axis_type
+    ]
 
 
 def resolve_row_axis(lens: "models.Lens", requested: str | None) -> str:
@@ -134,18 +153,45 @@ def resolve_row_axis(lens: "models.Lens", requested: str | None) -> str:
     third axis with more than one position would be a stack of them with nothing to say which.
     """
     system = lens.dataset.coordinate_system
-    types = {axis.name: axis.type for axis in system.axes.all()} if system is not None else {}
+    types = (
+        {axis.name: axis.type for axis in system.axes.all()}
+        if system is not None
+        else {}
+    )
     if requested is not None:
         if requested not in types:
-            raise ValueError(f"`rowAxis` is '{requested}', but the dataset under {source_label(lens)} has axes {sorted(types)}.")
+            raise ValueError(
+                f"`rowAxis` is '{requested}', but the dataset under {source_label(lens)} has axes {sorted(types)}."
+            )
         if types[requested] in (_AXIS.TIME.value, _AXIS.SPACE.value):
-            raise ValueError(f"`rowAxis` '{requested}' is a {types[requested]} axis. A heatmap draws time across and one enumerated or spectral axis down: FREQUENCY, CHANNEL or INDEX.")
+            raise ValueError(
+                f"`rowAxis` '{requested}' is a {types[requested]} axis. A heatmap draws time across and one enumerated or spectral axis down: FREQUENCY, CHANNEL or INDEX."
+            )
         row = requested
     else:
-        row = next((name for kind in (_AXIS.FREQUENCY.value, _AXIS.CHANNEL.value, _AXIS.INDEX.value) for name in lens_axes(lens, kind)), None)
+        row = next(
+            (
+                name
+                for kind in (
+                    _AXIS.FREQUENCY.value,
+                    _AXIS.CHANNEL.value,
+                    _AXIS.INDEX.value,
+                )
+                for name in lens_axes(lens, kind)
+            ),
+            None,
+        )
         if row is None:
-            raise ValueError(f"The dataset under {source_label(lens)} has no FREQUENCY, CHANNEL or INDEX axis, so there is nothing to draw down a heatmap. Draw it as a trace.")
-    stacked = [name for name, axis_type in types.items() if name != row and axis_type != _AXIS.TIME.value and lens.get_size_of_axis(name) > 1]
+            raise ValueError(
+                f"The dataset under {source_label(lens)} has no FREQUENCY, CHANNEL or INDEX axis, so there is nothing to draw down a heatmap. Draw it as a trace."
+            )
+    stacked = [
+        name
+        for name, axis_type in types.items()
+        if name != row
+        and axis_type != _AXIS.TIME.value
+        and lens.get_size_of_axis(name) > 1
+    ]
     if stacked:
         raise ValueError(
             f"A heatmap is one image, time across and '{row}' down, but {source_label(lens)} also spans {stacked} with more than one position. Cut a lens that fixes "
@@ -160,16 +206,24 @@ def resolve_unit_axis(lens: "models.Lens", requested: str | None) -> str:
     if requested is None:
         return index[0]
     if requested not in index:
-        raise ValueError(f"`unitAxis` is '{requested}', but the INDEX axes of the dataset under {source_label(lens)} are {index}.")
+        raise ValueError(
+            f"`unitAxis` is '{requested}', but the INDEX axes of the dataset under {source_label(lens)} are {index}."
+        )
     return requested
 
 
 def space_columns(table: "models.TableDataset") -> "list[models.Column]":
     """A table's SPACE coordinate columns, in declared order."""
-    return list(table.columns.filter(role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=_AXIS.SPACE.value).order_by("order"))
+    return list(
+        table.columns.filter(
+            role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=_AXIS.SPACE.value
+        ).order_by("order")
+    )
 
 
-def assert_numeric_column(table: "models.TableDataset", name: str | None, what: str) -> None:
+def assert_numeric_column(
+    table: "models.TableDataset", name: str | None, what: str
+) -> None:
     """Refuse a column a layer reads as a number when the table does not declare it numeric."""
     from core.logic import tables as tables_logic
 
@@ -178,37 +232,68 @@ def assert_numeric_column(table: "models.TableDataset", name: str | None, what: 
     assert_column(table, name, what)
     column = table.columns.get(name=name)
     if not tables_logic.is_numeric(column.dtype):
-        raise ValueError(f"`{what}` names column '{name}' of {source_label(table)}, whose type is {column.dtype}: it is drawn as a number, so it has to hold one.")
+        raise ValueError(
+            f"`{what}` names column '{name}' of {source_label(table)}, whose type is {column.dtype}: it is drawn as a number, so it has to hold one."
+        )
 
 
 def has_time_axis(system: "models.CoordinateSystem | None") -> bool:
-    return system is not None and system.axes.filter(type=enums.AxisTypeChoices.TIME.value).exists()
+    return (
+        system is not None
+        and system.axes.filter(type=enums.AxisTypeChoices.TIME.value).exists()
+    )
 
 
 def time_column(table: "models.TableDataset") -> "models.Column | None":
     """A table's TIME coordinate column -- where each row sits in its own space -- or None."""
-    return table.columns.filter(role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=enums.AxisTypeChoices.TIME.value).order_by("order").first()
+    return (
+        table.columns.filter(
+            role=enums.ColumnRoleChoices.COORDINATE.value,
+            axis_type=enums.AxisTypeChoices.TIME.value,
+        )
+        .order_by("order")
+        .first()
+    )
 
 
-def assert_column(table: "models.TableDataset | None", name: str | None, what: str) -> None:
+def assert_column(
+    table: "models.TableDataset | None", name: str | None, what: str
+) -> None:
     """Refuse a render column the table does not declare."""
     if name is None:
         return
     if table is None or not table.columns.filter(name=name).exists():
-        raise ValueError(f"`{what}` names column '{name}', which {'no table' if table is None else f'table {source_label(table)}'} declares.")
+        raise ValueError(
+            f"`{what}` names column '{name}', which {'no table' if table is None else f'table {source_label(table)}'} declares."
+        )
 
 
 def whole_lens(dataset: "models.ArrayDataset", ctx: CreationContext) -> "models.Lens":
     """A dataset's unsliced lens, reused when there is one: an unsliced lens owns no space, so a second would say nothing the first did not."""
-    return models.Lens.objects.filter(dataset=dataset, slices=[]).order_by("pk").first() or coordinate_system_logic.create_lens(dataset, [], ctx)
+    return models.Lens.objects.filter(dataset=dataset, slices=[]).order_by(
+        "pk"
+    ).first() or coordinate_system_logic.create_lens(dataset, [], ctx)
 
 
-def create_layer(experiment: "models.Experiment", *, kind: str, source, order: int | None = None, name: str | None = None, **settings) -> "models.ExperimentLayer":  # noqa: ANN001, ANN003
+def create_layer(
+    experiment: "models.Experiment",
+    *,
+    kind: str,
+    source,
+    order: int | None = None,
+    name: str | None = None,
+    **settings,
+) -> "models.ExperimentLayer":  # noqa: ANN001, ANN003
     """Write one layer: check the kind can draw the source and that it reaches the world, then append it."""
     assert_kind(kind, source)
     assert_reaches(experiment.world, source)
-    if kind == enums.ExperimentLayerKindChoices.ANNOTATION.value and experiment.layers.filter(annotation_collection=source).exists():
-        raise ValueError(f"{source_label(source)} is already drawn in experiment '{experiment.name}'. One layer per collection: style its annotations instead.")
+    if (
+        kind == enums.ExperimentLayerKindChoices.ANNOTATION.value
+        and experiment.layers.filter(annotation_collection=source).exists()
+    ):
+        raise ValueError(
+            f"{source_label(source)} is already drawn in experiment '{experiment.name}'. One layer per collection: style its annotations instead."
+        )
     # The one setting each of these kinds cannot draw without, resolved (and checked) here so the
     # generic `createLayer` gets the same answer as the per-kind mutation.
     if kind == _KIND.HEATMAP.value:
@@ -218,11 +303,15 @@ def create_layer(experiment: "models.Experiment", *, kind: str, source, order: i
     elif kind == _KIND.SERIES.value:
         value = settings.get("value_column") or _series_value_column(source)
         if value is None:
-            raise ValueError(f"A series layer draws one numeric column of {source_label(source)} over time, and the table has no single such column to default to: name the `valueColumn`.")
+            raise ValueError(
+                f"A series layer draws one numeric column of {source_label(source)} over time, and the table has no single such column to default to: name the `valueColumn`."
+            )
         assert_numeric_column(source, value, "valueColumn")
         start = time_column(source)
         if start is not None and value == start.name:
-            raise ValueError(f"`valueColumn` is '{value}', the table's TIME column: a series draws a value *against* time, not time against itself.")
+            raise ValueError(
+                f"`valueColumn` is '{value}', the table's TIME column: a series draws a value *against* time, not time against itself."
+            )
         settings["value_column"] = value
     if order is None:
         order = experiment.layers.count()
@@ -260,9 +349,13 @@ def create_experiment(
     """
     if world is not None:
         if axes is not None or epoch is not None:
-            raise ValueError("An experiment adopting an existing coordinate system takes its axes and epoch from it; do not pass `axes` or `epoch` alongside `coordinateSystem`.")
+            raise ValueError(
+                "An experiment adopting an existing coordinate system takes its axes and epoch from it; do not pass `axes` or `epoch` alongside `coordinateSystem`."
+            )
     else:
-        world = coordinate_system_logic.create_world_space(name=f"{name}/world", axes=axes, epoch=epoch, ctx=ctx)
+        world = coordinate_system_logic.create_world_space(
+            name=f"{name}/world", axes=axes, epoch=epoch, ctx=ctx
+        )
     if not world.axes.filter(type__in=[_AXIS.TIME.value, _AXIS.SPACE.value]).exists():
         raise ValueError(
             f"'{world.name}' has no TIME or SPACE axis, so there is nowhere to lay data out along: an experiment composes over a timeline (a clock) or a place (a probe's space)."
@@ -306,10 +399,16 @@ class Policy:
 
 def _times_systems() -> "set[int]":
     """The spaces whose data is some FIELD's map: a times dataset is a lookup, not a signal."""
-    return set(models.Transformation.objects.filter(field__isnull=False).values_list("field_id", flat=True))
+    return set(
+        models.Transformation.objects.filter(field__isnull=False).values_list(
+            "field_id", flat=True
+        )
+    )
 
 
-def candidates(system: "models.CoordinateSystem", organization, policy: Policy) -> "list[tuple[str, object]]":  # noqa: ANN001 - an Organization
+def candidates(
+    system: "models.CoordinateSystem", organization, policy: Policy
+) -> "list[tuple[str, object]]":  # noqa: ANN001 - an Organization
     """What a bootstrap over ``system`` would draw, as ``(kind, source)`` in layer order: arrays, rasters, tables, annotations.
 
     The loose reachable set -- the same one ``inView`` reads, FIELD routes included, clock chains
@@ -322,13 +421,29 @@ def candidates(system: "models.CoordinateSystem", organization, policy: Policy) 
         return []
     fields = _times_systems()
     sources: list = [
-        *models.ArrayDataset.objects.filter(coordinate_system_id__in=reachable, organization=organization).exclude(coordinate_system_id__in=fields).order_by("pk"),
-        *models.SparseDataset.objects.filter(coordinate_system_id__in=reachable, organization=organization).order_by("pk"),
-        *models.TableDataset.objects.filter(coordinate_system_id__in=reachable, organization=organization).order_by("pk"),
-        *models.AnnotationCollection.objects.filter(coordinate_system_id__in=reachable, organization=organization).order_by("pk"),
+        *models.ArrayDataset.objects.filter(
+            coordinate_system_id__in=reachable, organization=organization
+        )
+        .exclude(coordinate_system_id__in=fields)
+        .order_by("pk"),
+        *models.SparseDataset.objects.filter(
+            coordinate_system_id__in=reachable, organization=organization
+        ).order_by("pk"),
+        *models.TableDataset.objects.filter(
+            coordinate_system_id__in=reachable, organization=organization
+        ).order_by("pk"),
+        *models.AnnotationCollection.objects.filter(
+            coordinate_system_id__in=reachable, organization=organization
+        ).order_by("pk"),
     ]
     # One query for every array's "was I derived from a raster?", rather than two per array.
-    raster_derived = _raster_derived_systems([source.coordinate_system_id for source in sources if isinstance(source, models.ArrayDataset)])
+    raster_derived = _raster_derived_systems(
+        [
+            source.coordinate_system_id
+            for source in sources
+            if isinstance(source, models.ArrayDataset)
+        ]
+    )
     found = []
     for source in sources:
         kind = kind_for(source, raster_derived=raster_derived)
@@ -352,12 +467,20 @@ def kind_for(source, *, raster_derived: "set[int] | None" = None) -> str | None:
     if isinstance(source, models.TableDataset):
         if time_column(source) is None:
             return _KIND.POINT.value if len(space_columns(source)) >= 2 else None
-        return _KIND.SERIES.value if _series_value_column(source) is not None else _KIND.EVENTS.value
+        return (
+            _KIND.SERIES.value
+            if _series_value_column(source) is not None
+            else _KIND.EVENTS.value
+        )
     if _AXIS.TIME.value not in types:
         return None
     if _AXIS.FREQUENCY.value in types:
         return _KIND.HEATMAP.value
-    derived = (source.coordinate_system_id in raster_derived) if raster_derived is not None else _derived_from_a_raster(source)
+    derived = (
+        (source.coordinate_system_id in raster_derived)
+        if raster_derived is not None
+        else _derived_from_a_raster(source)
+    )
     if types.count(_AXIS.INDEX.value) == 1 and derived:
         return _KIND.WAVEFORM.value
     return _KIND.TRACE.value
@@ -369,7 +492,9 @@ def _raster_derived_systems(system_ids: "list[int]") -> "set[int]":
     if not ids:
         return set()
     return set(
-        models.Transformation.objects.filter(input_id__in=ids, parent__isnull=True, output__sparse_datasets__isnull=False).values_list("input_id", flat=True)
+        models.Transformation.objects.filter(
+            input_id__in=ids, parent__isnull=True, output__sparse_datasets__isnull=False
+        ).values_list("input_id", flat=True)
     )
 
 
@@ -399,14 +524,21 @@ def _series_value_column(table: "models.TableDataset") -> str | None:
         for column in columns
         if column.role == enums.ColumnRoleChoices.ATTRIBUTE.value
         and tables_logic.is_numeric(column.dtype)
-        and not (column.unit and start is not None and start.unit and coords_logic.units_are_interchangeable(column.unit, start.unit))
+        and not (
+            column.unit
+            and start is not None
+            and start.unit
+            and coords_logic.units_are_interchangeable(column.unit, start.unit)
+        )
     ]
     return numeric[0] if len(numeric) == 1 else None
 
 
 def value_window(dataset: "models.ArrayDataset") -> tuple[float | None, float | None]:
     """The display range a dataset's dataset-wide ValueHistogram recorded: p1/p99, else min/max. mikro's ``_value_windows``, for the whole dataset."""
-    histogram = models.ValueHistogram.objects.filter(anchor__dataset=dataset, anchor__coordinates={}).first()
+    histogram = models.ValueHistogram.objects.filter(
+        anchor__dataset=dataset, anchor__coordinates={}
+    ).first()
     if histogram is None:
         return None, None
     low = histogram.p1 if histogram.p1 is not None else histogram.min
@@ -417,10 +549,20 @@ def value_window(dataset: "models.ArrayDataset") -> tuple[float | None, float | 
 def _defaults_for(kind: str, source) -> dict:  # noqa: ANN001
     """The render settings a bootstrapped layer starts with -- read off recorded facts, or defaulted."""
     if kind == _KIND.SPIKES.value:
-        return {"tick_height": 0.8, "value_mode": enums.SpikeValueModeChoices.PRESENCE.value}
+        return {
+            "tick_height": 0.8,
+            "value_mode": enums.SpikeValueModeChoices.PRESENCE.value,
+        }
     if kind == _KIND.EVENTS.value:
-        label = source.columns.filter(role=enums.ColumnRoleChoices.LABEL.value).order_by("order").first()
-        return {"label_column": label.name if label is not None else None, "stop_column": _stop_column(source)}
+        label = (
+            source.columns.filter(role=enums.ColumnRoleChoices.LABEL.value)
+            .order_by("order")
+            .first()
+        )
+        return {
+            "label_column": label.name if label is not None else None,
+            "stop_column": _stop_column(source),
+        }
     if kind == _KIND.SERIES.value:
         return {"value_column": _series_value_column(source)}
     if kind in (_KIND.TRACE.value, _KIND.HEATMAP.value):
@@ -445,7 +587,9 @@ def _stop_column(table: "models.TableDataset") -> str | None:
         return None
     candidates_ = [
         column.name
-        for column in table.columns.filter(role=enums.ColumnRoleChoices.ATTRIBUTE.value, unit__isnull=False).order_by("order")
+        for column in table.columns.filter(
+            role=enums.ColumnRoleChoices.ATTRIBUTE.value, unit__isnull=False
+        ).order_by("order")
         if coords_logic.units_are_interchangeable(column.unit, start.unit)
     ]
     return candidates_[0] if len(candidates_) == 1 else None
@@ -466,11 +610,19 @@ def bootstrap_experiment_from_system(
     with transaction.atomic():
         experiment = create_experiment(name=name or system.name, world=system, ctx=ctx)
         order = 0
-        for kind, source in candidates(system, ctx.organization, policy)[: policy.nchildren]:
-            target = whole_lens(source, ctx) if isinstance(source, models.ArrayDataset) else source
+        for kind, source in candidates(system, ctx.organization, policy)[
+            : policy.nchildren
+        ]:
+            target = (
+                whole_lens(source, ctx)
+                if isinstance(source, models.ArrayDataset)
+                else source
+            )
             if policy.skip_unplaceable:
                 system_ = source_system_of(target)
-                if system_ is None or not graph_logic.is_placeable_in(system, system_, require_affine=False):
+                if system_ is None or not graph_logic.is_placeable_in(
+                    system, system_, require_affine=False
+                ):
                     continue
             settings = _defaults_for(kind, source)
             if kind == _KIND.HEATMAP.value:

@@ -61,7 +61,9 @@ def source_system(layer) -> "models.CoordinateSystem | None":  # noqa: ANN001 - 
 class SceneGraph:
     """The edges and layers of one experiment, fetched up front."""
 
-    def __init__(self, scene: "models.Experiment", *, loaders: dict | None = None) -> None:
+    def __init__(
+        self, scene: "models.Experiment", *, loaders: dict | None = None
+    ) -> None:
         """Fetch the experiment's views, then the edge universe rooted at its world."""
         self.scene = scene
 
@@ -72,7 +74,11 @@ class SceneGraph:
         # The experiment's whole contribution to the universe: the spaces its layers draw from.
         # Seeding by *system* is right here and would be wrong for a space graph -- each layer
         # names one source space, so `residence_map` collapses nothing.
-        layer_systems = {source.pk for layer in self.layers if (source := source_system(layer)) is not None}
+        layer_systems = {
+            source.pk
+            for layer in self.layers
+            if (source := source_system(layer)) is not None
+        }
 
         # No organization is passed, and that is deliberate: the world's edges are the
         # space's own truth, which is exactly what `CoordinateSystem.registrations` returns.
@@ -102,13 +108,27 @@ class SceneGraph:
         """The container a view's source system belongs to, without touching the database."""
         return self._container_of(source_system(layer))
 
-    def adjacency(self, container_key: tuple | None, *, at: dict[str, int] | None = None, admit_scoped: bool = False, require_affine: bool = False) -> dict[int, list[tuple["models.Transformation", bool, int]]]:
+    def adjacency(
+        self,
+        container_key: tuple | None,
+        *,
+        at: dict[str, int] | None = None,
+        admit_scoped: bool = False,
+        require_affine: bool = False,
+    ) -> dict[int, list[tuple["models.Transformation", bool, int]]]:
         """The searchable edge universe for one container: its lineage's facts plus the world's claims."""
-        return self.universe.adjacency(container_key, at=at, admit_scoped=admit_scoped, require_affine=require_affine)
+        return self.universe.adjacency(
+            container_key,
+            at=at,
+            admit_scoped=admit_scoped,
+            require_affine=require_affine,
+        )
 
     # --- the questions -------------------------------------------------------
 
-    def placement_path(self, layer: "models.Layer", *, at: dict[str, int] | None = None) -> list[tuple["models.Transformation", bool]] | None:
+    def placement_path(
+        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+    ) -> list[tuple["models.Transformation", bool]] | None:
         """The path of edges from a layer's source system to this scene's world system.
 
         ``None`` when the layer has no source system or no path; ``[]`` when the source
@@ -136,10 +156,16 @@ class SceneGraph:
         if source is None or self.world is None:
             return None
         container = self._layer_container(layer)
-        affine = graph_logic._bfs_path(self.adjacency(container, at=at, require_affine=True), source.pk, self.world.pk)
+        affine = graph_logic._bfs_path(
+            self.adjacency(container, at=at, require_affine=True),
+            source.pk,
+            self.world.pk,
+        )
         if affine is not None:
             return affine
-        return graph_logic._bfs_path(self.adjacency(container, at=at), source.pk, self.world.pk)
+        return graph_logic._bfs_path(
+            self.adjacency(container, at=at), source.pk, self.world.pk
+        )
 
     @property
     def world_axes(self) -> list[str]:
@@ -151,10 +177,14 @@ class SceneGraph:
         exists to catch.
         """
         if self._world_axes is None:
-            self._world_axes = [axis.name for axis in self.world.axes.all()] if self.world else []
+            self._world_axes = (
+                [axis.name for axis in self.world.axes.all()] if self.world else []
+            )
         return self._world_axes
 
-    def condensed_placement(self, layer: "models.Layer", *, at: dict[str, int] | None = None) -> "graph_logic.CondensedPlacement | None":
+    def condensed_placement(
+        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+    ) -> "graph_logic.CondensedPlacement | None":
         """This layer's whole path to world as one affine map, or None when there is no path.
 
         Built on :meth:`placement_path`, not beside it, so `asAffine` condenses *exactly* the
@@ -183,7 +213,9 @@ class SceneGraph:
             destination_axes=self.world_axes,
         )
 
-    def representative_path(self, layer: "models.Layer", *, at: dict[str, int] | None = None) -> list[tuple["models.Transformation", bool]] | None:
+    def representative_path(
+        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+    ) -> list[tuple["models.Transformation", bool]] | None:
         """The layer's path, falling back to a route through its scoped edges when there is one.
 
         What the two aggregate questions below walk. They are asked *about the placement* --
@@ -227,7 +259,9 @@ class SceneGraph:
             self.world.pk,
         )
 
-    def placement_validity(self, layer: "models.Layer", *, at: dict[str, int] | None = None) -> str:
+    def placement_validity(
+        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+    ) -> str:
         """How much this layer's placement is actually known: the weakest edge on its path.
 
         Derived, never stored -- validity is a fact about a *registration*, and the
@@ -247,7 +281,9 @@ class SceneGraph:
         # construction, which is a property of the order, not of layers.
         return graph_logic.weakest_validity(edge.validity for edge, _ in steps)
 
-    def placement_invariance(self, layer: "models.Layer", *, at: dict[str, int] | None = None) -> str:
+    def placement_invariance(
+        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+    ) -> str:
         """Which geometric properties survive the whole walk from this layer's data to world.
 
         The min-over-path twin of :meth:`placement_validity`, and a minimum for a stronger
@@ -267,9 +303,13 @@ class SceneGraph:
         steps = self.representative_path(layer, at=at)
         if steps is None:
             return enums.TransformInvariance.NONE.value
-        return graph_logic.weakest_invariance(graph_logic.invariance_of(edge) for edge, _ in steps)
+        return graph_logic.weakest_invariance(
+            graph_logic.invariance_of(edge) for edge, _ in steps
+        )
 
-    def placement_state(self, layer: "models.Layer", *, at: dict[str, int] | None = None) -> str:
+    def placement_state(
+        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+    ) -> str:
         """Whether this layer has a place in the world, and if not, why not.
 
         ``pathToWorld`` being null means three very different things, and a client cannot
@@ -304,21 +344,30 @@ class SceneGraph:
             # the badge away from a gap they could have closed. `graph_logic.reachable_in` is
             # the same traversal `assert_placeable_in` runs over its own universe, so
             # creation-time refusal and this answer cannot drift apart.
-            if graph_logic.reachable_in(self.adjacency(container, admit_scoped=True), source.pk) != {source.pk}:
+            if graph_logic.reachable_in(
+                self.adjacency(container, admit_scoped=True), source.pk
+            ) != {source.pk}:
                 return enums.PlacementState.UNREGISTERED.value
 
             # **Is there a stated non-correspondence to blame?** A collection's data (a feature
             # table) is unmappable when its derivation edge says so; a dataset's is when the
             # derivation it came out of does. One bucket answers for both -- a collection's
             # edges are its own bucket rather than a separate map keyed by system.
-            if any(not graph_logic.is_traversable(edge) for edge in self.universe.container_edges.get(container, [])):
+            if any(
+                not graph_logic.is_traversable(edge)
+                for edge in self.universe.container_edges.get(container, [])
+            ):
                 return enums.PlacementState.UNMAPPABLE.value
             # An UNMAPPABLE registration -- a declared non-correspondence with the world
             # itself -- never enters a container bucket (no claim does), so it is read off
             # the world's own edges, scoped to this layer's lineage: another container's
             # impossibility says nothing about this one.
             lineage = set(self.universe.lineage(container))
-            if any(not graph_logic.is_traversable(edge) and edge_universe._edge_container(edge, self.keys) in lineage for edge in self.universe.root_edges):
+            if any(
+                not graph_logic.is_traversable(edge)
+                and edge_universe._edge_container(edge, self.keys) in lineage
+                for edge in self.universe.root_edges
+            ):
                 return enums.PlacementState.UNMAPPABLE.value
 
         return enums.PlacementState.UNREGISTERED.value
@@ -328,12 +377,22 @@ class SceneGraph:
         if self._levels is None:
             self._levels = {dataset_id: [] for dataset_id in self.universe.dataset_ids}
             if self.universe.dataset_ids:
-                arrays = models.DataArray.objects.filter(dataset__in=self.universe.dataset_ids).order_by("level").select_related("coordinate_system")
+                arrays = (
+                    models.DataArray.objects.filter(
+                        dataset__in=self.universe.dataset_ids
+                    )
+                    .order_by("level")
+                    .select_related("coordinate_system")
+                )
                 for array in arrays:
                     self._levels.setdefault(array.dataset_id, []).append(array)
         return self._levels.get(dataset_id, [])
 
-    def level_placements(self, layer) -> list[tuple["models.DataArray", list[tuple["models.Transformation", bool]] | None]]:  # noqa: ANN001 - a recording or stimulus view
+    def level_placements(
+        self, layer
+    ) -> list[
+        tuple["models.DataArray", list[tuple["models.Transformation", bool]] | None]
+    ]:  # noqa: ANN001 - a recording or stimulus view
         """Per pyramid level, the path from that level's sample grid to this experiment's world system.
 
         Every trace layer: a pyramid is a fact about the array, so a decimated recording and a
@@ -358,7 +417,9 @@ class SceneGraph:
         intrinsic = layer.lens.dataset.intrinsic_coordinate_system
         placements = []
         for array in arrays:
-            system = getattr(array, "coordinate_system", None) or (intrinsic if array.level == 0 else None)
+            system = getattr(array, "coordinate_system", None) or (
+                intrinsic if array.level == 0 else None
+            )
             if system is None:
                 placements.append((array, None))
                 continue

@@ -20,19 +20,38 @@ unit restores its dataset and lenses, and a derivation edge the datasets it leav
 from collections import Counter
 from collections.abc import Sequence
 
-from kanne_server.scalars import get_registry, is_arbitrary_unit, normalize_compact_units
+from elektro_server.vocabulary import (
+    EXTENT_KEYS,
+    KEY_BY_AXIS_TYPE,
+    REFERENCE_UNITS,
+    VALUE_DIMENSION,
+    VALUE_KIND,
+)
+from kanne_server.scalars import (
+    get_registry,
+    is_arbitrary_unit,
+    normalize_compact_units,
+)
 
-from elektro_server.vocabulary import EXTENT_KEYS, KEY_BY_AXIS_TYPE, REFERENCE_UNITS, VALUE_DIMENSION, VALUE_KIND
 
-
-def array_descriptors(axis_types: Sequence[str], shape: Sequence[int]) -> dict[str, int]:
+def array_descriptors(
+    axis_types: Sequence[str], shape: Sequence[int]
+) -> dict[str, int]:
     """The descriptors of an array with these per-axis types and this (level-0) shape."""
     if len(axis_types) != len(shape):
-        raise ValueError(f"{len(axis_types)} axis types for a {len(shape)}-dimensional shape")
+        raise ValueError(
+            f"{len(axis_types)} axis types for a {len(shape)}-dimensional shape"
+        )
     counts = Counter(axis_types)
-    descriptors = {key: counts.get(axis_type, 0) for axis_type, key in KEY_BY_AXIS_TYPE.items()}
+    descriptors = {
+        key: counts.get(axis_type, 0) for axis_type, key in KEY_BY_AXIS_TYPE.items()
+    }
     for key, wanted in EXTENT_KEYS.items():
-        descriptors[key] = sum(extent for axis_type, extent in zip(axis_types, shape) if axis_type == wanted)
+        descriptors[key] = sum(
+            extent
+            for axis_type, extent in zip(axis_types, shape)
+            if axis_type == wanted
+        )
     return descriptors
 
 
@@ -55,16 +74,23 @@ def value_dimension(unit: str | None) -> str:
 
 def value_descriptors(dataset) -> dict[str, str]:  # noqa: ANN001 - a core.models.ArrayDataset
     """What a dataset's values are: what its dataset-wide unit measures, and whether a derivation declared them labels."""
-    from core.logic import graph as graph_logic  # it imports the models this module describes
+    from core.logic import (
+        graph as graph_logic,  # it imports the models this module describes
+    )
 
     categorical = dataset.pk in graph_logic.categorized_dataset_ids([dataset.pk])
-    return {VALUE_DIMENSION: value_dimension(dataset.value_unit), VALUE_KIND: "categorical" if categorical else "continuous"}
+    return {
+        VALUE_DIMENSION: value_dimension(dataset.value_unit),
+        VALUE_KIND: "categorical" if categorical else "continuous",
+    }
 
 
 def dataset_descriptors(dataset) -> dict[str, int | str]:  # noqa: ANN001 - a core.models.ArrayDataset
     """An array dataset's descriptors, from the row and what was written with it."""
     try:
-        counted = array_descriptors([axis.type for axis in dataset.axes], dataset.shape_list)
+        counted = array_descriptors(
+            [axis.type for axis in dataset.axes], dataset.shape_list
+        )
     except ValueError:  # axes and shape disagree (a half-written dataset): no descriptors, still an object
         return {}
     return {**counted, **value_descriptors(dataset)}
@@ -77,7 +103,9 @@ def lens_descriptors(lens) -> dict[str, int | str]:  # noqa: ANN001 - a core.mod
     this is the client's ``lens_descriptors`` computed from the same two facts.
     """
     try:
-        counted = array_descriptors([axis.type for axis in lens.dataset.axes], lens.shape_list)
+        counted = array_descriptors(
+            [axis.type for axis in lens.dataset.axes], lens.shape_list
+        )
     except ValueError:
         return {}
     return {**counted, **value_descriptors(lens.dataset)}
@@ -89,7 +117,9 @@ def restore(target: object) -> None:
     Inside the transaction that created the row this announces nothing more -- its CREATED reads
     what is stored at the commit; on a row made before, a change is announced as UPDATED.
     """
-    from elektro_server.service import service  # it binds the models this module describes
+    from elektro_server.service import (
+        service,  # it binds the models this module describes
+    )
 
     service.restore(target)
 

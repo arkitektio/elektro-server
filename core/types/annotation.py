@@ -7,20 +7,24 @@ tenant-scoped through the mixin every type of this service uses.
 """
 
 import datetime
-from typing import TYPE_CHECKING, Annotated, List, Optional
+from typing import TYPE_CHECKING, Annotated
 
+import kante
 import strawberry
-from strawberry.scalars import JSON
+from authentikate.strawberry.types import User
 from kante.types import Info
 from koherent.strawberry.types import ProvenanceEntry
 from strawberry import auto
-
-import kante
-from authentikate.strawberry.types import User
+from strawberry.scalars import JSON
 
 from core import enums, filters, models, order
 from core.logic import graph as graph_logic
-from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, build_prescoped_queryset
+from core.types._shared import (
+    DESCRIPTORS_DESCRIPTION,
+    OrgScoped,
+    build_prescoped_queryset,
+    resolve_descriptors,
+)
 from core.types.coords import CoordinateSystem, Transformation
 
 if TYPE_CHECKING:
@@ -29,11 +33,15 @@ if TYPE_CHECKING:
     from core.types.layers import AnnotationLayer
 
 
-@kante.type(description="A discrete coordinate an annotation is pinned to, e.g. a channel or a sweep")
+@kante.type(
+    description="A discrete coordinate an annotation is pinned to, e.g. a channel or a sweep"
+)
 class Coordinate:
     """A discrete coordinate an annotation is pinned to."""
 
-    name: str = strawberry.field(description="The name of the coordinate, e.g. 'c' or 'sweep'")
+    name: str = strawberry.field(
+        description="The name of the coordinate, e.g. 'c' or 'sweep'"
+    )
     value: int = strawberry.field(description="The value along that coordinate")
 
 
@@ -41,8 +49,12 @@ class Coordinate:
 class BoundingBox:
     """An axis-aligned bounding box, as a min and a max corner."""
 
-    min: list[float] = strawberry.field(description="The lower corner, in the coordinate order of the coordinate system")
-    max: list[float] = strawberry.field(description="The upper corner, in the coordinate order of the coordinate system")
+    min: list[float] = strawberry.field(
+        description="The lower corner, in the coordinate order of the coordinate system"
+    )
+    max: list[float] = strawberry.field(
+        description="The upper corner, in the coordinate order of the coordinate system"
+    )
 
 
 @kante.django_type(
@@ -59,20 +71,34 @@ class BoundingBox:
 class AnnotationCollection(OrgScoped):
     """A named set of annotations, owning the space they are drawn in."""
 
-    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = kante.django_field(
+        resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION
+    )
 
     id: auto
     name: auto
     description: str | None
-    experiment: Optional[Annotated["Experiment", strawberry.lazy("core.types.experiment")]] = kante.django_field(
+    experiment: (
+        Annotated["Experiment", strawberry.lazy("core.types.experiment")] | None
+    ) = kante.django_field(
         description="The experiment this collection was minted for as its default drawing surface, or null for a collection drawn over a dataset, a clock, or nothing. Bookkeeping, not placement: the registration edge is what places it"
     )
-    coordinate_system: CoordinateSystem = kante.django_field(description="The coordinate system the annotations' vectors are expressed in. The collection owns it; `derivedFrom` relates it to whatever the shapes are drawn over")
-    annotations: List[Annotated["Annotation", strawberry.lazy("core.types.annotation")]] = kante.django_field(description="The annotations in this collection")
-    experiment_layers: List[Annotated["AnnotationLayer", strawberry.lazy("core.types.layers")]] = kante.django_field(description="The experiment layers drawing this collection, one per experiment")
+    coordinate_system: CoordinateSystem = kante.django_field(
+        description="The coordinate system the annotations' vectors are expressed in. The collection owns it; `derivedFrom` relates it to whatever the shapes are drawn over"
+    )
+    annotations: list[
+        Annotated["Annotation", strawberry.lazy("core.types.annotation")]
+    ] = kante.django_field(description="The annotations in this collection")
+    experiment_layers: list[
+        Annotated["AnnotationLayer", strawberry.lazy("core.types.layers")]
+    ] = kante.django_field(
+        description="The experiment layers drawing this collection, one per experiment"
+    )
     created_at: datetime.datetime
     creator: User | None
-    provenance_entries: List[ProvenanceEntry] = kante.django_field(description="Provenance entries for this annotation collection")
+    provenance_entries: list[ProvenanceEntry] = kante.django_field(
+        description="Provenance entries for this annotation collection"
+    )
 
     @kante.django_field(
         description=(
@@ -81,7 +107,7 @@ class AnnotationCollection(OrgScoped):
             "experiment-minted one: its edge lands in a world, which is a registration (see `coordinateSystem { registrations }` on the world), not a lineage"
         )
     )
-    def derived_from(self, info: Info) -> List[Transformation]:
+    def derived_from(self, info: Info) -> list[Transformation]:
         """The edges relating this collection's space to the ones it is drawn over."""
         system = getattr(self, "coordinate_system", None)
         return graph_logic.collection_derivation_edges(system) if system else []
@@ -98,28 +124,49 @@ class Annotation:
     """A drawn shape in its collection's coordinate system, described by its vectors and the discrete coordinates it is pinned to."""
 
     id: auto
-    collection: AnnotationCollection = kante.django_field(description="The collection this annotation belongs to; its vectors are expressed in the collection's own coordinate system")
+    collection: AnnotationCollection = kante.django_field(
+        description="The collection this annotation belongs to; its vectors are expressed in the collection's own coordinate system"
+    )
     name: auto
     description: str | None
     kind: enums.AnnotationKind
-    vectors: list[list[float]] = kante.django_field(description="The annotation's vertices: one list per vertex, its components in the order of the collection's axes")
+    vectors: list[list[float]] = kante.django_field(
+        description="The annotation's vertices: one list per vertex, its components in the order of the collection's axes"
+    )
     created_with_transforms: int
-    stroke_color: list[int] | None = kante.django_field(description="The stroke (outline) color of the geometry, as RGBA")
-    fill_color: list[int] | None = kante.django_field(description="The fill color of the geometry, as RGBA, or null for no fill")
-    stroke_width: float = kante.django_field(description="The stroke width of the geometry, in the drawing space's units. One number for every direction, so it is a well-defined length only where that space's axes share a scale")
-    filled: bool = kante.django_field(description="Whether the geometry is filled with fill_color")
+    stroke_color: list[int] | None = kante.django_field(
+        description="The stroke (outline) color of the geometry, as RGBA"
+    )
+    fill_color: list[int] | None = kante.django_field(
+        description="The fill color of the geometry, as RGBA, or null for no fill"
+    )
+    stroke_width: float = kante.django_field(
+        description="The stroke width of the geometry, in the drawing space's units. One number for every direction, so it is a well-defined length only where that space's axes share a scale"
+    )
+    filled: bool = kante.django_field(
+        description="Whether the geometry is filled with fill_color"
+    )
     creator: User | None
-    provenance_entries: List[ProvenanceEntry] = kante.django_field(description="Provenance entries for this annotation")
+    provenance_entries: list[ProvenanceEntry] = kante.django_field(
+        description="Provenance entries for this annotation"
+    )
 
-    @kante.django_field(description="The coordinate system this annotation's vectors are expressed in: its collection's own system")
+    @kante.django_field(
+        description="The coordinate system this annotation's vectors are expressed in: its collection's own system"
+    )
     def coordinate_system(self, info: Info) -> CoordinateSystem | None:
         """The collection's coordinate system, surfaced for convenience."""
         return self.collection.coordinate_system_or_none
 
-    @kante.django_field(description="The discrete coordinates this annotation is pinned to. A coordinate the annotation does not pin is one it spans")
+    @kante.django_field(
+        description="The discrete coordinates this annotation is pinned to. A coordinate the annotation does not pin is one it spans"
+    )
     def coordinates(self, info: Info) -> list[Coordinate]:
         """The annotation's discrete pins, unpacked from the stored name-keyed dict."""
-        return [Coordinate(name=name, value=value) for name, value in (self.coordinates or {}).items()]
+        return [
+            Coordinate(name=name, value=value)
+            for name, value in (self.coordinates or {}).items()
+        ]
 
     @kante.django_field(
         description=(
@@ -134,7 +181,9 @@ class Annotation:
         """The annotation's bounding box in the frame its collection's chain reaches."""
         if not self.intrinsic_bbox:
             return None
-        return BoundingBox(min=self.intrinsic_bbox["min"], max=self.intrinsic_bbox["max"])
+        return BoundingBox(
+            min=self.intrinsic_bbox["min"], max=self.intrinsic_bbox["max"]
+        )
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):  # noqa: ANN001, ANN206 - strawberry_django's hook
@@ -144,4 +193,6 @@ class Annotation:
         of its own. The select_related is for the `coordinateSystem` resolver, which walks
         collection -> system per row and would otherwise cost two queries per annotation.
         """
-        return build_prescoped_queryset(info, queryset).select_related("collection__coordinate_system")
+        return build_prescoped_queryset(info, queryset).select_related(
+            "collection__coordinate_system"
+        )

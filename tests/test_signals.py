@@ -10,50 +10,21 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from arkitekt_service import trust
 from joserfc.jwk import OKPKey
 
-from arkitekt_service import trust
 from elektro_server.service import service
 
 EXPECTED = {
-    "@elektro/arraydataset": [
-        "CREATED",
-        "UPDATED",
-        "DELETED"
-    ],
-    "@elektro/tabledataset": [
-        "CREATED",
-        "UPDATED",
-        "DELETED"
-    ],
-    "@elektro/sparsedataset": [
-        "CREATED",
-        "DELETED"
-    ],
-    "@elektro/neuronmodel": [
-        "CREATED"
-    ],
-    "@elektro/modelcollection": [
-        "CREATED"
-    ],
-    "@elektro/experiment": [
-        "CREATED",
-        "UPDATED",
-        "DELETED"
-    ],
-    "@elektro/file": [
-        "CREATED",
-        "DELETED"
-    ],
-    "@elektro/folder": [
-        "CREATED",
-        "UPDATED",
-        "DELETED"
-    ],
-    "@elektro/annotationcollection": [
-        "CREATED",
-        "DELETED"
-    ]
+    "@elektro/arraydataset": ["CREATED", "UPDATED", "DELETED"],
+    "@elektro/tabledataset": ["CREATED", "UPDATED", "DELETED"],
+    "@elektro/sparsedataset": ["CREATED", "DELETED"],
+    "@elektro/neuronmodel": ["CREATED"],
+    "@elektro/modelcollection": ["CREATED"],
+    "@elektro/experiment": ["CREATED", "UPDATED", "DELETED"],
+    "@elektro/file": ["CREATED", "DELETED"],
+    "@elektro/folder": ["CREATED", "UPDATED", "DELETED"],
+    "@elektro/annotationcollection": ["CREATED", "DELETED"],
 }
 
 KEY = OKPKey.generate_key("Ed25519")
@@ -67,7 +38,14 @@ class _Intake:
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):  # noqa: N802
                 body = self.rfile.read(int(self.headers["Content-Length"]))
-                intake.received.append({"path": self.path, "headers": dict(self.headers), "body": body, "json": json.loads(body)})
+                intake.received.append(
+                    {
+                        "path": self.path,
+                        "headers": dict(self.headers),
+                        "body": body,
+                        "json": json.loads(body),
+                    }
+                )
                 self.send_response(202)
                 self.end_headers()
 
@@ -106,11 +84,15 @@ def intake(settings):
 def _organization():
     from authentikate.models import Organization
 
-    return Organization.objects.get_or_create(identifier="static_issuer#signals-test-org")[0]
+    return Organization.objects.get_or_create(
+        identifier="static_issuer#signals-test-org"
+    )[0]
 
 
 def test_the_manifest_declares_every_model_signal():
-    assert {s["identifier"]: s["kinds"] for s in service.manifest()["signals"]} == EXPECTED
+    assert {
+        s["identifier"]: s["kinds"] for s in service.manifest()["signals"]
+    } == EXPECTED
 
 
 def test_the_manifest_lists_what_elektro_hosts_with_its_descriptors():
@@ -120,7 +102,11 @@ def test_the_manifest_lists_what_elektro_hosts_with_its_descriptors():
     assert hosted["@elektro/folder"]["label"] == "Folder"
     array_keys = [d["key"] for d in hosted["@elektro/arraydataset"]["descriptors"]]
     assert array_keys == [d["key"] for d in hosted["@elektro/lens"]["descriptors"]]
-    assert {"key": "@elektro/n_samples", "type": "INT", "description": "Its total extent along its TIME axes"} in hosted["@elektro/arraydataset"]["descriptors"]
+    assert {
+        "key": "@elektro/n_samples",
+        "type": "INT",
+        "description": "Its total extent along its TIME axes",
+    } in hosted["@elektro/arraydataset"]["descriptors"]
     assert hosted["@elektro/tabledataset"]["descriptors"] == []
 
 
@@ -129,10 +115,20 @@ def test_a_save_is_signalled_signed_by_this_instance(intake):
     from core.models import Experiment
 
     org = _organization()
-    obj = Experiment.objects.create(name='signalled', organization=org)
+    obj = Experiment.objects.create(name="signalled", organization=org)
 
     (received,) = intake.of("@elektro/experiment")
-    assert (received["json"]["kind"], received["json"]["object"], received["json"]["organization"]) == ("CREATED", str(obj.pk), org.identifier)
+    assert (
+        received["json"]["kind"],
+        received["json"]["object"],
+        received["json"]["organization"],
+    ) == ("CREATED", str(obj.pk), org.identifier)
     assert received["path"] == "/agi/signal/elektro"
-    verified = trust.verify("POST", received["path"], received["body"], received["headers"]["Authorization"], audience="rekuest")
+    verified = trust.verify(
+        "POST",
+        received["path"],
+        received["body"],
+        received["headers"]["Authorization"],
+        audience="rekuest",
+    )
     assert verified.issuer == "elektro"

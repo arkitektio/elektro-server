@@ -37,7 +37,8 @@ _VIEW_PLACEMENT = """
       placementInvariance
 """
 
-EXPERIMENT_PLACEMENTS = """
+EXPERIMENT_PLACEMENTS = (
+    """
 query ExperimentPlacements {
   experiments {
     id
@@ -45,7 +46,9 @@ query ExperimentPlacements {
     world { placedSystems { id residents { __typename } } }
   }
 }
-""" % _VIEW_PLACEMENT
+"""
+    % _VIEW_PLACEMENT
+)
 
 SPACE_PLACED = """
 query SpacePlaced { coordinateSystems { id placedSystems { id } } }
@@ -69,8 +72,15 @@ async def _seed_experiment(ctx, *, view_count: int) -> models.Experiment:  # noq
     rebuilt per dataset, and both datasets' edges have to stay in their own adjacency for
     the BFS to keep returning the path it returns today.
     """
-    datasets = [await seed.create_array_dataset(ctx, f"Placed{index}") for index in range(2)]
-    lenses = [await seed.create_lens(ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}]) for dataset in datasets]
+    datasets = [
+        await seed.create_array_dataset(ctx, f"Placed{index}") for index in range(2)
+    ]
+    lenses = [
+        await seed.create_lens(
+            ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}]
+        )
+        for dataset in datasets
+    ]
     experiment = await create_experiment(ctx, "Composition")
 
     for index in range(view_count):
@@ -94,7 +104,9 @@ def _view_count(data: dict) -> int:
     return len(experiment["layers"])
 
 
-async def test_scene_placements_are_flat_in_layer_count(aexecute, authenticated_context):
+async def test_scene_placements_are_flat_in_layer_count(
+    aexecute, authenticated_context
+):
     """Asking an experiment for its views' placements costs the same at 7 views as at 3."""
     await _seed_experiment(authenticated_context, view_count=3)
     small_data, small_queries = await counted(aexecute, EXPERIMENT_PLACEMENTS)
@@ -106,11 +118,17 @@ async def test_scene_placements_are_flat_in_layer_count(aexecute, authenticated_
     assert _view_count(small_data) == 3
     assert _view_count(large_data) == 7
     every_view = large_data["experiments"][0]["layers"]
-    assert all(view["placement"] == "PLACED" and view["asAffine"] for view in every_view), "every placement field is actually exercised"
-    assert large_queries == small_queries, f"the placement query count grows with the views: {small_queries} for 3 views, {large_queries} for 7"
+    assert all(
+        view["placement"] == "PLACED" and view["asAffine"] for view in every_view
+    ), "every placement field is actually exercised"
+    assert large_queries == small_queries, (
+        f"the placement query count grows with the views: {small_queries} for 3 views, {large_queries} for 7"
+    )
 
 
-async def test_a_spaces_placeable_set_is_walked_once_per_request(aexecute, authenticated_context):
+async def test_a_spaces_placeable_set_is_walked_once_per_request(
+    aexecute, authenticated_context
+):
     """`placedSystems` answers from one walk of the space per request, however often it is asked.
 
     It derives from `placeable_system_ids_in`, which is a registrations fetch, a residence
@@ -124,14 +142,20 @@ async def test_a_spaces_placeable_set_is_walked_once_per_request(aexecute, authe
     relation, which is a bound well under what one more walk per space would cost.
     """
     for index in range(3):
-        dataset = await seed.create_array_dataset(authenticated_context, f"Placed{index}")
-        world = await seed.create_world(authenticated_context, f"World{index}", seed.ZYX_WORLD_AXES)
+        dataset = await seed.create_array_dataset(
+            authenticated_context, f"Placed{index}"
+        )
+        world = await seed.create_world(
+            authenticated_context, f"World{index}", seed.ZYX_WORLD_AXES
+        )
         await seed.register_into_world(authenticated_context, world, dataset)
 
     _one_data, one_queries = await counted(aexecute, SPACE_PLACED)
     both_data, both_queries = await counted(aexecute, SPACE_PLACED_TWICE)
 
-    assert len(both_data["coordinateSystems"]) >= 6, "the fixture must cover several spaces, or N walks and one look alike"
+    assert len(both_data["coordinateSystems"]) >= 6, (
+        "the fixture must cover several spaces, or N walks and one look alike"
+    )
     extra = both_queries - one_queries
     read = 1 + len(graph_logic.RESIDENT_RELATIONS)
     assert extra <= read * len(both_data["coordinateSystems"]), (
@@ -140,7 +164,9 @@ async def test_a_spaces_placeable_set_is_walked_once_per_request(aexecute, authe
     )
 
 
-async def test_two_scenes_over_one_world_share_the_root_edge_fetch(authenticated_context):
+async def test_two_scenes_over_one_world_share_the_root_edge_fetch(
+    authenticated_context,
+):
     """The world's edges are fetched once per request, not once per experiment composing over it.
 
     An experiment's searchable universe is its world's edges plus its views' datasets' facts, and
@@ -165,12 +191,20 @@ async def test_two_scenes_over_one_world_share_the_root_edge_fetch(authenticated
 
         a = scene_graph.SceneGraph(experiment_a, loaders=loaders)
         b = scene_graph.SceneGraph(experiment_b, loaders=loaders)
-        assert a.universe.root_edges is b.universe.root_edges, "two experiments over one world must share the world's edge fetch"
+        assert a.universe.root_edges is b.universe.root_edges, (
+            "two experiments over one world must share the world's edge fetch"
+        )
         assert len(loaders["space_root_edges"]) == 1
 
-        scoped = space_graph.SpaceGraph(world, organization=ctx.request.organization, loaders=loaders)
-        assert scoped.universe.root_edges is not a.universe.root_edges, "an organization-scoped fetch is a different set of rows"
-        assert len(loaders["space_root_edges"]) == 2, "so it gets its own key rather than reusing the unscoped one"
+        scoped = space_graph.SpaceGraph(
+            world, organization=ctx.request.organization, loaders=loaders
+        )
+        assert scoped.universe.root_edges is not a.universe.root_edges, (
+            "an organization-scoped fetch is a different set of rows"
+        )
+        assert len(loaders["space_root_edges"]) == 2, (
+            "so it gets its own key rather than reusing the unscoped one"
+        )
 
     await sync_to_async(check)()
 
@@ -188,7 +222,9 @@ mutation ($input: CreateTraceLayerInput!) { createTraceLayer(input: $input) { id
 """
 
 
-async def test_creating_a_layer_is_flat_in_scene_size(aexecute, authenticated_context, make_simulation_chain):
+async def test_creating_a_layer_is_flat_in_scene_size(
+    aexecute, authenticated_context, make_simulation_chain
+):
     """Laying out one more recording costs the same over a world of 7 runs as over a world of 3.
 
     The placement check a creating mutation runs (is this source placeable in this world?)
@@ -202,20 +238,56 @@ async def test_creating_a_layer_is_flat_in_scene_size(aexecute, authenticated_co
 
     async def measure(already: int) -> int:
         world = await seed.create_world(authenticated_context, f"Timeline{already}")
-        created = await aexecute(CREATE_EXPERIMENT, {"input": {"name": f"Timeline{already}", "coordinateSystem": str(world.pk)}})
+        created = await aexecute(
+            CREATE_EXPERIMENT,
+            {
+                "input": {
+                    "name": f"Timeline{already}",
+                    "coordinateSystem": str(world.pk),
+                }
+            },
+        )
         assert not created.errors, created.errors
         experiment = created.data["createExperiment"]["id"]
         for index in range(already):
             earlier = await make_simulation_chain(name=f"earlier{already}-{index}")
-            placed = await aexecute(CREATE_CLOCK_OFFSET, {"input": {"clock": str(earlier.clock.pk), "onto": str(world.pk), "offset": f"{index} s"}})
+            placed = await aexecute(
+                CREATE_CLOCK_OFFSET,
+                {
+                    "input": {
+                        "clock": str(earlier.clock.pk),
+                        "onto": str(world.pk),
+                        "offset": f"{index} s",
+                    }
+                },
+            )
             assert not placed.errors, placed.errors
-            laid = await aexecute(CREATE_TRACE_LAYER, {"input": {"experiment": experiment, "dataset": str(earlier.recording.pk)}})
+            laid = await aexecute(
+                CREATE_TRACE_LAYER,
+                {
+                    "input": {
+                        "experiment": experiment,
+                        "dataset": str(earlier.recording.pk),
+                    }
+                },
+            )
             assert not laid.errors, laid.errors
 
         incoming = await make_simulation_chain(name=f"incoming{already}")
-        placed = await aexecute(CREATE_CLOCK_OFFSET, {"input": {"clock": str(incoming.clock.pk), "onto": str(world.pk), "offset": "100 s"}})
+        placed = await aexecute(
+            CREATE_CLOCK_OFFSET,
+            {
+                "input": {
+                    "clock": str(incoming.clock.pk),
+                    "onto": str(world.pk),
+                    "offset": "100 s",
+                }
+            },
+        )
         assert not placed.errors, placed.errors
-        variables = {"input": {"experiment": experiment, "dataset": str(incoming.recording.pk)}}
+        variables = {
+            "input": {"experiment": experiment, "dataset": str(incoming.recording.pk)}
+        }
         with QueryCounter() as counter:
             result = await aexecute(CREATE_TRACE_LAYER, variables)
         assert not result.errors, result.errors
@@ -226,4 +298,6 @@ async def test_creating_a_layer_is_flat_in_scene_size(aexecute, authenticated_co
 
     small_queries = await measure(3)
     large_queries = await measure(7)
-    assert large_queries == small_queries, f"creating a layer costs more over a fuller world: {small_queries} queries at 3 runs, {large_queries} at 7"
+    assert large_queries == small_queries, (
+        f"creating a layer costs more over a fuller world: {small_queries} queries at 3 runs, {large_queries} at 7"
+    )

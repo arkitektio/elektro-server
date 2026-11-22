@@ -1,20 +1,22 @@
 import datetime
-import strawberry
-from core import models, enums, scalars
-from strawberry import auto
-from typing import ClassVar, Optional
-from strawberry_django.filters import FilterLookup
-import strawberry_django
+from typing import ClassVar
+
 import kante
-from django.db.models import F, FloatField, Q, QuerySet, Value
-from embeddings.search import hybrid_search
-from django.db.models.functions import Coalesce, Greatest
+import strawberry
+import strawberry_django
 from django.contrib.postgres.search import (
     SearchQuery,
     SearchRank,
     SearchVector,
     TrigramSimilarity,
 )
+from django.db.models import F, FloatField, Q, QuerySet, Value
+from django.db.models.functions import Coalesce, Greatest
+from strawberry import auto
+from strawberry_django.filters import FilterLookup
+
+from core import enums, models
+from embeddings.search import hybrid_search
 
 
 @strawberry.input
@@ -188,7 +190,9 @@ class SearchFilterMixin:
                 _rank=SearchRank(vector, query),
             )
             .filter(predicate)
-            .annotate(_relevance=Greatest("_similarity", "_rank", output_field=FloatField()))
+            .annotate(
+                _relevance=Greatest("_similarity", "_rank", output_field=FloatField())
+            )
             .order_by("-_relevance")
         )
 
@@ -208,7 +212,7 @@ class ExperimentFilter(
 ):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
-    name: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
     world: strawberry.ID | None = None
 
     def filter_world(self, queryset, info):
@@ -219,17 +223,21 @@ class ExperimentFilter(
 
 
 @strawberry_django.filter_type(models.ModelCollection)
-class ModelCollectionFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin, CreatorFilterMixin):
+class ModelCollectionFilter(
+    IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin, CreatorFilterMixin
+):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
-    name: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
 
 
 @strawberry_django.filter_type(models.ModelWorkspace)
-class ModelWorkspaceFilter(IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin, CreatorFilterMixin):
+class ModelWorkspaceFilter(
+    IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin, CreatorFilterMixin
+):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
-    name: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
 
 
 @strawberry_django.filter_type(models.WorkspaceMapping)
@@ -247,23 +255,23 @@ class NeuronModelFilter(
 ):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
-    name: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
 
 
 @strawberry_django.filter_type(models.Mechanism)
 class MechanismFilter(IDFilterMixin, SearchFilterMixin):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
-    name: Optional[FilterLookup[str]]
-    description: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
+    description: FilterLookup[str] | None
 
 
 @strawberry_django.filter_type(models.ModEnvironment)
 class ModEnvironmentFilter(IDFilterMixin, SearchFilterMixin):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
-    name: Optional[FilterLookup[str]]
-    description: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
+    description: FilterLookup[str] | None
 
 
 # ---------------------------------------------------------------------------
@@ -326,8 +334,9 @@ class MechanismOrder:
 # as "inhabited only" -- so every resolver below states what null means: no constraint.
 
 from kante.types import Info  # noqa: E402
-from core.logic import graph as graph_logic  # noqa: E402
+
 from core.logic import descriptor_filter  # noqa: E402
+from core.logic import graph as graph_logic  # noqa: E402
 from core.logic.descriptor_filter import DescriptorConstraintInput  # noqa: E402
 from core.scoping import for_org  # noqa: E402
 
@@ -356,22 +365,32 @@ class SemanticNameSearchFilterMixin:
     USE_DEPRECATED_FILTERS and means no constraint.
     """
 
-    @kante.filter_field(description="Search by name (case-insensitive substring) or by the meaning of the query against name and description. Substring matches rank first, then by similarity; an explicit `ordering` replaces that ranking")
-    def search(self, info: Info, queryset: QuerySet, value: str | None, prefix: str) -> tuple[QuerySet, Q]:
+    @kante.filter_field(
+        description="Search by name (case-insensitive substring) or by the meaning of the query against name and description. Substring matches rank first, then by similarity; an explicit `ordering` replaces that ranking"
+    )
+    def search(
+        self, info: Info, queryset: QuerySet, value: str | None, prefix: str
+    ) -> tuple[QuerySet, Q]:
         """Annotate the distance and OR the semantic predicate onto the substring one."""
         if value is None:
             return queryset, Q()
-        return hybrid_search(queryset, prefix, value, Q(**{f"{prefix}name__icontains": value}))
+        return hybrid_search(
+            queryset, prefix, value, Q(**{f"{prefix}name__icontains": value})
+        )
 
 
 @strawberry.input
 class OwnedFilterMixin:
     @kante.filter_field(description="Filter for items created before this datetime")
-    def created_before(self, info: Info, value: datetime.datetime | None, prefix: str) -> Q:
+    def created_before(
+        self, info: Info, value: datetime.datetime | None, prefix: str
+    ) -> Q:
         return Q() if value is None else Q(**{f"{prefix}created_at__lt": value})
 
     @kante.filter_field(description="Filter for items created after this datetime")
-    def created_after(self, info: Info, value: datetime.datetime | None, prefix: str) -> Q:
+    def created_after(
+        self, info: Info, value: datetime.datetime | None, prefix: str
+    ) -> Q:
         return Q() if value is None else Q(**{f"{prefix}created_at__gt": value})
 
     @kante.filter_field(description="Filter by the creator's subject ID")
@@ -379,7 +398,9 @@ class OwnedFilterMixin:
         return Q() if value is None else Q(**{f"{prefix}creator__sub": value})
 
 
-def _placeable_destination(info: Info, value: strawberry.ID) -> "models.CoordinateSystem | None":
+def _placeable_destination(
+    info: Info, value: strawberry.ID
+) -> "models.CoordinateSystem | None":
     """The space a `placeableIn` filter is asking about, or None when there is no such space here.
 
     Organization-scoped: the walk it feeds reads another org's edges otherwise, and "which of my
@@ -400,7 +421,9 @@ def _placeable_destination(info: Info, value: strawberry.ID) -> "models.Coordina
 class PlaceableFilter:
     """The destination space of a `placeableIn` question, and the narrowing of it."""
 
-    space: strawberry.ID = strawberry.field(description="The space to be placed into. A *space*, not an experiment: every experiment over one world offers the same candidates. Pass `experiment.world.id` to ask it of an experiment")
+    space: strawberry.ID = strawberry.field(
+        description="The space to be placed into. A *space*, not an experiment: every experiment over one world offers the same candidates. Pass `experiment.world.id` to ask it of an experiment"
+    )
     derived_only: bool | None = strawberry.field(
         default=None,
         description="Keep only what *needed* a lineage tree to get here: the filtered, decimated and sorted datasets placed by an ancestor's registration. What the space registers directly is dropped",
@@ -417,25 +440,42 @@ class PlaceableFilter:
 @kante.filter_type(models.CoordinateSystem)
 class CoordinateSystemFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin):
     id: auto
-    name: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
 
-    @kante.filter_field(description="Filter to the spaces nothing lives in: pure reference frames -- the clocks and worlds that datasets are sampled onto and registered into. False finds the spaces some data actually occupies")
+    @kante.filter_field(
+        description="Filter to the spaces nothing lives in: pure reference frames -- the clocks and worlds that datasets are sampled onto and registered into. False finds the spaces some data actually occupies"
+    )
     def uninhabited(self, info: Info, value: bool | None, prefix: str) -> Q:
         if value is None:
             return Q()
         # One list, in `core.logic.graph.CONTAINERS`. A hand-written copy here answers
         # "nothing lives in this space" while something does.
-        condition = Q(**{f"{prefix}{related_name}__isnull": True for related_name in graph_logic.RESIDENT_RELATIONS})
+        condition = Q(
+            **{
+                f"{prefix}{related_name}__isnull": True
+                for related_name in graph_logic.RESIDENT_RELATIONS
+            }
+        )
         return condition if value else ~condition
 
-    @kante.filter_field(description="Filter to the spaces this dataset's data lives in: its own sample grid, and the grids of its sliced lenses")
+    @kante.filter_field(
+        description="Filter to the spaces this dataset's data lives in: its own sample grid, and the grids of its sliced lenses"
+    )
     def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         if value is None:
             return Q()
-        return Q(**{f"{prefix}datasets__id": value}) | Q(**{f"{prefix}lenses__dataset_id": value}) | Q(**{f"{prefix}data_arrays__dataset_id": value})
+        return (
+            Q(**{f"{prefix}datasets__id": value})
+            | Q(**{f"{prefix}lenses__dataset_id": value})
+            | Q(**{f"{prefix}data_arrays__dataset_id": value})
+        )
 
-    @kante.filter_field(description="Filter to the spaces carrying every one of these axis types, e.g. [TIME] for clocks and the spaces sampled on one. The same question `hasAxisTypes` asks of array datasets, asked of the space itself")
-    def has_axis_types(self, info: Info, value: list[enums.AxisType] | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter to the spaces carrying every one of these axis types, e.g. [TIME] for clocks and the spaces sampled on one. The same question `hasAxisTypes` asks of array datasets, asked of the space itself"
+    )
+    def has_axis_types(
+        self, info: Info, value: list[enums.AxisType] | None, prefix: str
+    ) -> Q:
         """Match spaces with an axis of every one of these types: one subquery per type, all ANDed."""
         if not value:
             return Q()
@@ -444,22 +484,33 @@ class CoordinateSystemFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterM
             condition &= _has_axis_type_q(prefix, "id", axis_type)
         return condition
 
-    @kante.filter_field(description="Filter to the spaces something composes over without living in them: an experiment's world. False finds the spaces nothing is laid out in")
+    @kante.filter_field(
+        description="Filter to the spaces something composes over without living in them: an experiment's world. False finds the spaces nothing is laid out in"
+    )
     def composed_over(self, info: Info, value: bool | None, prefix: str) -> Q:
         if value is None or not graph_logic.WORLD_RELATIONS:
             return Q()
-        unused = Q(**{f"{prefix}{related_name}__isnull": True for related_name in graph_logic.WORLD_RELATIONS})
+        unused = Q(
+            **{
+                f"{prefix}{related_name}__isnull": True
+                for related_name in graph_logic.WORLD_RELATIONS
+            }
+        )
         return ~unused if value else unused
 
 
 @kante.filter_type(models.Axis)
 class AxisFilter(IdsFilterMixin):
     id: auto
-    name: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
     type: auto
 
-    @kante.filter_field(description="Filter by the coordinate system this axis belongs to")
-    def coordinate_system(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter by the coordinate system this axis belongs to"
+    )
+    def coordinate_system(
+        self, info: Info, value: strawberry.ID | None, prefix: str
+    ) -> Q:
         return Q() if value is None else Q(**{f"{prefix}coordinate_system_id": value})
 
 
@@ -471,15 +522,23 @@ class TransformationFilter(IdsFilterMixin, OwnedFilterMixin):
     # Not `auto`: that would mint a second SDL enum from the TextChoices twin
     # (PlacementValidityChoices) beside the strawberry PlacementValidity every
     # other field uses.
-    @kante.filter_field(description="Filter by how much the edge's map is actually known, e.g. INFERRED to list every sampling law read from acquisition metadata")
-    def validity(self, info: Info, value: enums.PlacementValidity | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter by how much the edge's map is actually known, e.g. INFERRED to list every sampling law read from acquisition metadata"
+    )
+    def validity(
+        self, info: Info, value: enums.PlacementValidity | None, prefix: str
+    ) -> Q:
         return Q() if value is None else Q(**{f"{prefix}validity": value.value})
 
-    @kante.filter_field(description="Filter by the coordinate system this transformation maps from")
+    @kante.filter_field(
+        description="Filter by the coordinate system this transformation maps from"
+    )
     def input(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}input_id": value})
 
-    @kante.filter_field(description="Filter by the coordinate system this transformation maps to")
+    @kante.filter_field(
+        description="Filter by the coordinate system this transformation maps to"
+    )
     def output(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}output_id": value})
 
@@ -487,7 +546,9 @@ class TransformationFilter(IdsFilterMixin, OwnedFilterMixin):
     # An edge *into a space* is `output: <systemId>` above, and the field form of that same
     # question is `CoordinateSystem.registrations`.
 
-    @kante.filter_field(description="Show only top-level edges, excluding the children of SEQUENCE / BY_DIMENSION wrappers")
+    @kante.filter_field(
+        description="Show only top-level edges, excluding the children of SEQUENCE / BY_DIMENSION wrappers"
+    )
     def roots_only(self, info: Info, value: bool | None, prefix: str) -> Q:
         return Q(**{f"{prefix}parent__isnull": True}) if value else Q()
 
@@ -502,7 +563,13 @@ class LensFilter(IdsFilterMixin):
             "Answered in SQL from the descriptors stored on every row. A key lenses do not declare is refused rather than ignored"
         )
     )
-    def requires(self, info: Info, queryset: QuerySet, value: list[DescriptorConstraintInput] | None, prefix: str) -> tuple[QuerySet, Q]:
+    def requires(
+        self,
+        info: Info,
+        queryset: QuerySet,
+        value: list[DescriptorConstraintInput] | None,
+        prefix: str,
+    ) -> tuple[QuerySet, Q]:
         if value is None:
             return queryset, Q()
         return descriptor_filter.requires(models.Lens, queryset, value, prefix)
@@ -511,7 +578,9 @@ class LensFilter(IdsFilterMixin):
     def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}dataset_id": value})
 
-    @kante.filter_field(description="Filter to lenses placeable into a coordinate system: those whose space reaches it across steps that compose into one affine map, walking the transformation edges")
+    @kante.filter_field(
+        description="Filter to lenses placeable into a coordinate system: those whose space reaches it across steps that compose into one affine map, walking the transformation edges"
+    )
     def placeable_in(self, info: Info, value: PlaceableFilter | None, prefix: str) -> Q:
         if value is None:
             return Q()
@@ -521,7 +590,15 @@ class LensFilter(IdsFilterMixin):
         # Placeability is a property of the *dataset*, so every lens of a placeable dataset is
         # placeable and this stays a plain indexed `dataset_id__in` with no `distinct()`.
         # `bool(...)`: an omitted nested field can arrive as `strawberry.UNSET`, which is not None.
-        return Q(**{f"{prefix}dataset_id__in": graph_logic.placeable_lens_dataset_ids(space, derived_only=bool(value.derived_only), require_affine=value.require_affine is not False)})
+        return Q(
+            **{
+                f"{prefix}dataset_id__in": graph_logic.placeable_lens_dataset_ids(
+                    space,
+                    derived_only=bool(value.derived_only),
+                    require_affine=value.require_affine is not False,
+                )
+            }
+        )
 
 
 # --- Annotations (vendored from mikro's core/filters.py) ---------------------------------------
@@ -538,36 +615,75 @@ def _systems_drawn_over_dataset(dataset_id: strawberry.ID):  # noqa: ANN202 - a 
     onto the collection is the copy this whole graph exists to avoid. (It is the copy `ROI.trace`
     was.)
     """
-    return models.Transformation.objects.filter(parent__isnull=True, input__isnull=False).filter(Q(output__datasets__id=dataset_id) | Q(output__lenses__dataset_id=dataset_id) | Q(output__data_arrays__dataset_id=dataset_id)).values("input_id")
+    return (
+        models.Transformation.objects.filter(parent__isnull=True, input__isnull=False)
+        .filter(
+            Q(output__datasets__id=dataset_id)
+            | Q(output__lenses__dataset_id=dataset_id)
+            | Q(output__data_arrays__dataset_id=dataset_id)
+        )
+        .values("input_id")
+    )
 
 
 def _systems_drawn_over_system(system_id: strawberry.ID):  # noqa: ANN202 - a values() queryset
     """The collection systems with an edge landing in this space: a clock, a world, a sample grid."""
-    return models.Transformation.objects.filter(parent__isnull=True, input__isnull=False, input__annotation_collections__isnull=False, output_id=system_id).values("input_id")
+    return models.Transformation.objects.filter(
+        parent__isnull=True,
+        input__isnull=False,
+        input__annotation_collections__isnull=False,
+        output_id=system_id,
+    ).values("input_id")
 
 
 @kante.filter_type(models.AnnotationCollection)
-class AnnotationCollectionFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin):
+class AnnotationCollectionFilter(
+    IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin
+):
     id: auto
-    name: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
 
-    @kante.filter_field(description="Filter by the experiment this collection was minted for as its default drawing surface")
+    @kante.filter_field(
+        description="Filter by the experiment this collection was minted for as its default drawing surface"
+    )
     def experiment(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}experiment_id": value})
 
-    @kante.filter_field(description="Filter by the coordinate system the annotations are drawn in (the collection's own)")
-    def coordinate_system(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter by the coordinate system the annotations are drawn in (the collection's own)"
+    )
+    def coordinate_system(
+        self, info: Info, value: strawberry.ID | None, prefix: str
+    ) -> Q:
         return Q() if value is None else Q(**{f"{prefix}coordinate_system__id": value})
 
-    @kante.filter_field(description="Filter to the collections drawn over this dataset (or over a lens of it), following the derivation edge")
+    @kante.filter_field(
+        description="Filter to the collections drawn over this dataset (or over a lens of it), following the derivation edge"
+    )
     def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
-        return Q() if value is None else Q(**{f"{prefix}coordinate_system__in": _systems_drawn_over_dataset(value)})
+        return (
+            Q()
+            if value is None
+            else Q(
+                **{f"{prefix}coordinate_system__in": _systems_drawn_over_dataset(value)}
+            )
+        )
 
-    @kante.filter_field(description="Filter to the collections drawn over this coordinate system: pass a segment's clock for the events and epochs marking the whole segment, or an experiment's world for those on its timeline")
+    @kante.filter_field(
+        description="Filter to the collections drawn over this coordinate system: pass a segment's clock for the events and epochs marking the whole segment, or an experiment's world for those on its timeline"
+    )
     def drawn_over(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
-        return Q() if value is None else Q(**{f"{prefix}coordinate_system__in": _systems_drawn_over_system(value)})
+        return (
+            Q()
+            if value is None
+            else Q(
+                **{f"{prefix}coordinate_system__in": _systems_drawn_over_system(value)}
+            )
+        )
 
-    @kante.filter_field(description="Filter by whether the collection is drawn in a space with a TIME axis -- events and epochs on a clock -- or in one without (shapes over a static map)")
+    @kante.filter_field(
+        description="Filter by whether the collection is drawn in a space with a TIME axis -- events and epochs on a clock -- or in one without (shapes over a static map)"
+    )
     def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
         """Match collections drawn in a space with (true) or without (false) a TIME axis."""
         return _timed_q(prefix, value)
@@ -576,37 +692,72 @@ class AnnotationCollectionFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFil
 @kante.filter_type(models.Annotation)
 class AnnotationFilter(IdsFilterMixin, NameSearchFilterMixin):
     id: auto
-    name: Optional[FilterLookup[str]]
-    description: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
+    description: FilterLookup[str] | None
     kind: auto
 
-    @kante.filter_field(description="Filter by the collection this annotation belongs to")
+    @kante.filter_field(
+        description="Filter by the collection this annotation belongs to"
+    )
     def collection(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}collection_id": value})
 
-    @kante.filter_field(description="Filter by the coordinate system this annotation is drawn in (its collection's own)")
-    def coordinate_system(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
-        return Q() if value is None else Q(**{f"{prefix}collection__coordinate_system__id": value})
+    @kante.filter_field(
+        description="Filter by the coordinate system this annotation is drawn in (its collection's own)"
+    )
+    def coordinate_system(
+        self, info: Info, value: strawberry.ID | None, prefix: str
+    ) -> Q:
+        return (
+            Q()
+            if value is None
+            else Q(**{f"{prefix}collection__coordinate_system__id": value})
+        )
 
-    @kante.filter_field(description="Filter to the annotations drawn over this dataset (or over a lens of it), following their collection's derivation edge")
+    @kante.filter_field(
+        description="Filter to the annotations drawn over this dataset (or over a lens of it), following their collection's derivation edge"
+    )
     def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
-        return Q() if value is None else Q(**{f"{prefix}collection__coordinate_system__in": _systems_drawn_over_dataset(value)})
+        return (
+            Q()
+            if value is None
+            else Q(
+                **{
+                    f"{prefix}collection__coordinate_system__in": _systems_drawn_over_dataset(
+                        value
+                    )
+                }
+            )
+        )
 
     def _require_frame(self, op: str) -> None:
         # Boxes only compare within one frame: every collection's bbox lives in its own
         # nearest-intrinsic space, so an unscoped range predicate would compare samples with
         # seconds and call the mismatches results. `None` as well as UNSET: this service's
         # filter mode lets an explicit null through.
-        if self.collection in (strawberry.UNSET, None) and self.coordinate_system in (strawberry.UNSET, None):
-            raise ValueError(f"`{op}` compares boxes within one frame: pass `collection` or `coordinateSystem` alongside it.")
+        if self.collection in (strawberry.UNSET, None) and self.coordinate_system in (
+            strawberry.UNSET,
+            None,
+        ):
+            raise ValueError(
+                f"`{op}` compares boxes within one frame: pass `collection` or `coordinateSystem` alongside it."
+            )
 
     @kante.filter_field(
         description="Filter to annotations pinned to every one of these coordinates, e.g. [{name: 'c', value: 3}]. GIN-backed containment on the stored coordinate dict; an annotation that spans a coordinate does not match a pin on it"
     )
-    def pinned_to(self, info: Info, value: list[CoordinateInput] | None, prefix: str) -> Q:
+    def pinned_to(
+        self, info: Info, value: list[CoordinateInput] | None, prefix: str
+    ) -> Q:
         if not value:
             return Q()
-        return Q(**{f"{prefix}coordinates__contains": {coordinate.name: coordinate.value for coordinate in value}})
+        return Q(
+            **{
+                f"{prefix}coordinates__contains": {
+                    coordinate.name: coordinate.value for coordinate in value
+                }
+            }
+        )
 
     @kante.filter_field(
         description=(
@@ -620,7 +771,9 @@ class AnnotationFilter(IdsFilterMixin, NameSearchFilterMixin):
         self._require_frame("intersects")
         return Q(**{f"{prefix}bbox_cube__overlaps": (value.min, value.max)})
 
-    @kante.filter_field(description="Filter to annotations whose bounding box contains this point (GiST-backed): the epochs in force at one instant. Only meaningful within one frame: pass `collection` or `coordinateSystem` alongside")
+    @kante.filter_field(
+        description="Filter to annotations whose bounding box contains this point (GiST-backed): the epochs in force at one instant. Only meaningful within one frame: pass `collection` or `coordinateSystem` alongside"
+    )
     def contains_point(self, info: Info, value: list[float] | None, prefix: str) -> Q:
         if value is None:
             return Q()
@@ -635,8 +788,9 @@ class AnnotationFilter(IdsFilterMixin, NameSearchFilterMixin):
 # constraint -- because this service runs strawberry-django's deprecated filter mode.
 
 from django.db.models import Count, Exists, OuterRef, QuerySet  # noqa: E402
-from kanne_server import scalars as kanne_scalars  # noqa: E402
+
 from core.logic import file_link as file_link_logic  # noqa: E402
+from kanne_server import scalars as kanne_scalars  # noqa: E402
 
 
 @strawberry.input
@@ -661,8 +815,12 @@ class FolderChildrenFilter:
 class FileLinkContainerRef:
     """One container a file link points at."""
 
-    kind: enums.FileLinkContainerKind = strawberry.field(description="Which sort of container. It fixes which column the filter reads")
-    id: strawberry.ID = strawberry.field(description="The container's ID, in the sequence its `kind` names")
+    kind: enums.FileLinkContainerKind = strawberry.field(
+        description="Which sort of container. It fixes which column the filter reads"
+    )
+    id: strawberry.ID = strawberry.field(
+        description="The container's ID, in the sequence its `kind` names"
+    )
 
 
 #: The extensions each `FileMimeGroup` recognizes. Deliberately a filter-side table and not a
@@ -673,10 +831,57 @@ class FileLinkContainerRef:
 #: uploads as `application/octet-stream`: a content-type rule would file every one of them
 #: under OTHER, which is exactly the set worth being able to find.
 _MIME_GROUP_EXTENSIONS: dict[str, tuple[str, ...]] = {
-    enums.FileMimeGroup.RECORDING.value: ("abf", "nwb", "axgd", "axgx", "smr", "smrx", "wcp", "dat", "pxp", "ibw", "plx", "pl2", "nev", "ns1", "ns2", "ns3", "ns4", "ns5", "ns6", "nex", "nex5", "rhd", "rhs", "edf", "bdf", "mat", "h5", "hdf5", "kwik"),
+    enums.FileMimeGroup.RECORDING.value: (
+        "abf",
+        "nwb",
+        "axgd",
+        "axgx",
+        "smr",
+        "smrx",
+        "wcp",
+        "dat",
+        "pxp",
+        "ibw",
+        "plx",
+        "pl2",
+        "nev",
+        "ns1",
+        "ns2",
+        "ns3",
+        "ns4",
+        "ns5",
+        "ns6",
+        "nex",
+        "nex5",
+        "rhd",
+        "rhs",
+        "edf",
+        "bdf",
+        "mat",
+        "h5",
+        "hdf5",
+        "kwik",
+    ),
     enums.FileMimeGroup.MODEL.value: ("hoc", "mod", "swc", "asc", "nml", "ses"),
-    enums.FileMimeGroup.TABLE.value: ("csv", "tsv", "parquet", "feather", "arrow", "xlsx", "xls"),
-    enums.FileMimeGroup.DOCUMENT.value: ("pdf", "txt", "md", "rst", "docx", "json", "yaml", "yml"),
+    enums.FileMimeGroup.TABLE.value: (
+        "csv",
+        "tsv",
+        "parquet",
+        "feather",
+        "arrow",
+        "xlsx",
+        "xls",
+    ),
+    enums.FileMimeGroup.DOCUMENT.value: (
+        "pdf",
+        "txt",
+        "md",
+        "rst",
+        "docx",
+        "json",
+        "yaml",
+        "yml",
+    ),
     enums.FileMimeGroup.ARCHIVE.value: ("zip", "tar", "gz", "tgz", "bz2", "7z"),
 }
 
@@ -684,7 +889,11 @@ _MIME_GROUP_EXTENSIONS: dict[str, tuple[str, ...]] = {
 _MIME_GROUP_PREFIXES: dict[str, tuple[str, ...]] = {
     enums.FileMimeGroup.TABLE.value: ("text/csv", "text/tab-separated-values"),
     enums.FileMimeGroup.DOCUMENT.value: ("text/", "application/pdf"),
-    enums.FileMimeGroup.ARCHIVE.value: ("application/zip", "application/x-tar", "application/gzip"),
+    enums.FileMimeGroup.ARCHIVE.value: (
+        "application/zip",
+        "application/x-tar",
+        "application/gzip",
+    ),
 }
 
 
@@ -731,7 +940,9 @@ def _link_exclusion(prefix: str, ids: QuerySet, *, negate: bool) -> Q:
     return ~matches if negate else matches
 
 
-def _container_link_q(prefix: str, ref: "FileLinkContainerRef", direction: str | None = None) -> Q:
+def _container_link_q(
+    prefix: str, ref: "FileLinkContainerRef", direction: str | None = None
+) -> Q:
     """Files linked to the container this ref names, optionally in one direction only.
 
     The kind -> column mapping comes from `core.logic.file_link.column_for_kind`, which is
@@ -747,7 +958,9 @@ def _container_link_q(prefix: str, ref: "FileLinkContainerRef", direction: str |
 
 @strawberry.input
 class PinnedFilterMixin:
-    @kante.filter_field(description="Filter by whether the current user has pinned the item")
+    @kante.filter_field(
+        description="Filter by whether the current user has pinned the item"
+    )
     def pinned(self, info: Info, value: bool | None, prefix: str) -> Q:
         if value is None:
             return Q()
@@ -759,7 +972,9 @@ class PinnedFilterMixin:
 @strawberry.input
 class TagsFilterMixin:
     @kante.filter_field(description="Filter by tag names")
-    def tags(self, info: Info, queryset: QuerySet, value: list[str] | None, prefix: str) -> tuple[QuerySet, Q]:
+    def tags(
+        self, info: Info, queryset: QuerySet, value: list[str] | None, prefix: str
+    ) -> tuple[QuerySet, Q]:
         if value is None:
             return queryset, Q()
         # Multiple matching tags would duplicate rows on the join.
@@ -768,20 +983,28 @@ class TagsFilterMixin:
 
 @strawberry.input
 class CreatedThroughFilterMixin:
-    @kante.filter_field(description="Filter by the rekuest task id the item was created through")
+    @kante.filter_field(
+        description="Filter by the rekuest task id the item was created through"
+    )
     def created_through_task(self, info: Info, value: str | None, prefix: str) -> Q:
         if value is None:
             return Q()
         return Q(**{f"{prefix}created_through__task_id": value})
 
-    @kante.filter_field(description="Filter by the database ID of the task the item was created through (the `createdThrough { id }` field)")
-    def created_through(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter by the database ID of the task the item was created through (the `createdThrough { id }` field)"
+    )
+    def created_through(
+        self, info: Info, value: strawberry.ID | None, prefix: str
+    ) -> Q:
         """Match items created through the task with this database ID."""
         if value is None:
             return Q()
         return Q(**{f"{prefix}created_through_id": value})
 
-    @kante.filter_field(description="Filter by the sub of the user that assigned the creating task")
+    @kante.filter_field(
+        description="Filter by the sub of the user that assigned the creating task"
+    )
     def assigned_by(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         if value is None:
             return Q()
@@ -789,8 +1012,12 @@ class CreatedThroughFilterMixin:
         # (very large) task table would scale with the user's task count.
         return Q(**{f"{prefix}created_through_by__sub": value})
 
-    @kante.filter_field(description="Filter by the database ID of the user that assigned the creating task (the `createdThroughBy { id }` field)")
-    def created_through_by(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter by the database ID of the user that assigned the creating task (the `createdThroughBy { id }` field)"
+    )
+    def created_through_by(
+        self, info: Info, value: strawberry.ID | None, prefix: str
+    ) -> Q:
         """Match items whose creating task was assigned by the user with this database ID."""
         if value is None:
             return Q()
@@ -798,13 +1025,22 @@ class CreatedThroughFilterMixin:
 
 
 @kante.filter_type(models.Folder)
-class FolderFilter(IdsFilterMixin, SearchFilterMixin, OwnedFilterMixin, PinnedFilterMixin, TagsFilterMixin, CreatedThroughFilterMixin):
+class FolderFilter(
+    IdsFilterMixin,
+    SearchFilterMixin,
+    OwnedFilterMixin,
+    PinnedFilterMixin,
+    TagsFilterMixin,
+    CreatedThroughFilterMixin,
+):
     id: auto
-    name: Optional[FilterLookup[str]]
-    description: Optional[FilterLookup[str]]
-    is_default: Optional[bool]
+    name: FilterLookup[str] | None
+    description: FilterLookup[str] | None
+    is_default: bool | None
 
-    @kante.filter_field(description="Filter for folders with (true) or without (false) a parent")
+    @kante.filter_field(
+        description="Filter for folders with (true) or without (false) a parent"
+    )
     def parentless(self, info: Info, value: bool | None, prefix: str) -> Q:
         if value is None:
             return Q()
@@ -812,7 +1048,9 @@ class FolderFilter(IdsFilterMixin, SearchFilterMixin, OwnedFilterMixin, PinnedFi
             return Q(**{f"{prefix}parent": None})
         return ~Q(**{f"{prefix}parent": None})
 
-    @kante.filter_field(description="Filter by the parent folder (list the children of a folder)")
+    @kante.filter_field(
+        description="Filter by the parent folder (list the children of a folder)"
+    )
     def parent(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         """Match folders that are direct children of the folder with this ID."""
         if value is None:
@@ -821,11 +1059,13 @@ class FolderFilter(IdsFilterMixin, SearchFilterMixin, OwnedFilterMixin, PinnedFi
 
 
 @kante.filter_type(models.File)
-class FileFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+class FileFilter(
+    IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin
+):
     id: auto
-    name: Optional[FilterLookup[str]]
-    size: Optional[FilterLookup[int]]
-    content_type: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
+    size: FilterLookup[int] | None
+    content_type: FilterLookup[str] | None
 
     @kante.filter_field(description="Filter by the folder this file belongs to")
     def folder(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
@@ -854,7 +1094,13 @@ class FileFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, Create
         # `{notDerived: true, sourceOf: {...}}` -- Django builds a second join and the
         # negation stops meaning what it reads as. `_derived_dataset_ids` already draws this
         # line on the dataset side; this is the same shape.
-        return _link_exclusion(prefix, _file_ids_with_links(direction=enums.FileLinkDirectionChoices.RENDITION.value), negate=value)
+        return _link_exclusion(
+            prefix,
+            _file_ids_with_links(
+                direction=enums.FileLinkDirectionChoices.RENDITION.value
+            ),
+            negate=value,
+        )
 
     @kante.filter_field(
         description=(
@@ -874,34 +1120,66 @@ class FileFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, Create
             "reason this takes a `{kind, id}` rather than a bare ID: dataset 3 and annotation collection 3 both exist, so an unqualified id could not say which was meant"
         )
     )
-    def source_of(self, info: Info, queryset: QuerySet, value: "FileLinkContainerRef | None", prefix: str) -> tuple[QuerySet, Q]:
+    def source_of(
+        self,
+        info: Info,
+        queryset: QuerySet,
+        value: "FileLinkContainerRef | None",
+        prefix: str,
+    ) -> tuple[QuerySet, Q]:
         """Match files this container was produced from."""
         if value is None:
             return queryset, Q()
-        return queryset.distinct(), _container_link_q(prefix, value, direction=enums.FileLinkDirectionChoices.SOURCE.value)
+        return queryset.distinct(), _container_link_q(
+            prefix, value, direction=enums.FileLinkDirectionChoices.SOURCE.value
+        )
 
-    @kante.filter_field(description="Filter to the files written out of this container -- the NWB file a dataset was exported to. The opposite direction from `sourceOf`")
-    def exported_from(self, info: Info, queryset: QuerySet, value: "FileLinkContainerRef | None", prefix: str) -> tuple[QuerySet, Q]:
+    @kante.filter_field(
+        description="Filter to the files written out of this container -- the NWB file a dataset was exported to. The opposite direction from `sourceOf`"
+    )
+    def exported_from(
+        self,
+        info: Info,
+        queryset: QuerySet,
+        value: "FileLinkContainerRef | None",
+        prefix: str,
+    ) -> tuple[QuerySet, Q]:
         """Match files written out of this container."""
         if value is None:
             return queryset, Q()
-        return queryset.distinct(), _container_link_q(prefix, value, direction=enums.FileLinkDirectionChoices.RENDITION.value)
+        return queryset.distinct(), _container_link_q(
+            prefix, value, direction=enums.FileLinkDirectionChoices.RENDITION.value
+        )
 
-    @kante.filter_field(description="Filter to the files linked to this container in *either* direction: read into it or written out of it. Use `sourceOf` or `exportedFrom` when the direction matters")
-    def linked_to(self, info: Info, queryset: QuerySet, value: "FileLinkContainerRef | None", prefix: str) -> tuple[QuerySet, Q]:
+    @kante.filter_field(
+        description="Filter to the files linked to this container in *either* direction: read into it or written out of it. Use `sourceOf` or `exportedFrom` when the direction matters"
+    )
+    def linked_to(
+        self,
+        info: Info,
+        queryset: QuerySet,
+        value: "FileLinkContainerRef | None",
+        prefix: str,
+    ) -> tuple[QuerySet, Q]:
         """Match files linked to this container in either direction."""
         if value is None:
             return queryset, Q()
         return queryset.distinct(), _container_link_q(prefix, value)
 
-    @kante.filter_field(description="Filter to files linked under this series of a multi-series file -- 'series-3' of an NWB file. Matches on any link, in either direction")
-    def series_identifier(self, info: Info, queryset: QuerySet, value: str | None, prefix: str) -> tuple[QuerySet, Q]:
+    @kante.filter_field(
+        description="Filter to files linked under this series of a multi-series file -- 'series-3' of an NWB file. Matches on any link, in either direction"
+    )
+    def series_identifier(
+        self, info: Info, queryset: QuerySet, value: str | None, prefix: str
+    ) -> tuple[QuerySet, Q]:
         """Match files with a link naming this series."""
         if value is None:
             return queryset, Q()
         return queryset.distinct(), Q(**{f"{prefix}links__series_identifier": value})
 
-    @kante.filter_field(description="Filter by whether the file's bytes ever arrived: false finds the `File` rows whose upload was granted and never completed, which carry no store at all")
+    @kante.filter_field(
+        description="Filter by whether the file's bytes ever arrived: false finds the `File` rows whose upload was granted and never completed, which carry no store at all"
+    )
     def has_store(self, info: Info, value: bool | None, prefix: str) -> Q:
         """Match files that do or do not have a store."""
         if value is None:
@@ -923,7 +1201,7 @@ class FileFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, Create
     @kante.filter_field(
         description=(
             "Filter by file extension, case-insensitively and with the leading dot optional: `abf`, `.abf` and `ABF` are the same request. "
-            "A normalizing convenience over `name: {iEndsWith: \".abf\"}`, which is still there if you want the raw lookup"
+            'A normalizing convenience over `name: {iEndsWith: ".abf"}`, which is still there if you want the raw lookup'
         )
     )
     def extension(self, info: Info, value: str | None, prefix: str) -> Q:
@@ -941,7 +1219,9 @@ class FileFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, Create
             "the name rather than `contentType`. A curated list, so treat it as a picker convenience and filter on `name` or `contentType` when you need an exact answer"
         )
     )
-    def mime_group(self, info: Info, value: enums.FileMimeGroup | None, prefix: str) -> Q:
+    def mime_group(
+        self, info: Info, value: enums.FileMimeGroup | None, prefix: str
+    ) -> Q:
         """Match files whose extension puts them in this group."""
         if value is None:
             return Q()
@@ -953,9 +1233,9 @@ class FileLinkFilter(IdsFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin
     """Filters for the links between a file and the data it encodes."""
 
     id: auto
-    direction: Optional[enums.FileLinkDirection]
-    series_identifier: Optional[FilterLookup[str]]
-    value_relation: Optional[enums.ValueRelation]
+    direction: enums.FileLinkDirection | None
+    series_identifier: FilterLookup[str] | None
+    value_relation: enums.ValueRelation | None
 
     @kante.filter_field(description="Filter by the file side of the link")
     def file(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
@@ -966,10 +1246,15 @@ class FileLinkFilter(IdsFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin
 
 
 @kante.filter_type(models.ArrayDataset)
-class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+class ArrayDatasetFilter(
+    IdsFilterMixin,
+    SemanticNameSearchFilterMixin,
+    OwnedFilterMixin,
+    CreatedThroughFilterMixin,
+):
     id: auto
-    name: Optional[FilterLookup[str]]
-    description: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
+    description: FilterLookup[str] | None
 
     @kante.filter_field(
         description=(
@@ -977,7 +1262,13 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
             "Answered in SQL from the descriptors stored on every row. A key datasets do not declare is refused rather than ignored"
         )
     )
-    def requires(self, info: Info, queryset: QuerySet, value: list[DescriptorConstraintInput] | None, prefix: str) -> tuple[QuerySet, Q]:
+    def requires(
+        self,
+        info: Info,
+        queryset: QuerySet,
+        value: list[DescriptorConstraintInput] | None,
+        prefix: str,
+    ) -> tuple[QuerySet, Q]:
         if value is None:
             return queryset, Q()
         return descriptor_filter.requires(models.ArrayDataset, queryset, value, prefix)
@@ -1008,15 +1299,31 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
     @kante.filter_field(
         description="Filter to datasets satisfying every one of these specs, e.g. [TIMESERIES, MULTICHANNEL] for multi-channel recordings. Materialized at creation from the axes of the intrinsic coordinate system and the level-0 shape; an axis counts only when it has more than one position, so a stack of one plane is an IMAGE and a single frame is not a TIMESERIES (use `hasAxisTypes` to ask whether an axis is declared at all). A dataset carries one spatial spec (by how many such SPACE axes it has) plus a modifier per such acquisition axis, so two spatial specs together match nothing"
     )
-    def spec(self, info: Info, queryset: QuerySet, value: list[enums.ArrayDatasetSpec] | None, prefix: str) -> tuple[QuerySet, Q]:
+    def spec(
+        self,
+        info: Info,
+        queryset: QuerySet,
+        value: list[enums.ArrayDatasetSpec] | None,
+        prefix: str,
+    ) -> tuple[QuerySet, Q]:
         if value is None:
             return queryset, Q()
         if not value:
             return queryset, Q()
-        return queryset, Q(**{f"{prefix}stored_spec__contains": [spec.value for spec in value]})
+        return queryset, Q(
+            **{f"{prefix}stored_spec__contains": [spec.value for spec in value]}
+        )
 
-    @kante.filter_field(description="Filter to datasets whose intrinsic coordinate system carries every one of these axis types, e.g. [TIME, CHANNEL]. The raw form of `spec`, for the types no spec names: COORDINATE, DISPLACEMENT, INDEX")
-    def has_axis_types(self, info: Info, queryset: QuerySet, value: list[enums.AxisType] | None, prefix: str) -> tuple[QuerySet, Q]:
+    @kante.filter_field(
+        description="Filter to datasets whose intrinsic coordinate system carries every one of these axis types, e.g. [TIME, CHANNEL]. The raw form of `spec`, for the types no spec names: COORDINATE, DISPLACEMENT, INDEX"
+    )
+    def has_axis_types(
+        self,
+        info: Info,
+        queryset: QuerySet,
+        value: list[enums.AxisType] | None,
+        prefix: str,
+    ) -> tuple[QuerySet, Q]:
         if value is None:
             return queryset, Q()
         types = {axis_type.value for axis_type in value}
@@ -1025,24 +1332,36 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
         queryset, alias = _annotate_axis_type_count(queryset, prefix, types)
         return queryset, Q(**{alias: len(types)})
 
-    @kante.filter_field(description="Filter by whether the dataset's sample grid has a TIME axis -- a recording, a stimulus, placeable on a clock -- or none (a unit's waveform templates, a static map). The same question `timed` asks of sparse and table datasets; `hasAxisTypes: [TIME]` is its true half")
+    @kante.filter_field(
+        description="Filter by whether the dataset's sample grid has a TIME axis -- a recording, a stimulus, placeable on a clock -- or none (a unit's waveform templates, a static map). The same question `timed` asks of sparse and table datasets; `hasAxisTypes: [TIME]` is its true half"
+    )
     def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
         """Match array datasets whose sample grid has (true) or lacks (false) a TIME axis."""
         return _timed_q(prefix, value)
 
-    @kante.filter_field(description="Filter by whether the dataset carries a resolution pyramid: true for the multiscale ones, false for those with a single level")
-    def multiscale(self, info: Info, queryset: QuerySet, value: bool | None, prefix: str) -> tuple[QuerySet, Q]:
+    @kante.filter_field(
+        description="Filter by whether the dataset carries a resolution pyramid: true for the multiscale ones, false for those with a single level"
+    )
+    def multiscale(
+        self, info: Info, queryset: QuerySet, value: bool | None, prefix: str
+    ) -> tuple[QuerySet, Q]:
         if value is None:
             return queryset, Q()
         # The same derivation as the `multiscale` property -- more than one level -- as a query.
         alias = f"_{prefix.replace('__', '_')}level_count"
-        queryset = _annotate_once(queryset, alias, Count(f"{prefix}data_arrays", distinct=True))
-        return queryset, Q(**{f"{alias}__gt": 1}) if value else Q(**{f"{alias}__lte": 1})
+        queryset = _annotate_once(
+            queryset, alias, Count(f"{prefix}data_arrays", distinct=True)
+        )
+        return queryset, Q(**{f"{alias}__gt": 1}) if value else Q(
+            **{f"{alias}__lte": 1}
+        )
 
     @kante.filter_field(
         description="Filter by whether the dataset has an edge into a space with real units. False finds the data that is still only samples, with no sampling law or time lookup recorded -- the datasets nothing has timed yet"
     )
-    def has_physical_space(self, info: Info, queryset: QuerySet, value: bool | None, prefix: str) -> tuple[QuerySet, Q]:
+    def has_physical_space(
+        self, info: Info, queryset: QuerySet, value: bool | None, prefix: str
+    ) -> tuple[QuerySet, Q]:
         if value is None:
             return queryset, Q()
         # A physical space is not a thing a dataset owns (RFC-9): it is an edge out of the
@@ -1054,7 +1373,9 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
             parent__isnull=True,
             output__axes__unit__isnull=False,
         ).exclude(kind=enums.TransformKindChoices.UNMAPPABLE.value)
-        queryset = _annotate_once(queryset, "_has_physical_space", Exists(physical_space))
+        queryset = _annotate_once(
+            queryset, "_has_physical_space", Exists(physical_space)
+        )
         return queryset, Q(_has_physical_space=value)
 
     @kante.filter_field(
@@ -1064,7 +1385,9 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
             "`inView` reports it. Takes a *space*: pass an experiment's `world.id` to ask it of an experiment"
         )
     )
-    def placeable_in(self, info: Info, value: "PlaceableFilter | None", prefix: str) -> Q:
+    def placeable_in(
+        self, info: Info, value: "PlaceableFilter | None", prefix: str
+    ) -> Q:
         if value is None:
             return Q()
         if value is None:
@@ -1072,15 +1395,29 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
         space = _placeable_destination(info, value.space)
         if space is None:
             return Q(pk__in=[])
-        return Q(**{f"{prefix}id__in": graph_logic.placeable_lens_dataset_ids(space, derived_only=bool(value.derived_only), require_affine=value.require_affine is not False)})
+        return Q(
+            **{
+                f"{prefix}id__in": graph_logic.placeable_lens_dataset_ids(
+                    space,
+                    derived_only=bool(value.derived_only),
+                    require_affine=value.require_affine is not False,
+                )
+            }
+        )
 
-    @kante.filter_field(description="Filter to the datasets living in this coordinate system. Usually one; several when datasets genuinely share a frame")
-    def coordinate_system(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter to the datasets living in this coordinate system. Usually one; several when datasets genuinely share a frame"
+    )
+    def coordinate_system(
+        self, info: Info, value: strawberry.ID | None, prefix: str
+    ) -> Q:
         if value is None:
             return Q()
         return Q() if value is None else Q(**{f"{prefix}coordinate_system_id": value})
 
-    @kante.filter_field(description="Filter by the unit of the dataset's VALUES, as stated by its dataset-wide `ValueUnit` anchor, e.g. 'mV'. Compared after normalization, so 'mV' and 'millivolt' are the same request")
+    @kante.filter_field(
+        description="Filter by the unit of the dataset's VALUES, as stated by its dataset-wide `ValueUnit` anchor, e.g. 'mV'. Compared after normalization, so 'mV' and 'millivolt' are the same request"
+    )
     def value_unit(self, info: Info, value: str | None, prefix: str) -> Q:
         if value is None:
             return Q()
@@ -1088,10 +1425,18 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
             return Q()
         spellings = {value, kanne_scalars.parse_unit(value)}
         try:
-            spellings.add(str(kanne_scalars.get_registry().Unit(kanne_scalars.normalize_compact_units(value))))
+            spellings.add(
+                str(
+                    kanne_scalars.get_registry().Unit(
+                        kanne_scalars.normalize_compact_units(value)
+                    )
+                )
+            )
         except Exception:  # noqa: BLE001 - an unknown unit simply matches nothing beyond its own spelling
             pass
-        anchored = models.ValueUnit.objects.filter(anchor__coordinates={}, unit__in=spellings).values("anchor__dataset_id")
+        anchored = models.ValueUnit.objects.filter(
+            anchor__coordinates={}, unit__in=spellings
+        ).values("anchor__dataset_id")
         return Q(**{f"{prefix}id__in": anchored})
 
     @kante.filter_field(
@@ -1102,7 +1447,9 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
             return Q()
         return Q(**{f"{prefix}id__in": _derived_dataset_ids(source_id=value)})
 
-    @kante.filter_field(description="Filter for datasets that were acquired rather than computed: true for the roots, those with no derivation edge into another dataset's space")
+    @kante.filter_field(
+        description="Filter for datasets that were acquired rather than computed: true for the roots, those with no derivation edge into another dataset's space"
+    )
     def not_derived(self, info: Info, value: bool | None, prefix: str) -> Q:
         if value is None:
             return Q()
@@ -1119,20 +1466,32 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
         """Match datasets converted from this file."""
         if value is None:
             return Q()
-        return Q(**{f"{prefix}file_links__file_id": value, f"{prefix}file_links__direction": enums.FileLinkDirectionChoices.SOURCE.value})
+        return Q(
+            **{
+                f"{prefix}file_links__file_id": value,
+                f"{prefix}file_links__direction": enums.FileLinkDirectionChoices.SOURCE.value,
+            }
+        )
 
-    @kante.filter_field(description="Filter to the datasets converted from one series of a file. Pair it with `sourceFile`; alone it matches that series identifier in any file")
+    @kante.filter_field(
+        description="Filter to the datasets converted from one series of a file. Pair it with `sourceFile`; alone it matches that series identifier in any file"
+    )
     def source_series_identifier(self, info: Info, value: str | None, prefix: str) -> Q:
         """Match datasets converted from this series of a file."""
         if value is None:
             return Q()
-        return Q(**{f"{prefix}file_links__series_identifier": value, f"{prefix}file_links__direction": enums.FileLinkDirectionChoices.SOURCE.value})
+        return Q(
+            **{
+                f"{prefix}file_links__series_identifier": value,
+                f"{prefix}file_links__direction": enums.FileLinkDirectionChoices.SOURCE.value,
+            }
+        )
 
 
 @kante.filter_type(models.DataArray)
 class DataArrayFilter(IdsFilterMixin):
     id: auto
-    level: Optional[FilterLookup[int]]
+    level: FilterLookup[int] | None
 
     @kante.filter_field(description="Filter by the dataset this array belongs to")
     def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
@@ -1144,9 +1503,9 @@ class DataArrayFilter(IdsFilterMixin):
 @kante.filter_type(models.CoordinateAnchor)
 class CoordinateAnchorFilter(IdsFilterMixin):
     id: auto
-    dataset: Optional[FilterLookup[strawberry.ID]]
-    table: Optional[FilterLookup[strawberry.ID]]
-    sparse: Optional[FilterLookup[strawberry.ID]]
+    dataset: FilterLookup[strawberry.ID] | None
+    table: FilterLookup[strawberry.ID] | None
+    sparse: FilterLookup[strawberry.ID] | None
 
 
 @kante.filter_type(models.RigState)
@@ -1174,8 +1533,8 @@ class AcquisitionMetadataFilter(IdsFilterMixin):
 @kante.filter_type(models.ValueHistogram)
 class ValueHistogramFilter(IdsFilterMixin):
     id: auto
-    min: Optional[FilterLookup[float]]
-    max: Optional[FilterLookup[float]]
+    min: FilterLookup[float] | None
+    max: FilterLookup[float] | None
 
     @kante.filter_field(description="Filter by the coordinate anchor")
     def anchor(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
@@ -1187,7 +1546,7 @@ class ValueHistogramFilter(IdsFilterMixin):
 @kante.filter_type(models.ChannelLabel)
 class ChannelLabelFilter(IdsFilterMixin):
     id: auto
-    label: Optional[FilterLookup[str]]
+    label: FilterLookup[str] | None
 
     @kante.filter_field(description="Filter by the coordinate anchor")
     def anchor(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
@@ -1199,7 +1558,7 @@ class ChannelLabelFilter(IdsFilterMixin):
 @kante.filter_type(models.ValueUnit)
 class ValueUnitFilter(IdsFilterMixin):
     id: auto
-    unit: Optional[FilterLookup[str]]
+    unit: FilterLookup[str] | None
 
     @kante.filter_field(description="Filter by the coordinate anchor")
     def anchor(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
@@ -1250,7 +1609,9 @@ def _derived_dataset_ids(source_id: strawberry.ID | None = None):
         "output__data_arrays__dataset_id",
     )
     edges = (
-        models.Transformation.objects.filter(parent__isnull=True, input__datasets__isnull=False)
+        models.Transformation.objects.filter(
+            parent__isnull=True, input__datasets__isnull=False
+        )
         .annotate(_source_dataset=source_dataset)
         .filter(_source_dataset__isnull=False)
         .exclude(_source_dataset=F("input__datasets__id"))
@@ -1273,7 +1634,9 @@ def _has_axis_type_q(prefix: str, system: str, axis_type: str) -> Q:
     return Q(**{f"{prefix}{system}__in": systems})
 
 
-def _timed_q(prefix: str, value: bool | None, system: str = "coordinate_system_id") -> Q:
+def _timed_q(
+    prefix: str, value: bool | None, system: str = "coordinate_system_id"
+) -> Q:
     """`timed`: the rows whose coordinate system has a TIME axis (true) or none (false); null leaves them all."""
     if value is None:
         return Q()
@@ -1281,7 +1644,9 @@ def _timed_q(prefix: str, value: bool | None, system: str = "coordinate_system_i
     return has_time if value else ~has_time
 
 
-def _annotate_axis_type_count(queryset: QuerySet, prefix: str, types: set[str]) -> tuple[QuerySet, str]:
+def _annotate_axis_type_count(
+    queryset: QuerySet, prefix: str, types: set[str]
+) -> tuple[QuerySet, str]:
     """Annotate how many of `types` a dataset's intrinsic axes match, and return the alias to compare against.
 
     Counts the distinct axis *types* matched, which is how an all-of test is written:
@@ -1297,7 +1662,9 @@ def _annotate_axis_type_count(queryset: QuerySet, prefix: str, types: set[str]) 
     """
     axes = f"{prefix}coordinate_system__axes"
     alias = f"_{prefix.replace('__', '_')}matched_axis_types__{'_'.join(sorted(types))}"
-    expression = Count(f"{axes}__type", filter=Q(**{f"{axes}__type__in": list(types)}), distinct=True)
+    expression = Count(
+        f"{axes}__type", filter=Q(**{f"{axes}__type__in": list(types)}), distinct=True
+    )
     return _annotate_once(queryset, alias, expression), alias
 
 
@@ -1307,44 +1674,72 @@ def _annotate_axis_type_count(queryset: QuerySet, prefix: str, types: set[str]) 
 
 
 @kante.filter_type(models.SparseDataset)
-class SparseDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+class SparseDatasetFilter(
+    IdsFilterMixin,
+    SemanticNameSearchFilterMixin,
+    OwnedFilterMixin,
+    CreatedThroughFilterMixin,
+):
     id: auto
-    name: Optional[FilterLookup[str]]
-    description: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
+    description: FilterLookup[str] | None
 
-    @kante.filter_field(description="Filter by the folder this sparse dataset is filed in")
+    @kante.filter_field(
+        description="Filter by the folder this sparse dataset is filed in"
+    )
     def folder(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         """Match sparse datasets filed in the folder with this ID."""
         return Q() if value is None else Q(**{f"{prefix}folder_id": value})
 
-    @kante.filter_field(description="Filter to datasets holding a layout indexed on this axis -- the ones that can answer about it in one contiguous read rather than by scanning")
+    @kante.filter_field(
+        description="Filter to datasets holding a layout indexed on this axis -- the ones that can answer about it in one contiguous read rather than by scanning"
+    )
     def indexes_axis(self, info: Info, value: str | None, prefix: str) -> Q:
         """Match sparse datasets whose stored layouts index an axis of this name."""
-        return Q() if value is None else Q(**{f"{prefix}coordinate_system__axes__name": value})
+        return (
+            Q()
+            if value is None
+            else Q(**{f"{prefix}coordinate_system__axes__name": value})
+        )
 
-    @kante.filter_field(description="Filter by whether the matrix has a TIME axis -- a spike raster, placed on a clock by a sampling law -- or only enumerations. elektro's own")
+    @kante.filter_field(
+        description="Filter by whether the matrix has a TIME axis -- a spike raster, placed on a clock by a sampling law -- or only enumerations. elektro's own"
+    )
     def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
         """Match sparse datasets with (true) or without (false) a TIME axis."""
         return _timed_q(prefix, value)
 
-    @kante.filter_field(description="Filter to sparse datasets placeable into a coordinate system across steps that compose into one affine map -- a raster's sampling law onto a clock is one")
+    @kante.filter_field(
+        description="Filter to sparse datasets placeable into a coordinate system across steps that compose into one affine map -- a raster's sampling law onto a clock is one"
+    )
     def placeable_in(self, info: Info, value: PlaceableFilter | None, prefix: str) -> Q:
         if value is None:
             return Q()
         space = _placeable_destination(info, value.space)
         if space is None:
             return Q(pk__in=[])
-        placeable = graph_logic.placeable_system_ids_in(space, derived_only=bool(value.derived_only), require_affine=value.require_affine is not False)
+        placeable = graph_logic.placeable_system_ids_in(
+            space,
+            derived_only=bool(value.derived_only),
+            require_affine=value.require_affine is not False,
+        )
         return Q(**{f"{prefix}coordinate_system_id__in": placeable})
 
 
 @kante.filter_type(models.TableDataset)
-class TableDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin):
+class TableDatasetFilter(
+    IdsFilterMixin,
+    SemanticNameSearchFilterMixin,
+    OwnedFilterMixin,
+    CreatedThroughFilterMixin,
+):
     id: auto
-    name: Optional[FilterLookup[str]]
-    description: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
+    description: FilterLookup[str] | None
 
-    @kante.filter_field(description="Filter by the folder this table dataset is filed in")
+    @kante.filter_field(
+        description="Filter by the folder this table dataset is filed in"
+    )
     def folder(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         """Match table datasets filed in the folder with this ID."""
         return Q() if value is None else Q(**{f"{prefix}folder_id": value})
@@ -1354,26 +1749,52 @@ class TableDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
         """Match table datasets filed in any of the given folders."""
         return Q() if value is None else Q(**{f"{prefix}folder_id__in": value})
 
-    @kante.filter_field(description="Filter by the dataset the table was computed from, following its derivation edge")
+    @kante.filter_field(
+        description="Filter by the dataset the table was computed from, following its derivation edge"
+    )
     def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
-        return Q() if value is None else Q(**{f"{prefix}coordinate_system__in": _systems_derived_from_dataset(value)})
+        return (
+            Q()
+            if value is None
+            else Q(
+                **{
+                    f"{prefix}coordinate_system__in": _systems_derived_from_dataset(
+                        value
+                    )
+                }
+            )
+        )
 
-    @kante.filter_field(description="Filter to tables that declare a column of this role, e.g. LABEL")
-    def has_column_role(self, info: Info, value: enums.ColumnRole | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter to tables that declare a column of this role, e.g. LABEL"
+    )
+    def has_column_role(
+        self, info: Info, value: enums.ColumnRole | None, prefix: str
+    ) -> Q:
         return Q() if value is None else Q(**{f"{prefix}columns__role": value.value})
 
-    @kante.filter_field(description="Filter by whether the table has a TIME coordinate column -- an event or epoch list, placeable on a clock -- or none (a unit table, a measurement table). elektro's own")
+    @kante.filter_field(
+        description="Filter by whether the table has a TIME coordinate column -- an event or epoch list, placeable on a clock -- or none (a unit table, a measurement table). elektro's own"
+    )
     def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
         return _timed_q(prefix, value)
 
-    @kante.filter_field(description="Filter to table datasets placeable into this coordinate system: those whose own coordinate system reaches it across steps that compose into one affine map, walking the transformation edges")
+    @kante.filter_field(
+        description="Filter to table datasets placeable into this coordinate system: those whose own coordinate system reaches it across steps that compose into one affine map, walking the transformation edges"
+    )
     def placeable_in(self, info: Info, value: PlaceableFilter | None, prefix: str) -> Q:
         if value is None:
             return Q()
         space = _placeable_destination(info, value.space)
         if space is None:
             return Q(pk__in=[])
-        return Q(**{f"{prefix}id__in": graph_logic.placeable_table_dataset_ids(space, require_affine=value.require_affine is not False)})
+        return Q(
+            **{
+                f"{prefix}id__in": graph_logic.placeable_table_dataset_ids(
+                    space, require_affine=value.require_affine is not False
+                )
+            }
+        )
 
 
 def _systems_derived_from_dataset(dataset_id: strawberry.ID):
@@ -1383,12 +1804,18 @@ def _systems_derived_from_dataset(dataset_id: strawberry.ID):
     `related_name="+"`, so there is no reverse accessor to filter across, and a collection
     keeps no dataset column of its own -- the edge is the only place that fact lives.
     """
-    return models.Transformation.objects.filter(
-        parent__isnull=True,
-        input__isnull=False,
-    ).filter(
-        Q(output__datasets__id=dataset_id) | Q(output__lenses__dataset_id=dataset_id) | Q(output__data_arrays__dataset_id=dataset_id)
-    ).values("input_id")
+    return (
+        models.Transformation.objects.filter(
+            parent__isnull=True,
+            input__isnull=False,
+        )
+        .filter(
+            Q(output__datasets__id=dataset_id)
+            | Q(output__lenses__dataset_id=dataset_id)
+            | Q(output__data_arrays__dataset_id=dataset_id)
+        )
+        .values("input_id")
+    )
 
 
 # --- Experiment layers (elektro's counterpart of mikro's LayerFilter) -----------------------------
@@ -1399,20 +1826,26 @@ class ExperimentLayerFilter(IdsFilterMixin):
     """The layers of an experiment. mikro's LayerFilter, for time series."""
 
     id: auto
-    name: Optional[FilterLookup[str]]
+    name: FilterLookup[str] | None
 
     @kante.filter_field(description="Filter to the layers of this experiment")
     def experiment(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}experiment_id": value})
 
-    @kante.filter_field(description="Filter by how the layer draws: TRACE, SPIKES, EVENTS or ANNOTATION")
-    def kind(self, info: Info, value: enums.ExperimentLayerKind | None, prefix: str) -> Q:
+    @kante.filter_field(
+        description="Filter by how the layer draws: TRACE, SPIKES, EVENTS or ANNOTATION"
+    )
+    def kind(
+        self, info: Info, value: enums.ExperimentLayerKind | None, prefix: str
+    ) -> Q:
         return Q() if value is None else Q(**{f"{prefix}kind": value.value})
 
     @kante.filter_field(description="Filter by whether the layer is shown")
     def visible(self, info: Info, value: bool | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}visible": value})
 
-    @kante.filter_field(description="Filter to the layers drawing this array dataset, through any of its lenses")
+    @kante.filter_field(
+        description="Filter to the layers drawing this array dataset, through any of its lenses"
+    )
     def dataset(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}lens__dataset_id": value})

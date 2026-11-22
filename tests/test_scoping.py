@@ -17,7 +17,9 @@ from core.models import ArrayDataset, Folder
 
 def _fake_info(organization):
     """A minimal stand-in for kante's Info — for_org only reads request.organization."""
-    return SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(organization=organization)))
+    return SimpleNamespace(
+        context=SimpleNamespace(request=SimpleNamespace(organization=organization))
+    )
 
 
 def test_organization_path_direct():
@@ -27,7 +29,9 @@ def test_organization_path_direct():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_for_org_scopes_queryset(authenticated_context: HttpContext, other_org_context: HttpContext):
+def test_for_org_scopes_queryset(
+    authenticated_context: HttpContext, other_org_context: HttpContext
+):
     org_a = authenticated_context.request.organization
     org_b = other_org_context.request.organization
 
@@ -100,11 +104,17 @@ ORGANIZATION_PATHS = {
 def _core_models():
     from django.apps import apps
 
-    return [model for model in apps.get_app_config("core").get_models() if not model.__name__.startswith("Historical")]
+    return [
+        model
+        for model in apps.get_app_config("core").get_models()
+        if not model.__name__.startswith("Historical")
+    ]
 
 
 def test_every_model_is_listed():
-    assert sorted(model.__name__ for model in _core_models()) == sorted(ORGANIZATION_PATHS), "a new model must state how it reaches its organization"
+    assert sorted(model.__name__ for model in _core_models()) == sorted(
+        ORGANIZATION_PATHS
+    ), "a new model must state how it reaches its organization"
 
 
 @pytest.mark.parametrize("model", _core_models(), ids=lambda model: model.__name__)
@@ -117,7 +127,9 @@ def test_every_model_reaches_an_organization_over_required_links(model):
     current = model
     for name in path.split("__"):
         field = current._meta.get_field(name)
-        assert not field.null, f"{current.__name__}.{name} is nullable, so rows without it would vanish from every scoped read"
+        assert not field.null, (
+            f"{current.__name__}.{name} is nullable, so rows without it would vanish from every scoped read"
+        )
         current = field.related_model
 
 
@@ -125,7 +137,9 @@ def test_every_model_reaches_an_organization_over_required_links(model):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_nested_scoping_relaxes_only_for_the_relation_of_a_known_parent(authenticated_context: HttpContext, other_org_context: HttpContext):
+def test_nested_scoping_relaxes_only_for_the_relation_of_a_known_parent(
+    authenticated_context: HttpContext, other_org_context: HttpContext
+):
     """`OrgScopedOrNested` must scope every root read, and leave alone only what is visibly a parent's relation.
 
     It exists because re-filtering a prefetched relation throws the prefetch away (a query per
@@ -135,17 +149,33 @@ def test_nested_scoping_relaxes_only_for_the_relation_of_a_known_parent(authenti
     from core.models import Axis, CoordinateSystem
     from core.types._shared import OrgScopedOrNested
 
-    mine = CoordinateSystem.objects.create(name="mine", organization=authenticated_context.request.organization)
-    theirs = CoordinateSystem.objects.create(name="theirs", organization=other_org_context.request.organization)
+    mine = CoordinateSystem.objects.create(
+        name="mine", organization=authenticated_context.request.organization
+    )
+    theirs = CoordinateSystem.objects.create(
+        name="theirs", organization=other_org_context.request.organization
+    )
     Axis.objects.create(coordinate_system=mine, order=0, name="t", type="TIME")
     Axis.objects.create(coordinate_system=theirs, order=0, name="t", type="TIME")
 
-    info = SimpleNamespace(variable_values={}, context=SimpleNamespace(request=SimpleNamespace(organization=authenticated_context.request.organization)))
+    info = SimpleNamespace(
+        variable_values={},
+        context=SimpleNamespace(
+            request=SimpleNamespace(
+                organization=authenticated_context.request.organization
+            )
+        ),
+    )
 
     # A root list: scoped, whatever else is true of it.
     root = OrgScopedOrNested.get_queryset(Axis.objects.all(), info)
     assert [axis.coordinate_system_id for axis in root] == [mine.pk]
-    assert [axis.coordinate_system_id for axis in OrgScopedOrNested.get_queryset(Axis.objects.filter(name="t").order_by("id"), info)] == [mine.pk]
+    assert [
+        axis.coordinate_system_id
+        for axis in OrgScopedOrNested.get_queryset(
+            Axis.objects.filter(name="t").order_by("id"), info
+        )
+    ] == [mine.pk]
 
     # The relation of a parent the request already holds: returned as it came, prefetch intact.
     parent = CoordinateSystem.objects.prefetch_related("axes").get(pk=mine.pk)

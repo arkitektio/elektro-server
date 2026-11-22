@@ -33,12 +33,11 @@ The conventions this module encodes:
   never through the pyramid.
 """
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Sequence
-
-from kanne_server import scalars as kanne_scalars
 
 from core import enums
+from kanne_server import scalars as kanne_scalars
 
 # There is no axis *type* ordering rule and no rank table any more. RFC-5 states one --
 # time, then channel and custom types, then space -- and it was validated at ingest for
@@ -85,7 +84,10 @@ _UNIT_DIMENSION_BY_TYPE: dict[str, dict[str, int]] = {
 
 def _dimension_label(dimension: dict[str, int]) -> str:
     """Spell a dimensionality the way the error message reads: ``[time]``, ``1 / [time]``."""
-    return " * ".join(name if power == 1 else f"1 / {name}" if power == -1 else f"{name} ** {power}" for name, power in dimension.items())
+    return " * ".join(
+        name if power == 1 else f"1 / {name}" if power == -1 else f"{name} ** {power}"
+        for name, power in dimension.items()
+    )
 
 
 class AxisOrderError(ValueError):
@@ -145,7 +147,9 @@ def assert_axis_names_unique(axes: Sequence[AxisSpec]) -> None:
 
     if duplicates:
         given = ", ".join(axis.name for axis in axes)
-        raise AxisOrderError(f"The axes of a coordinate system are named uniquely -- an edge names an axis to act on it -- but {sorted(duplicates)} appears more than once in [{given}]")
+        raise AxisOrderError(
+            f"The axes of a coordinate system are named uniquely -- an edge names an axis to act on it -- but {sorted(duplicates)} appears more than once in [{given}]"
+        )
 
 
 def assert_unit_matches_type(axis_name: str, axis_type: str, unit: str) -> None:
@@ -162,9 +166,15 @@ def assert_unit_matches_type(axis_name: str, axis_type: str, unit: str) -> None:
     if required is None or kanne_scalars.is_arbitrary_unit(unit):
         return
 
-    dimensionality = kanne_scalars.get_registry().Unit(kanne_scalars.normalize_compact_units(unit)).dimensionality
+    dimensionality = (
+        kanne_scalars.get_registry()
+        .Unit(kanne_scalars.normalize_compact_units(unit))
+        .dimensionality
+    )
     if dict(dimensionality) != required:
-        raise AxisUnitError(f"Axis '{axis_name}' is a {axis_type} axis, so its unit must measure {_dimension_label(required)}, but '{unit}' does not. Use 'a.u.' for a genuinely arbitrary unit.")
+        raise AxisUnitError(
+            f"Axis '{axis_name}' is a {axis_type} axis, so its unit must measure {_dimension_label(required)}, but '{unit}' does not. Use 'a.u.' for a genuinely arbitrary unit."
+        )
 
 
 def units_are_interchangeable(source: str | None, target: str | None) -> bool:
@@ -189,10 +199,14 @@ def units_are_interchangeable(source: str | None, target: str | None) -> bool:
     """
     if not source or not target or source == target:
         return True
-    if kanne_scalars.is_arbitrary_unit(source) or kanne_scalars.is_arbitrary_unit(target):
+    if kanne_scalars.is_arbitrary_unit(source) or kanne_scalars.is_arbitrary_unit(
+        target
+    ):
         return True
     try:
-        return kanne_scalars.normalize_compact_units(source) == kanne_scalars.normalize_compact_units(target)
+        return kanne_scalars.normalize_compact_units(
+            source
+        ) == kanne_scalars.normalize_compact_units(target)
     except Exception:
         # An unparseable unit is not this function's error to raise -- `assert_unit_matches_type`
         # owns that, and raising a second one here would report the wrong problem.
@@ -206,14 +220,19 @@ def assert_at_most_one_time_axis(axes: Sequence[AxisSpec]) -> None:
     complains -- and `resolve_render_axes` silently picks the first and drops the
     second. A scene with two clocks has no meaning; it just renders one of them.
     """
-    time_axes = [axis.name for axis in axes if axis.type == enums.AxisTypeChoices.TIME.value]
+    time_axes = [
+        axis.name for axis in axes if axis.type == enums.AxisTypeChoices.TIME.value
+    ]
     if len(time_axes) > 1:
-        raise AxisOrderError(f"A coordinate system may carry at most one TIME axis, but was given {time_axes}")
+        raise AxisOrderError(
+            f"A coordinate system may carry at most one TIME axis, but was given {time_axes}"
+        )
 
 
 def spatial_axes(axes: Sequence[AxisSpec]) -> list[AxisSpec]:
     """The spatial axes, in array order (slowest-varying first, i.e. z, y, x)."""
     return [axis for axis in axes if axis.type == enums.AxisTypeChoices.SPACE.value]
+
 
 #: The spatial spec each SPACE-axis count denotes. Any count past the table collapses
 #: to a single HYPERVOLUME at write time, so the open-ended `>=` is resolved here rather
@@ -237,7 +256,9 @@ _SPEC_BY_AXIS_TYPE: dict[str, enums.ArrayDatasetSpec] = {
 }
 
 
-def specs_for_axes(axes: Sequence[AxisSpec], shape: Sequence[int]) -> list[enums.ArrayDatasetSpec]:
+def specs_for_axes(
+    axes: Sequence[AxisSpec], shape: Sequence[int]
+) -> list[enums.ArrayDatasetSpec]:
     """Every spec these axes satisfy at this shape: the one spatial member, then a modifier per acquisition axis.
 
     **An axis counts only when it has more than one position.** A z axis of a single plane
@@ -257,13 +278,17 @@ def specs_for_axes(axes: Sequence[AxisSpec], shape: Sequence[int]) -> list[enums
     the stored column can never disagree with it.
     """
     if len(shape) != len(axes):
-        raise ValueError(f"{len(axes)} axes for a {len(shape)}-dimensional shape: a dataset's spec is read off its axes and their extents together.")
+        raise ValueError(
+            f"{len(axes)} axes for a {len(shape)}-dimensional shape: a dataset's spec is read off its axes and their extents together."
+        )
 
     extended = [axis for axis, extent in zip(axes, shape) if extent > 1]
     count = len(spatial_axes(extended))
     specs = [_SPATIAL_SPEC_BY_COUNT.get(count, enums.ArrayDatasetSpec.HYPERVOLUME)]
     present = {axis.type for axis in extended}
-    specs.extend(spec for axis_type, spec in _SPEC_BY_AXIS_TYPE.items() if axis_type in present)
+    specs.extend(
+        spec for axis_type, spec in _SPEC_BY_AXIS_TYPE.items() if axis_type in present
+    )
     return specs
 
 
@@ -295,7 +320,9 @@ def pyramid_transform(
     displacement) must keep their extent: c=0.5 between two channels is nonsense.
     """
     if not len(shape_0) == len(shape_level) == len(axes):
-        raise ValueError(f"shape_0 ({len(shape_0)}), shape_level ({len(shape_level)}) and axes ({len(axes)}) must agree in length")
+        raise ValueError(
+            f"shape_0 ({len(shape_0)}), shape_level ({len(shape_level)}) and axes ({len(axes)}) must agree in length"
+        )
 
     scale: list[float] = []
     translation: list[float] = []
@@ -309,7 +336,9 @@ def pyramid_transform(
         factor = shape_0[index] / shape_level[index]
 
         if axis.type not in _DOWNSAMPLABLE_TYPES and factor != 1:
-            raise ValueError(f"Axis '{axis.name}' is of categorical type {axis.type} and must not be downsampled (shape {shape_0[index]} -> {shape_level[index]}). A fractional coordinate between two categories is meaningless.")
+            raise ValueError(
+                f"Axis '{axis.name}' is of categorical type {axis.type} and must not be downsampled (shape {shape_0[index]} -> {shape_level[index]}). A fractional coordinate between two categories is meaningless."
+            )
 
         scale.append(factor)
         translation.append((factor - 1) / 2)
@@ -317,7 +346,9 @@ def pyramid_transform(
     return scale, translation
 
 
-def lens_shape(dataset_shape: Sequence[int], dataset_axis_names: Sequence[str], slices: Iterable) -> list[int]:
+def lens_shape(
+    dataset_shape: Sequence[int], dataset_axis_names: Sequence[str], slices: Iterable
+) -> list[int]:
     """The shape a lens' slices cut out of its dataset.
 
     Uses Python's own slice semantics, so negatives, omitted bounds and
@@ -331,13 +362,17 @@ def lens_shape(dataset_shape: Sequence[int], dataset_axis_names: Sequence[str], 
         if selection is None:
             shape.append(size)
             continue
-        start, stop, step = slice(selection.start, selection.stop, selection.step).indices(size)
+        start, stop, step = slice(
+            selection.start, selection.stop, selection.step
+        ).indices(size)
         shape.append(len(range(start, stop, step)))
 
     return shape
 
 
-def lens_to_parent(dataset_axis_names: Sequence[str], slices: Iterable) -> tuple[str, dict]:
+def lens_to_parent(
+    dataset_axis_names: Sequence[str], slices: Iterable
+) -> tuple[str, dict]:
     """The edge from a lens' coordinate system to its dataset's level-0 array system.
 
     This closes a live correctness hole: slicing shifts voxel coordinates and
@@ -353,13 +388,22 @@ def lens_to_parent(dataset_axis_names: Sequence[str], slices: Iterable) -> tuple
     """
     by_axis = {slice_.axis: slice_ for slice_ in slices}
 
-    starts = [float(by_axis[axis].start or 0) if axis in by_axis else 0.0 for axis in dataset_axis_names]
-    steps = [float(by_axis[axis].step or 1) if axis in by_axis else 1.0 for axis in dataset_axis_names]
+    starts = [
+        float(by_axis[axis].start or 0) if axis in by_axis else 0.0
+        for axis in dataset_axis_names
+    ]
+    steps = [
+        float(by_axis[axis].step or 1) if axis in by_axis else 1.0
+        for axis in dataset_axis_names
+    ]
 
     if all(step == 1 for step in steps):
         return enums.TransformKindChoices.TRANSLATION.value, {"translation": starts}
 
-    return enums.TransformKindChoices.SEQUENCE.value, {"scale": steps, "translation": starts}
+    return enums.TransformKindChoices.SEQUENCE.value, {
+        "scale": steps,
+        "translation": starts,
+    }
 
 
 # --- affine composition, for the derived ROI bounding box -------------------
@@ -367,12 +411,17 @@ def lens_to_parent(dataset_axis_names: Sequence[str], slices: Iterable) -> tuple
 
 def identity_matrix(n: int) -> list[list[float]]:
     """An (n+1) x (n+1) homogeneous identity matrix."""
-    return [[1.0 if row == col else 0.0 for col in range(n + 1)] for row in range(n + 1)]
+    return [
+        [1.0 if row == col else 0.0 for col in range(n + 1)] for row in range(n + 1)
+    ]
 
 
 def matmul(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
     """Multiply two homogeneous matrices."""
-    return [[sum(a[i][k] * b[k][j] for k in range(len(b))) for j in range(len(b[0]))] for i in range(len(a))]
+    return [
+        [sum(a[i][k] * b[k][j] for k in range(len(b))) for j in range(len(b[0]))]
+        for i in range(len(a))
+    ]
 
 
 #: How close to zero a pivot may be, relative to the matrix's largest entry, before the
@@ -419,7 +468,9 @@ def invert_matrix(matrix: Sequence[Sequence[float]]) -> list[list[float]]:
     """
     size = len(matrix)
     if any(len(row) != size for row in matrix):
-        raise ValueError(f"Only a square matrix has an inverse, but this one is {size} x {[len(row) for row in matrix]}")
+        raise ValueError(
+            f"Only a square matrix has an inverse, but this one is {size} x {[len(row) for row in matrix]}"
+        )
 
     rows = [[float(value) for value in row] for row in matrix]
     # `identity_matrix` takes a *rank* and returns (n+1) x (n+1), being written for
@@ -448,8 +499,14 @@ def invert_matrix(matrix: Sequence[Sequence[float]]) -> list[list[float]]:
             factor = rows[index][column]
             if factor == 0.0:
                 continue
-            rows[index] = [value - factor * other for value, other in zip(rows[index], rows[column])]
-            result[index] = [value - factor * other for value, other in zip(result[index], result[column])]
+            rows[index] = [
+                value - factor * other
+                for value, other in zip(rows[index], rows[column])
+            ]
+            result[index] = [
+                value - factor * other
+                for value, other in zip(result[index], result[column])
+            ]
 
     return result
 
@@ -507,7 +564,11 @@ def to_matrix(kind: str, params: dict, n: int) -> list[list[float]]:
             matrix[i][n] = float(value)
         return matrix
 
-    if kind in (enums.TransformKindChoices.AFFINE.value, enums.TransformKindChoices.ROTATION.value, enums.TransformKindChoices.MAP_AXIS.value):
+    if kind in (
+        enums.TransformKindChoices.AFFINE.value,
+        enums.TransformKindChoices.ROTATION.value,
+        enums.TransformKindChoices.MAP_AXIS.value,
+    ):
         # MAP_AXIS is a permutation, which is an affine map -- but its permutation lives in
         # the edge's `inputAxes`/`outputAxes` *columns*, not in `params`, and this function
         # only ever sees params. `graph._edge_params` synthesizes the matrix from those two
@@ -524,13 +585,20 @@ def to_matrix(kind: str, params: dict, n: int) -> list[list[float]]:
     if kind == enums.TransformKindChoices.SEQUENCE.value:
         # The SEQUENCE emitted by lens_to_parent: scale, then translate.
         if "scale" in params:
-            matrix = matmul(to_matrix(enums.TransformKindChoices.SCALE.value, params, n), matrix)
+            matrix = matmul(
+                to_matrix(enums.TransformKindChoices.SCALE.value, params, n), matrix
+            )
         if "translation" in params:
-            matrix = matmul(to_matrix(enums.TransformKindChoices.TRANSLATION.value, params, n), matrix)
+            matrix = matmul(
+                to_matrix(enums.TransformKindChoices.TRANSLATION.value, params, n),
+                matrix,
+            )
         return matrix
 
     if kind == enums.TransformKindChoices.UNMAPPABLE.value:
-        raise NonAffineTransformError("an UNMAPPABLE edge declares that no point of one space corresponds to a point of the other, so it has no matrix -- not an affine one, and not any other")
+        raise NonAffineTransformError(
+            "an UNMAPPABLE edge declares that no point of one space corresponds to a point of the other, so it has no matrix -- not an affine one, and not any other"
+        )
 
     if kind == enums.TransformKindChoices.BY_DIMENSION.value:
         raise NonAffineTransformError(
@@ -540,7 +608,9 @@ def to_matrix(kind: str, params: dict, n: int) -> list[list[float]]:
     raise NonAffineTransformError(f"{kind} has no affine matrix")
 
 
-def permutation_matrix(input_axes: list[str], output_axes: list[str], axis_order: list[str]) -> list[list[float]]:
+def permutation_matrix(
+    input_axes: list[str], output_axes: list[str], axis_order: list[str]
+) -> list[list[float]]:
     """The affine matrix of a MAP_AXIS edge, a permutation written out.
 
     ``axis_order`` is the order the coordinate vector is written in, so a coordinate at
@@ -556,7 +626,9 @@ def permutation_matrix(input_axes: list[str], output_axes: list[str], axis_order
     for column, axis in enumerate(axis_order):
         target = mapping.get(axis, axis)
         if target not in axis_order:
-            raise NonAffineTransformError(f"A MAP_AXIS edge maps '{axis}' onto '{target}', which is not one of the axes {axis_order} its coordinates are written in")
+            raise NonAffineTransformError(
+                f"A MAP_AXIS edge maps '{axis}' onto '{target}', which is not one of the axes {axis_order} its coordinates are written in"
+            )
         matrix[axis_order.index(target)][column] = 1.0
 
     return matrix
@@ -573,7 +645,9 @@ def compose(edges: Sequence[tuple[str, dict]], n: int) -> list[list[float]]:
 def apply(matrix: list[list[float]], point: Sequence[float]) -> list[float]:
     """Apply a homogeneous matrix to a point."""
     n = len(point)
-    return [sum(matrix[i][j] * point[j] for j in range(n)) + matrix[i][n] for i in range(n)]
+    return [
+        sum(matrix[i][j] * point[j] for j in range(n)) + matrix[i][n] for i in range(n)
+    ]
 
 
 def bbox_corners(mins: Sequence[float], maxs: Sequence[float]) -> list[list[float]]:
@@ -594,7 +668,9 @@ def aabb(points: Sequence[Sequence[float]]) -> tuple[list[float], list[float]]:
     )
 
 
-def transformed_bbox(mins: Sequence[float], maxs: Sequence[float], edges: Sequence[tuple[str, dict]]) -> dict:
+def transformed_bbox(
+    mins: Sequence[float], maxs: Sequence[float], edges: Sequence[tuple[str, dict]]
+) -> dict:
     """The bounding box of a box after a chain of transformations.
 
     **Transforms all the corners**, not just the two extremes. An affine-transformed
@@ -608,7 +684,9 @@ def transformed_bbox(mins: Sequence[float], maxs: Sequence[float], edges: Sequen
     return {"min": low, "max": high}
 
 
-def vectors_bbox(vectors: Sequence[Sequence[float]], *, padding: float = 0.5) -> tuple[list[float], list[float]]:
+def vectors_bbox(
+    vectors: Sequence[Sequence[float]], *, padding: float = 0.5
+) -> tuple[list[float], list[float]]:
     """The half-open bounding box of an ROI's vertices.
 
     The voxel centre is the origin and voxel ``n`` covers ``[n - 0.5, n + 0.5)``,
@@ -676,21 +754,33 @@ class AxedForm:
     constant: float
 
 
-def _forms_from_matrix(matrix: list[list[float]], row_labels: Sequence[str], rank: int) -> dict[str, AxedForm]:
+def _forms_from_matrix(
+    matrix: list[list[float]], row_labels: Sequence[str], rank: int
+) -> dict[str, AxedForm]:
     """The rows of a homogeneous matrix as one labelled functional each."""
     return {
-        label: AxedForm(coefficients=tuple(float(matrix[index][column]) for column in range(rank)), constant=float(matrix[index][rank]))
+        label: AxedForm(
+            coefficients=tuple(float(matrix[index][column]) for column in range(rank)),
+            constant=float(matrix[index][rank]),
+        )
         for index, label in enumerate(row_labels)
         if index < len(matrix)
     }
 
 
-def _identity_form(axis: str, input_axes: Sequence[str], factor: float = 1.0) -> AxedForm:
+def _identity_form(
+    axis: str, input_axes: Sequence[str], factor: float = 1.0
+) -> AxedForm:
     """The functional that passes one input axis through, in the output axis' own unit."""
-    return AxedForm(coefficients=tuple(factor if name == axis else 0.0 for name in input_axes), constant=0.0)
+    return AxedForm(
+        coefficients=tuple(factor if name == axis else 0.0 for name in input_axes),
+        constant=0.0,
+    )
 
 
-def _unit_of(names: Sequence[str], units: Sequence[str | None], axis: str) -> str | None:
+def _unit_of(
+    names: Sequence[str], units: Sequence[str | None], axis: str
+) -> str | None:
     """One endpoint's unit for a named axis, or None when it has none or none were supplied."""
     if not units or axis not in names:
         return None
@@ -729,11 +819,17 @@ def _pass_through_factor(step: "AxedStep", axis: str) -> float | None:
     # merely uncalibrated. `dimensionless` is deliberately NOT in this branch: it is a real
     # pint unit and a genuine claim, and a dimensionless axis facing a micrometre one really
     # does have no conversion between them.
-    if kanne_scalars.is_arbitrary_unit(source) or kanne_scalars.is_arbitrary_unit(target):
+    if kanne_scalars.is_arbitrary_unit(source) or kanne_scalars.is_arbitrary_unit(
+        target
+    ):
         return 1.0
     registry = kanne_scalars.get_registry()
     try:
-        return float(registry.Quantity(1.0, kanne_scalars.normalize_compact_units(source)).to(kanne_scalars.normalize_compact_units(target)).magnitude)
+        return float(
+            registry.Quantity(1.0, kanne_scalars.normalize_compact_units(source))
+            .to(kanne_scalars.normalize_compact_units(target))
+            .magnitude
+        )
     except Exception:
         return None
 
@@ -763,8 +859,12 @@ def _by_dimension_forms(step: AxedStep) -> dict[str, AxedForm]:
             coefficients = [0.0] * rank
             for column, in_axis in enumerate(acts_in):
                 if in_axis in step.input_axes:
-                    coefficients[step.input_axes.index(in_axis)] = float(sub[row][column])
-            forms[out_axis] = AxedForm(coefficients=tuple(coefficients), constant=float(sub[row][len(acts_in)]))
+                    coefficients[step.input_axes.index(in_axis)] = float(
+                        sub[row][column]
+                    )
+            forms[out_axis] = AxedForm(
+                coefficients=tuple(coefficients), constant=float(sub[row][len(acts_in)])
+            )
 
     for out_axis in step.output_axes:
         if out_axis in forms or out_axis in acts_out:
@@ -797,9 +897,14 @@ def _params_matrix(params: dict, rank_in: int, rank_out: int) -> list[list[float
 
     matrix = identity_matrix(rank_in)
     if "scale" in params:
-        matrix = matmul(to_matrix(enums.TransformKindChoices.SCALE.value, params, rank_in), matrix)
+        matrix = matmul(
+            to_matrix(enums.TransformKindChoices.SCALE.value, params, rank_in), matrix
+        )
     if "translation" in params:
-        matrix = matmul(to_matrix(enums.TransformKindChoices.TRANSLATION.value, params, rank_in), matrix)
+        matrix = matmul(
+            to_matrix(enums.TransformKindChoices.TRANSLATION.value, params, rank_in),
+            matrix,
+        )
     return matrix
 
 
@@ -813,7 +918,10 @@ def step_forms(step: AxedStep) -> dict[str, AxedForm]:
     if step.kind == enums.TransformKindChoices.BY_DIMENSION.value:
         return _by_dimension_forms(step)
 
-    if step.kind == enums.TransformKindChoices.IDENTITY.value and step.input_axes == step.output_axes:
+    if (
+        step.kind == enums.TransformKindChoices.IDENTITY.value
+        and step.input_axes == step.output_axes
+    ):
         # An IDENTITY passes every axis through, so every axis of it is the pass-through case
         # `_pass_through_factor` exists for. Without units on either side each factor is 1.0
         # and this is exactly what `_step_matrix` produced. Guarded on the two orders being
@@ -831,7 +939,11 @@ def step_forms(step: AxedStep) -> dict[str, AxedForm]:
     if step.kind == enums.TransformKindChoices.MAP_AXIS.value:
         # `permutation_matrix` writes its rows in the *input* system's axis order, because a
         # permutation relabels rather than reshapes -- so the row labels are the input's.
-        matrix = permutation_matrix(list(step.acts_on_input or ()), list(step.acts_on_output or ()), list(step.input_axes))
+        matrix = permutation_matrix(
+            list(step.acts_on_input or ()),
+            list(step.acts_on_output or ()),
+            list(step.input_axes),
+        )
         forms = _forms_from_matrix(matrix, step.input_axes, rank)
         return {axis: form for axis, form in forms.items() if axis in step.output_axes}
 
@@ -849,7 +961,9 @@ def step_forms(step: AxedStep) -> dict[str, AxedForm]:
         # describes is square and cannot reach a different output rank. `assert_edge_rank`
         # checks a scale or translation against the *input* rank only, so such an edge is
         # writable and only shows up here.
-        raise NonAffineTransformError(f"a {step.kind} edge maps {rank} axes onto {len(step.output_axes)}, so its parameters are not a square map -- only BY_DIMENSION states a rank change")
+        raise NonAffineTransformError(
+            f"a {step.kind} edge maps {rank} axes onto {len(step.output_axes)}, so its parameters are not a square map -- only BY_DIMENSION states a rank change"
+        )
 
     return _forms_from_matrix(_step_matrix(step, rank), step.output_axes, rank)
 
@@ -886,7 +1000,9 @@ def _step_matrix(step: AxedStep, rank: int) -> list[list[float]]:
     return to_matrix(step.kind, step.params, rank)
 
 
-def compose_forms(steps: Sequence[AxedStep], source_axes: Sequence[str]) -> dict[str, AxedForm]:
+def compose_forms(
+    steps: Sequence[AxedStep], source_axes: Sequence[str]
+) -> dict[str, AxedForm]:
     """Compose a path into one functional per destination axis it constrains.
 
     **Substitution, not per-step boxing.** Re-bounding a box at every step inflates it under
@@ -899,7 +1015,9 @@ def compose_forms(steps: Sequence[AxedStep], source_axes: Sequence[str]) -> dict
     take hold of it again.
     """
     rank = len(source_axes)
-    current: dict[str, AxedForm] = {axis: _identity_form(axis, source_axes) for axis in source_axes}
+    current: dict[str, AxedForm] = {
+        axis: _identity_form(axis, source_axes) for axis in source_axes
+    }
 
     for step in steps:
         produced = step_forms(step)
@@ -911,7 +1029,11 @@ def compose_forms(steps: Sequence[AxedStep], source_axes: Sequence[str]) -> dict
             for index, factor in enumerate(form.coefficients):
                 if factor == 0.0:
                     continue
-                inner = current.get(step.input_axes[index]) if index < len(step.input_axes) else None
+                inner = (
+                    current.get(step.input_axes[index])
+                    if index < len(step.input_axes)
+                    else None
+                )
                 if inner is None:
                     unconstrained = True
                     break
@@ -920,7 +1042,9 @@ def compose_forms(steps: Sequence[AxedStep], source_axes: Sequence[str]) -> dict
                 constant += factor * inner.constant
             if unconstrained:
                 continue
-            composed[out_axis] = AxedForm(coefficients=tuple(coefficients), constant=constant)
+            composed[out_axis] = AxedForm(
+                coefficients=tuple(coefficients), constant=constant
+            )
         current = composed
 
     return current
@@ -951,7 +1075,9 @@ def _carries_map(params: dict) -> bool:
     return any(name in (params or {}) for name in ("affine", "scale", "translation"))
 
 
-def _matrix_step(step: AxedStep, matrix: list[list[float]], *, kind: str | None = None) -> AxedStep:
+def _matrix_step(
+    step: AxedStep, matrix: list[list[float]], *, kind: str | None = None
+) -> AxedStep:
     """A reversed step carrying one homogeneous matrix as its `affine`, endpoints swapped.
 
     The matrix is homogeneous and (n+1) x (n+1); an `affine` parameter is M x (N+1) -- one
@@ -1001,7 +1127,15 @@ def invert_step(step: AxedStep) -> AxedStep:
         return AxedStep(kind=kind, params={}, **swapped)
 
     if kind == enums.TransformKindChoices.TRANSLATION.value:
-        return AxedStep(kind=kind, params={"translation": [-float(value) for value in step.params.get("translation") or ()]}, **swapped)
+        return AxedStep(
+            kind=kind,
+            params={
+                "translation": [
+                    -float(value) for value in step.params.get("translation") or ()
+                ]
+            },
+            **swapped,
+        )
 
     if kind == enums.TransformKindChoices.SCALE.value:
         factors = [float(value) for value in step.params.get("scale") or ()]
@@ -1010,15 +1144,25 @@ def invert_step(step: AxedStep) -> AxedStep:
         # exactly the ones nobody would think to check, so it is checked.
         collapsed = [index for index, factor in enumerate(factors) if factor == 0.0]
         if collapsed:
-            raise SingularTransformError(f"A SCALE map with a zero factor at {collapsed} ({factors}) collapses that axis onto a point, so it cannot be walked backwards")
-        return AxedStep(kind=kind, params={"scale": [1.0 / factor for factor in factors]}, **swapped)
+            raise SingularTransformError(
+                f"A SCALE map with a zero factor at {collapsed} ({factors}) collapses that axis onto a point, so it cannot be walked backwards"
+            )
+        return AxedStep(
+            kind=kind, params={"scale": [1.0 / factor for factor in factors]}, **swapped
+        )
 
     if kind == enums.TransformKindChoices.MAP_AXIS.value:
         # A permutation's inverse is the permutation read the other way round, and no
         # arithmetic at all. Sound because the two endpoint systems carry the same set of
         # axis names -- `graph.assert_edge_rank` holds a MAP_AXIS to exactly that, which is
         # also what makes `permutation_matrix` total.
-        return AxedStep(kind=kind, params={}, acts_on_input=step.acts_on_output, acts_on_output=step.acts_on_input, **swapped)
+        return AxedStep(
+            kind=kind,
+            params={},
+            acts_on_input=step.acts_on_output,
+            acts_on_output=step.acts_on_input,
+            **swapped,
+        )
 
     if kind == enums.TransformKindChoices.BY_DIMENSION.value:
         # Square over the *named subset*, which `assert_edge_rank` maps one for one -- not
@@ -1026,17 +1170,29 @@ def invert_step(step: AxedStep) -> AxedStep:
         # The axes it does not name pass through, and passing through inverts to itself.
         return _matrix_step(step, invert_matrix(_sub_matrix(step)))
 
-    if kind in (enums.TransformKindChoices.AFFINE.value, enums.TransformKindChoices.ROTATION.value, enums.TransformKindChoices.SEQUENCE.value):
+    if kind in (
+        enums.TransformKindChoices.AFFINE.value,
+        enums.TransformKindChoices.ROTATION.value,
+        enums.TransformKindChoices.SEQUENCE.value,
+    ):
         rank = len(step.input_axes)
         # AFFINE, so the result reads as what it is. The inverse of a rotation is a rotation
         # and the inverse of a scale-then-translate sequence is neither -- keeping either
         # label would make `invariance_of`-shaped reasoning over the returned step wrong.
-        return _matrix_step(step, invert_matrix(_step_matrix(step, rank)), kind=enums.TransformKindChoices.AFFINE.value)
+        return _matrix_step(
+            step,
+            invert_matrix(_step_matrix(step, rank)),
+            kind=enums.TransformKindChoices.AFFINE.value,
+        )
 
-    raise NonAffineTransformError(f"A {kind} edge has no inverse at any rank, so a path may not walk it backwards")
+    raise NonAffineTransformError(
+        f"A {kind} edge has no inverse at any rank, so a path may not walk it backwards"
+    )
 
 
-def forms_to_matrix(forms: dict[str, AxedForm], destination_axes: Sequence[str]) -> tuple[list[list[float]], list[str]]:
+def forms_to_matrix(
+    forms: dict[str, AxedForm], destination_axes: Sequence[str]
+) -> tuple[list[list[float]], list[str]]:
     """Composed functionals as one M x (N+1) matrix, and the axes its rows are over.
 
     Rows in the **destination system's own axis order**, and only for the axes the path
@@ -1049,10 +1205,18 @@ def forms_to_matrix(forms: dict[str, AxedForm], destination_axes: Sequence[str])
     the translation: the layout `AffineTransformation.affine` already uses.
     """
     rows = [axis for axis in destination_axes if axis in forms]
-    return [[*(float(value) for value in forms[axis].coefficients), float(forms[axis].constant)] for axis in rows], rows
+    return [
+        [
+            *(float(value) for value in forms[axis].coefficients),
+            float(forms[axis].constant),
+        ]
+        for axis in rows
+    ], rows
 
 
-def form_interval(form: AxedForm, mins: Sequence[float], maxs: Sequence[float]) -> list[float]:
+def form_interval(
+    form: AxedForm, mins: Sequence[float], maxs: Sequence[float]
+) -> list[float]:
     """The exact range of one affine functional over an axis-aligned box.
 
     The closed form of what :func:`transformed_bbox` does by enumerating corners: an affine
@@ -1072,7 +1236,9 @@ def form_interval(form: AxedForm, mins: Sequence[float], maxs: Sequence[float]) 
     return [low, high]
 
 
-def axed_bbox(mins: Sequence[float], maxs: Sequence[float], forms: dict[str, AxedForm]) -> dict[str, list[float]]:
+def axed_bbox(
+    mins: Sequence[float], maxs: Sequence[float], forms: dict[str, AxedForm]
+) -> dict[str, list[float]]:
     """The axis-keyed extent of a box under an already-composed path."""
     return {axis: form_interval(form, mins, maxs) for axis, form in forms.items()}
 

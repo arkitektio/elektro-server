@@ -55,7 +55,9 @@ query PathToWorld($id: ID!) {
 """
 
 
-def _edge(ctx: HttpContext, kind: str, params: dict | None = None, **kwargs) -> models.Transformation:
+def _edge(
+    ctx: HttpContext, kind: str, params: dict | None = None, **kwargs
+) -> models.Transformation:
     """One bare edge, endpoints and all, built through the ORM.
 
     Directly, not through `createTransformation`: one of the kinds under test (SEQUENCE) is
@@ -71,14 +73,18 @@ def _edge(ctx: HttpContext, kind: str, params: dict | None = None, **kwargs) -> 
     )
 
 
-async def _classify(ctx: HttpContext, kind: str, params: dict | None = None, **kwargs) -> str:
+async def _classify(
+    ctx: HttpContext, kind: str, params: dict | None = None, **kwargs
+) -> str:
     def build_and_classify() -> str:
         return graph_logic.invariance_of(_edge(ctx, kind, params, **kwargs))
 
     return await sync_to_async(build_and_classify)()
 
 
-async def _view(aexecute, experiment_id: int | str, query: str = VIEW_INVARIANCE) -> dict:  # noqa: ANN001 - the conftest fixture
+async def _view(
+    aexecute, experiment_id: int | str, query: str = VIEW_INVARIANCE
+) -> dict:  # noqa: ANN001 - the conftest fixture
     result = await aexecute(query, {"id": str(experiment_id)})
     assert not result.errors, result.errors
     (view,) = result.data["experiment"]["layers"]
@@ -89,14 +95,19 @@ async def _view(aexecute, experiment_id: int | str, query: str = VIEW_INVARIANCE
 
 
 @pytest.mark.parametrize("kind", ["IDENTITY", "TRANSLATION", "ROTATION", "MAP_AXIS"])
-async def test_the_isometries_are_the_kinds_that_deform_nothing(authenticated_context, kind: str):
+async def test_the_isometries_are_the_kinds_that_deform_nothing(
+    authenticated_context, kind: str
+):
     """A relabelling, an offset and a rotation all leave every distance and angle where it was."""
     assert await _classify(authenticated_context, kind) == "ISOMETRY"
 
 
 async def test_an_isotropic_scale_is_a_similarity(authenticated_context):
     """One factor on every axis: a circle is still a circle, so angles and length ratios survive."""
-    assert await _classify(authenticated_context, "SCALE", {"scale": [0.5, 0.5, 0.5]}) == "SIMILARITY"
+    assert (
+        await _classify(authenticated_context, "SCALE", {"scale": [0.5, 0.5, 0.5]})
+        == "SIMILARITY"
+    )
 
 
 async def test_an_anisotropic_scale_is_only_affine(authenticated_context):
@@ -106,17 +117,24 @@ async def test_an_anisotropic_scale_is_only_affine(authenticated_context):
     roundness measured in samples means something in world, which is exactly the silent
     wrong answer the class exists to prevent.
     """
-    assert await _classify(authenticated_context, "SCALE", {"scale": [1.0, 0.325, 0.325]}) == "AFFINE"
+    assert (
+        await _classify(authenticated_context, "SCALE", {"scale": [1.0, 0.325, 0.325]})
+        == "AFFINE"
+    )
 
 
-async def test_an_affine_reads_affine_even_when_its_matrix_is_rigid(authenticated_context):
+async def test_an_affine_reads_affine_even_when_its_matrix_is_rigid(
+    authenticated_context,
+):
     """A 90-degree rotation written as a matrix is an isometry, and still reads AFFINE.
 
     The deliberate limit: proving it rigid needs an SVD, which is numerics inside a metadata
     answer. Both this and `is_invertible` err toward claiming less.
     """
     rigid = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0]]
-    assert await _classify(authenticated_context, "AFFINE", {"affine": rigid}) == "AFFINE"
+    assert (
+        await _classify(authenticated_context, "AFFINE", {"affine": rigid}) == "AFFINE"
+    )
 
 
 async def test_a_field_is_diffeomorphic_at_best(authenticated_context):
@@ -136,7 +154,12 @@ async def test_an_unknown_kind_fails_safe():
     does not exist yet. That is the point: this pins what happens when someone *adds* one
     and forgets the table, so a new kind degrades a client's trust rather than inflating it.
     """
-    assert graph_logic.invariance_of(models.Transformation(kind="SOME_FUTURE_KIND", params={})) == "NONE"
+    assert (
+        graph_logic.invariance_of(
+            models.Transformation(kind="SOME_FUTURE_KIND", params={})
+        )
+        == "NONE"
+    )
 
 
 # --- composites -------------------------------------------------------------------
@@ -146,13 +169,23 @@ async def test_an_unknown_kind_fails_safe():
     ("scale", "expected"),
     [([2.0, 2.0, 2.0], "SIMILARITY"), ([1.0, 0.325, 0.325], "AFFINE")],
 )
-async def test_a_sequence_is_the_weakest_of_its_steps(authenticated_context, scale: list, expected: str):
+async def test_a_sequence_is_the_weakest_of_its_steps(
+    authenticated_context, scale: list, expected: str
+):
     """A scale-then-translate sequence takes its class from the scale; the translation is rigid."""
 
     def build() -> str:
         sequence = _edge(authenticated_context, "SEQUENCE")
-        _edge(authenticated_context, "SCALE", {"scale": scale}, parent=sequence, order=0)
-        _edge(authenticated_context, "TRANSLATION", {"translation": [1.0, 1.0, 1.0]}, parent=sequence, order=1)
+        _edge(
+            authenticated_context, "SCALE", {"scale": scale}, parent=sequence, order=0
+        )
+        _edge(
+            authenticated_context,
+            "TRANSLATION",
+            {"translation": [1.0, 1.0, 1.0]},
+            parent=sequence,
+            order=1,
+        )
         return graph_logic.invariance_of(sequence)
 
     assert await sync_to_async(build)() == expected
@@ -169,7 +202,14 @@ async def test_a_childless_wrapper_reads_the_map_it_carries(authenticated_contex
     ABLATION: return ISOMETRY for a childless wrapper and every sampling law in the system
     reads as rigid.
     """
-    assert await _classify(authenticated_context, "BY_DIMENSION", {"affine": [[1.0, 0.5, 10.0], [0.0, 1.0, 20.0]]}) == "AFFINE"
+    assert (
+        await _classify(
+            authenticated_context,
+            "BY_DIMENSION",
+            {"affine": [[1.0, 0.5, 10.0], [0.0, 1.0, 20.0]]},
+        )
+        == "AFFINE"
+    )
 
 
 async def test_a_childless_wrapper_with_no_map_is_an_isometry(authenticated_context):
@@ -181,19 +221,30 @@ async def test_a_childless_wrapper_with_no_map_is_an_isometry(authenticated_cont
     ("scale", "expected"),
     [([2.0, 2.0], "SIMILARITY"), ([2.0, 3.0], "AFFINE")],
 )
-async def test_a_childless_wrapper_takes_the_weakest_map_it_carries(authenticated_context, scale: list, expected: str):
+async def test_a_childless_wrapper_takes_the_weakest_map_it_carries(
+    authenticated_context, scale: list, expected: str
+):
     """`_OPTIONAL_PARAMS_BY_KIND` lets one BY_DIMENSION carry several params: the weakest decides.
 
     ABLATION: return the first match rather than the minimum and an anisotropic scale riding
     beside a translation reads ISOMETRY, from the translation alone.
     """
-    assert await _classify(authenticated_context, "BY_DIMENSION", {"scale": scale, "translation": [1.0, 1.0]}) == expected
+    assert (
+        await _classify(
+            authenticated_context,
+            "BY_DIMENSION",
+            {"scale": scale, "translation": [1.0, 1.0]},
+        )
+        == expected
+    )
 
 
 # --- the path aggregate -----------------------------------------------------------
 
 
-async def test_an_identity_registration_places_a_layer_isometrically(aexecute, authenticated_context):
+async def test_an_identity_registration_places_a_layer_isometrically(
+    aexecute, authenticated_context
+):
     """Nothing on the path deforms anything, so a distance in the data IS a distance in world."""
     ctx = authenticated_context
     dataset = await seed.create_dataset(ctx, "Rigid", SPATIAL_AXES, [8, 64, 64])
@@ -219,29 +270,45 @@ async def test_the_weakest_edge_on_the_path_decides(aexecute, authenticated_cont
     """
     ctx = authenticated_context
     dataset = await seed.create_dataset(ctx, "Anisotropic", SPATIAL_AXES, [8, 64, 64])
-    calibration = await seed.create_physical_space(ctx, dataset, axes=seed.ZYX_WORLD_AXES, scale=[0.5, 0.325, 0.325])
-    sliced = await seed.create_lens(ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}])
+    calibration = await seed.create_physical_space(
+        ctx, dataset, axes=seed.ZYX_WORLD_AXES, scale=[0.5, 0.325, 0.325]
+    )
+    sliced = await seed.create_lens(
+        ctx, dataset, slices=[{"axis": "y", "start": 8, "stop": 40}]
+    )
     experiment = await create_experiment(ctx, "Physical", world=calibration)
     await add_layer(ctx, experiment, sliced)
 
     view = await _view(aexecute, experiment.pk)
-    assert len(view["pathToWorld"]) == 2, f"the minimum below asserts nothing over a one-edge path: {view['pathToWorld']}"
-    assert view["placementInvariance"] == "AFFINE", "one anisotropic step decides the whole path"
+    assert len(view["pathToWorld"]) == 2, (
+        f"the minimum below asserts nothing over a one-edge path: {view['pathToWorld']}"
+    )
+    assert view["placementInvariance"] == "AFFINE", (
+        "one anisotropic step decides the whole path"
+    )
 
 
-async def test_an_isotropic_calibration_keeps_the_layer_similar(aexecute, authenticated_context):
+async def test_an_isotropic_calibration_keeps_the_layer_similar(
+    aexecute, authenticated_context
+):
     """Equal steps on every axis: shapes and angles survive, and one factor converts lengths."""
     ctx = authenticated_context
     dataset = await seed.create_dataset(ctx, "Isotropic", SPATIAL_AXES, [8, 64, 64])
-    calibration = await seed.create_physical_space(ctx, dataset, axes=seed.ZYX_WORLD_AXES, scale=[0.325, 0.325, 0.325])
+    calibration = await seed.create_physical_space(
+        ctx, dataset, axes=seed.ZYX_WORLD_AXES, scale=[0.325, 0.325, 0.325]
+    )
     lens = await seed.create_lens(ctx, dataset)
     experiment = await create_experiment(ctx, "Physical", world=calibration)
     await add_layer(ctx, experiment, lens)
 
-    assert (await _view(aexecute, experiment.pk))["placementInvariance"] == "SIMILARITY", "a scalar length in world units is well defined from here up"
+    assert (await _view(aexecute, experiment.pk))[
+        "placementInvariance"
+    ] == "SIMILARITY", "a scalar length in world units is well defined from here up"
 
 
-async def test_an_unplaced_layer_reads_none_and_says_why_elsewhere(aexecute, authenticated_context):
+async def test_an_unplaced_layer_reads_none_and_says_why_elsewhere(
+    aexecute, authenticated_context
+):
     """No path means nothing corresponds -- and `placement` is what distinguishes the two reasons.
 
     The conflation is deliberate and mirrors `placementValidity`'s UNKNOWN: a client that
@@ -261,10 +328,14 @@ async def test_an_unplaced_layer_reads_none_and_says_why_elsewhere(aexecute, aut
     view = await _view(aexecute, experiment.pk)
     assert view["placementInvariance"] == "NONE"
     assert view["placementValidity"] == "UNKNOWN"
-    assert view["placement"] == "UNREGISTERED", "the field that tells a gap from an impossibility"
+    assert view["placement"] == "UNREGISTERED", (
+        "the field that tells a gap from an impossibility"
+    )
 
 
-async def test_an_inverted_step_does_not_change_the_class(aexecute, authenticated_context):
+async def test_an_inverted_step_does_not_change_the_class(
+    aexecute, authenticated_context
+):
     """Every class here is closed under inversion, which is why the BFS's `inverted` flag needs no handling.
 
     The edge is authored world -> sample grid, against the direction a placement walks, so the
@@ -279,7 +350,13 @@ async def test_an_inverted_step_does_not_change_the_class(aexecute, authenticate
         _edge(
             ctx,
             "ROTATION",
-            {"affine": [[0.0, -1.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]]},
+            {
+                "affine": [
+                    [0.0, -1.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                ]
+            },
             input=experiment.world,
             output=dataset.coordinate_system,
         )
@@ -288,14 +365,18 @@ async def test_an_inverted_step_does_not_change_the_class(aexecute, authenticate
     await add_layer(ctx, experiment, lens)
 
     view = await _view(aexecute, experiment.pk, PATH_TO_WORLD)
-    assert any(step["inverted"] for step in view["pathToWorld"]), "the edge points against the walk"
+    assert any(step["inverted"] for step in view["pathToWorld"]), (
+        "the edge points against the walk"
+    )
     assert view["placementInvariance"] == "ISOMETRY"
 
 
 # --- cost and shape ---------------------------------------------------------------
 
 
-async def test_placement_invariance_costs_no_query_beyond_placement_validity(aexecute, authenticated_context):
+async def test_placement_invariance_costs_no_query_beyond_placement_validity(
+    aexecute, authenticated_context
+):
     """The class is read off columns and prefetches the graph already fetched.
 
     `kind` and `params` are local columns of an edge row, and every SceneGraph fetch site
@@ -310,29 +391,54 @@ async def test_placement_invariance_costs_no_query_beyond_placement_validity(aex
     await seed.register_into_world(ctx, experiment.world, dataset)
     await add_layer(ctx, experiment, lens)
 
-    validity_only = "query Q($id: ID!) { experiment(id: $id) { layers { id placementValidity } } }"
+    validity_only = (
+        "query Q($id: ID!) { experiment(id: $id) { layers { id placementValidity } } }"
+    )
     both = "query Q($id: ID!) { experiment(id: $id) { layers { id placementValidity placementInvariance } } }"
 
     # `counted` warms each document once first: in mikro the layer mutation above had already
     # paid the process' one-off costs (content types, auth), and here nothing has.
-    counts = [(await counted(aexecute, query, {"id": str(experiment.pk)}))[1] for query in (validity_only, both)]
+    counts = [
+        (await counted(aexecute, query, {"id": str(experiment.pk)}))[1]
+        for query in (validity_only, both)
+    ]
 
-    assert counts[0] == counts[1], f"asking for the invariance cost {counts[1] - counts[0]} extra queries"
+    assert counts[0] == counts[1], (
+        f"asking for the invariance cost {counts[1] - counts[0]} extra queries"
+    )
 
 
 async def test_the_invariance_is_derived_not_stored():
     """No column, no TextChoices twin -- and the derived fields wear their two distinct names."""
     from elektro_server.schema import schema
 
-    assert "invariance" not in {field.name for field in models.Transformation._meta.get_fields()}, "a stored class could contradict `params`"
-    assert not hasattr(enums, "TransformInvarianceChoices"), "a Django choices twin exists only for a column, and there is no column"
+    assert "invariance" not in {
+        field.name for field in models.Transformation._meta.get_fields()
+    }, "a stored class could contradict `params`"
+    assert not hasattr(enums, "TransformInvarianceChoices"), (
+        "a Django choices twin exists only for a column, and there is no column"
+    )
 
     sdl = str(schema)
     assert "enum TransformInvariance" in sdl
 
-    transformation = sdl[sdl.find("interface Transformation ") : sdl.find("\n}", sdl.find("interface Transformation "))]
-    assert "invariance: TransformInvariance" in transformation, "the per-edge class lives on the edge"
+    transformation = sdl[
+        sdl.find("interface Transformation ") : sdl.find(
+            "\n}", sdl.find("interface Transformation ")
+        )
+    ]
+    assert "invariance: TransformInvariance" in transformation, (
+        "the per-edge class lives on the edge"
+    )
 
-    view = sdl[sdl.find("interface ExperimentLayer ") : sdl.find("\n}", sdl.find("interface ExperimentLayer "))]
-    assert "placementInvariance(" in view and "): TransformInvariance!" in view, "the path aggregate lives on the view, under its own name and taking the coordinate to answer at"
-    assert "\n  invariance" not in view, "the bare word belongs to the edge, not the view"
+    view = sdl[
+        sdl.find("interface ExperimentLayer ") : sdl.find(
+            "\n}", sdl.find("interface ExperimentLayer ")
+        )
+    ]
+    assert "placementInvariance(" in view and "): TransformInvariance!" in view, (
+        "the path aggregate lives on the view, under its own name and taking the coordinate to answer at"
+    )
+    assert "\n  invariance" not in view, (
+        "the bare word belongs to the edge, not the view"
+    )

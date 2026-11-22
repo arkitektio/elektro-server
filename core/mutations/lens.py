@@ -4,11 +4,11 @@ There is no ``updateLens``: a lens is immutable, because the edge placing it is 
 its slices at creation and a second write would be a second chance for the two to disagree.
 """
 
+import kante
 import strawberry
 from kante.types import Info
 from pydantic import BaseModel, Field
 
-import kante
 from core import guards, models, types
 from core.base_models import slices as slice_models
 from core.creation import CreationContext
@@ -17,14 +17,28 @@ from core.logic import spaces as spaces_logic
 from core.scoping import get_for_org
 
 
-@kante.pydantic_input(slice_models.SliceInputModel, description="A slice along one named axis, with python's half-open `start:stop:step` semantics. Indices are SAMPLE indices along that axis of the dataset, never physical units")
+@kante.pydantic_input(
+    slice_models.SliceInputModel,
+    description="A slice along one named axis, with python's half-open `start:stop:step` semantics. Indices are SAMPLE indices along that axis of the dataset, never physical units",
+)
 class SliceInput:
     """One per-axis slice of a lens."""
 
-    axis: str = strawberry.field(description="The name of the axis to slice, e.g. 't' or 'c'. Must be an axis of the dataset")
-    start: int | None = strawberry.field(default=None, description="The first index selected. Omit to start at the beginning")
-    stop: int | None = strawberry.field(default=None, description="One past the last index selected. Omit to run to the end")
-    step: int | None = strawberry.field(default=None, description="The stride. Omit for every sample; a lens with a stride also rescales, which its edge records")
+    axis: str = strawberry.field(
+        description="The name of the axis to slice, e.g. 't' or 'c'. Must be an axis of the dataset"
+    )
+    start: int | None = strawberry.field(
+        default=None,
+        description="The first index selected. Omit to start at the beginning",
+    )
+    stop: int | None = strawberry.field(
+        default=None,
+        description="One past the last index selected. Omit to run to the end",
+    )
+    step: int | None = strawberry.field(
+        default=None,
+        description="The stride. Omit for every sample; a lens with a stride also rescales, which its edge records",
+    )
 
 
 class CreateLensInputModel(BaseModel):
@@ -32,11 +46,16 @@ class CreateLensInputModel(BaseModel):
     slices: list[slice_models.SliceInputModel] | None = None
 
 
-@kante.pydantic_input(CreateLensInputModel, description="Input for creating a lens: a selection over a dataset")
+@kante.pydantic_input(
+    CreateLensInputModel,
+    description="Input for creating a lens: a selection over a dataset",
+)
 class CreateLensInput:
     """Input for creating a lens over a dataset."""
 
-    dataset: strawberry.ID = strawberry.field(description="The ID of the dataset to select over. It must have a coordinate system, i.e. it was created with axes")
+    dataset: strawberry.ID = strawberry.field(
+        description="The ID of the dataset to select over. It must have a coordinate system, i.e. it was created with axes"
+    )
     slices: list[SliceInput] | None = strawberry.field(
         default=None,
         description="Optional slices selecting a window of the dataset, one per axis to restrict. Omit (or pass an empty list) for a lens that selects everything; a sliced lens gets its own coordinate system and the edge recording the shift",
@@ -59,7 +78,9 @@ class DeleteLensInputModel(BaseModel):
     id: str = Field(description="The ID of the lens to delete")
 
 
-@kante.pydantic_input(DeleteLensInputModel, description="Input for deleting a lens by ID")
+@kante.pydantic_input(
+    DeleteLensInputModel, description="Input for deleting a lens by ID"
+)
 class DeleteLensInput:
     """Input for deleting a lens by ID."""
 

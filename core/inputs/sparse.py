@@ -12,11 +12,9 @@ TIME axis. A TIME axis is identified by nothing -- its positions are samples, an
 law is what says when they were -- so its ``identifiedBy`` must be empty.
 """
 
-from pydantic import BaseModel, ConfigDict, Field
-
-import strawberry
-
 import kante
+import strawberry
+from pydantic import BaseModel, ConfigDict, Field
 
 from core import enums
 from core.inputs.identification import IdentificationInput, IdentificationSpec
@@ -60,5 +58,10 @@ class SparseAxisInput:
         default_factory=list,
         description="What this INDEX axis' positions are: sources whose contents are the ids, or the table whose rows they are. At least one for an INDEX axis; none for a TIME axis. More than one is fan-in, which writes an edge per source",
     )
-    long_name: str | None = strawberry.field(default=None, description="A human-readable name for the axis")
-    description: str | None = strawberry.field(default=None, description="What this axis enumerates, for a reader of the schema")
+    long_name: str | None = strawberry.field(
+        default=None, description="A human-readable name for the axis"
+    )
+    description: str | None = strawberry.field(
+        default=None,
+        description="What this axis enumerates, for a reader of the schema",
+    )

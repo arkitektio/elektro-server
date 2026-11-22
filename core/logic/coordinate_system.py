@@ -67,7 +67,9 @@ def create_coordinate_system(
     name: str,
     axes: list,
     epoch: datetime.datetime | None = None,
-    registrations: Sequence[tuple["models.CoordinateSystem", "models.ZarrStore | None", object]] = (),
+    registrations: Sequence[
+        tuple["models.CoordinateSystem", "models.ZarrStore | None", object]
+    ] = (),
     ctx: CreationContext,
 ) -> "models.CoordinateSystem":
     """Create a shared coordinate system, and author one edge per registered source into it.
@@ -135,9 +137,23 @@ def resolve_source_system(
     Shared by registrations and derivations: both name "some container", and the answer to
     "which space stands for it" cannot sensibly differ between them.
     """
-    provided = [value for value in (dataset, lens, table_dataset, sparse_dataset, annotation_collection, coordinate_system, neuron_model) if value is not None]
+    provided = [
+        value
+        for value in (
+            dataset,
+            lens,
+            table_dataset,
+            sparse_dataset,
+            annotation_collection,
+            coordinate_system,
+            neuron_model,
+        )
+        if value is not None
+    ]
     if len(provided) != 1:
-        raise ValueError("A registration must name exactly one source: a dataset, a lens, a table dataset, a sparse dataset, an annotation collection, a coordinate system, or a neuron model.")
+        raise ValueError(
+            "A registration must name exactly one source: a dataset, a lens, a table dataset, a sparse dataset, an annotation collection, a coordinate system, or a neuron model."
+        )
 
     if coordinate_system is not None:
         return coordinate_system
@@ -147,36 +163,48 @@ def resolve_source_system(
         # so a derivation from it is a derivation from the grid, one hop shorter.
         system = graph_logic.lens_source_system(lens)
         if system is None:
-            raise ValueError(f"Lens {lens.pk} has no coordinate system, so there is no space to derive from. Its dataset was created without axes: give the dataset its sample grid first.")
+            raise ValueError(
+                f"Lens {lens.pk} has no coordinate system, so there is no space to derive from. Its dataset was created without axes: give the dataset its sample grid first."
+            )
         return system
 
     if table_dataset is not None:
         system = table_dataset.coordinate_system_or_none
         if system is None:
-            raise ValueError(f"Table dataset '{table_dataset.name}' has no coordinate system to register.")
+            raise ValueError(
+                f"Table dataset '{table_dataset.name}' has no coordinate system to register."
+            )
         return system
 
     if sparse_dataset is not None:
         system = sparse_dataset.coordinate_system_or_none
         if system is None:
-            raise ValueError(f"Sparse dataset '{sparse_dataset.name}' has no coordinate system to register.")
+            raise ValueError(
+                f"Sparse dataset '{sparse_dataset.name}' has no coordinate system to register."
+            )
         return system
 
     if neuron_model is not None:
         system = neuron_model.coordinate_system
         if system is None:
-            raise ValueError(f"Neuron model '{neuron_model.name}' has no coordinate system, so there is no space to derive from.")
+            raise ValueError(
+                f"Neuron model '{neuron_model.name}' has no coordinate system, so there is no space to derive from."
+            )
         return system
 
     if annotation_collection is not None:
         system = annotation_collection.coordinate_system_or_none
         if system is None:
-            raise ValueError(f"Annotation collection '{annotation_collection.name}' has no coordinate system to register.")
+            raise ValueError(
+                f"Annotation collection '{annotation_collection.name}' has no coordinate system to register."
+            )
         return system
 
     system = dataset.intrinsic_coordinate_system
     if system is None:
-        raise ValueError(f"Dataset '{dataset.name}' has no coordinate system to register: it was created without axes, so it is not in the graph.")
+        raise ValueError(
+            f"Dataset '{dataset.name}' has no coordinate system to register: it was created without axes, so it is not in the graph."
+        )
     return system
 
 
@@ -187,9 +215,18 @@ def resolve_source_system(
 _DERIVATION_SOURCES: dict[str, tuple[type, str]] = {
     enums.DerivationSourceKind.LENS.value: (models.Lens, "lens"),
     enums.DerivationSourceKind.DATASET.value: (models.ArrayDataset, "dataset"),
-    enums.DerivationSourceKind.TABLE_DATASET.value: (models.TableDataset, "table_dataset"),
-    enums.DerivationSourceKind.ANNOTATION_COLLECTION.value: (models.AnnotationCollection, "annotation_collection"),
-    enums.DerivationSourceKind.COORDINATE_SYSTEM.value: (models.CoordinateSystem, "coordinate_system"),
+    enums.DerivationSourceKind.TABLE_DATASET.value: (
+        models.TableDataset,
+        "table_dataset",
+    ),
+    enums.DerivationSourceKind.ANNOTATION_COLLECTION.value: (
+        models.AnnotationCollection,
+        "annotation_collection",
+    ),
+    enums.DerivationSourceKind.COORDINATE_SYSTEM.value: (
+        models.CoordinateSystem,
+        "coordinate_system",
+    ),
     enums.DerivationSourceKind.NEURON_MODEL.value: (models.NeuronModel, "neuron_model"),
 }
 
@@ -202,7 +239,11 @@ def source_label(model: type, source) -> str:  # noqa: ANN001 - any container ro
     ``version`` instead of ``name``, and reading the wrong one is an AttributeError rather
     than a sentence, so the fallback chain lives here and every caller shares it.
     """
-    return getattr(source, "name", None) or getattr(source, "version", None) or f"{model.__name__} {source.pk}"
+    return (
+        getattr(source, "name", None)
+        or getattr(source, "version", None)
+        or f"{model.__name__} {source.pk}"
+    )
 
 
 def resolve_derivation_source(info, lowered) -> "tuple[models.CoordinateSystem, str]":  # noqa: ANN001 - kante's Info, and a LoweredDerivation
@@ -219,7 +260,14 @@ def resolve_derivation_source(info, lowered) -> "tuple[models.CoordinateSystem, 
     return system, source_label(model, source)
 
 
-def write_derivation_edges(info, *, name: str, own_system: "models.CoordinateSystem", derived_from: Sequence, ctx: CreationContext) -> list["models.Transformation"]:
+def write_derivation_edges(
+    info,
+    *,
+    name: str,
+    own_system: "models.CoordinateSystem",
+    derived_from: Sequence,
+    ctx: CreationContext,
+) -> list["models.Transformation"]:
     """Write one edge per source this data was computed from, child space -> source space.
 
     The one writer for every container. An array dataset, a table, a mesh collection and an
@@ -248,19 +296,34 @@ def write_derivation_edges(info, *, name: str, own_system: "models.CoordinateSys
     # could share a numeric id, and two naming the same table could not collide at all
     # while the key was the lens field.
     named = [(low.source_kind, low.source_id) for low in lowered]
-    duplicates = sorted({f"{kind} {source_id}" for kind, source_id in named if named.count((kind, source_id)) > 1})
+    duplicates = sorted(
+        {
+            f"{kind} {source_id}"
+            for kind, source_id in named
+            if named.count((kind, source_id)) > 1
+        }
+    )
     if duplicates:
-        raise ValueError(f"Each derivedFrom entry must name a distinct source, but {', '.join(duplicates)} appear{'s' if len(duplicates) == 1 else ''} more than once. One entry per source: its transform already says everything about how the data maps back")
+        raise ValueError(
+            f"Each derivedFrom entry must name a distinct source, but {', '.join(duplicates)} appear{'s' if len(duplicates) == 1 else ''} more than once. One entry per source: its transform already says everything about how the data maps back"
+        )
 
     unmappable = enums.TransformKind.UNMAPPABLE.value
-    if lowered[0].transform.kind == unmappable and any(low.transform.kind != unmappable for low in lowered):
+    if lowered[0].transform.kind == unmappable and any(
+        low.transform.kind != unmappable for low in lowered
+    ):
         raise ValueError(
             "The first derivedFrom entry is the primary parent -- the one that places this data -- so it cannot be UNMAPPABLE while a mappable entry follows. "
             "An entry with no `transform` *is* UNMAPPABLE: naming a source claims no geometry. Put the mappable source first, or state its transform"
         )
 
     sources = [resolve_derivation_source(info, low) for low in lowered]
-    fields = [get_for_org(models.CoordinateSystem, info, id=low.transform.field) if low.transform.field else None for low in lowered]
+    fields = [
+        get_for_org(models.CoordinateSystem, info, id=low.transform.field)
+        if low.transform.field
+        else None
+        for low in lowered
+    ]
 
     edges: list[models.Transformation] = []
     with transaction.atomic():
@@ -286,7 +349,15 @@ def write_derivation_edges(info, *, name: str, own_system: "models.CoordinateSys
     return edges
 
 
-def write_key_edges(info, *, name: str, own_system: "models.CoordinateSystem", keyed_by: Sequence, ctx: CreationContext, produces: Sequence[str] | None = None) -> list["models.Transformation"]:  # noqa: ANN001 - kante's Info, and a list of KeyedByInput members
+def write_key_edges(
+    info,
+    *,
+    name: str,
+    own_system: "models.CoordinateSystem",
+    keyed_by: Sequence,
+    ctx: CreationContext,
+    produces: Sequence[str] | None = None,
+) -> list["models.Transformation"]:  # noqa: ANN001 - kante's Info, and a list of KeyedByInput members
     """Write one FIELD edge per source keying this table, source space -> table space.
 
     The sibling of :func:`write_derivation_edges`, and deliberately not folded into it: a
@@ -357,12 +428,22 @@ def write_key_edges(info, *, name: str, own_system: "models.CoordinateSystem", k
                 f"authors no edge. Keyable kinds are {', '.join(sorted(_DERIVATION_SOURCES))}."
             ) from None
         source = get_for_org(model, info, id=entry.source_id)
-        resolved.append((entry, source_label(model, source), resolve_source_system(**{keyword: source})))
+        resolved.append(
+            (
+                entry,
+                source_label(model, source),
+                resolve_source_system(**{keyword: source}),
+            )
+        )
 
     named = [system.pk for _, _, system in resolved]
-    duplicates = sorted({label for (_, label, system) in resolved if named.count(system.pk) > 1})
+    duplicates = sorted(
+        {label for (_, label, system) in resolved if named.count(system.pk) > 1}
+    )
     if duplicates:
-        raise ValueError(f"Each keyedBy entry must name a distinct source, but {', '.join(duplicates)} appears more than once. A second edge between the same pair says nothing the first did not")
+        raise ValueError(
+            f"Each keyedBy entry must name a distinct source, but {', '.join(duplicates)} appears more than once. A second edge between the same pair says nothing the first did not"
+        )
 
     table_axes = [axis.name for axis in own_system.axes.all()]
     own_axes = set(table_axes)
@@ -376,7 +457,9 @@ def write_key_edges(info, *, name: str, own_system: "models.CoordinateSystem", k
 
     stated = list(produces) if produces is not None else [None] * len(resolved)
     if len(stated) != len(resolved):
-        raise ValueError(f"'{name}' names {len(resolved)} keying sources but {len(stated)} produced axes; they are one per entry, in the same order")
+        raise ValueError(
+            f"'{name}' names {len(resolved)} keying sources but {len(stated)} produced axes; they are one per entry, in the same order"
+        )
 
     edges: list[models.Transformation] = []
     with transaction.atomic():
@@ -388,7 +471,13 @@ def write_key_edges(info, *, name: str, own_system: "models.CoordinateSystem", k
             # half of a table indexed by a pair. One definition, shared with the rank check;
             # computed once above, since it depends on `own_system` and nothing else.
             consumed = [axis for axis in source_axes if axis not in own_axes]
-            produced = [axis for axis in table_axes if axis not in supplied and axis not in identified and axis not in self_placed]
+            produced = [
+                axis
+                for axis in table_axes
+                if axis not in supplied
+                and axis not in identified
+                and axis not in self_placed
+            ]
 
             if not consumed:
                 raise ValueError(
@@ -463,7 +552,11 @@ DEFAULT_WORLD_AXES = [
 #: The axis types a world can be navigated along. A CHANNEL axis is something a view
 #: *samples* -- it is not a place, so it does not belong to a shared space two recordings
 #: are registered into.
-NAVIGABLE_TYPES = (enums.AxisTypeChoices.TIME.value, enums.AxisTypeChoices.SPACE.value, enums.AxisTypeChoices.FREQUENCY.value)
+NAVIGABLE_TYPES = (
+    enums.AxisTypeChoices.TIME.value,
+    enums.AxisTypeChoices.SPACE.value,
+    enums.AxisTypeChoices.FREQUENCY.value,
+)
 
 
 def create_lens(
@@ -482,17 +575,25 @@ def create_lens(
     """
     intrinsic = dataset.intrinsic_coordinate_system
     if intrinsic is None:
-        raise ValueError(f"Dataset {dataset.pk} has no coordinate system: it was created without axes, so there is no sample grid for a lens to select over")
+        raise ValueError(
+            f"Dataset {dataset.pk} has no coordinate system: it was created without axes, so there is no sample grid for a lens to select over"
+        )
 
     if dataset.data_arrays.order_by("level").first() is None:
-        raise ValueError(f"Dataset {dataset.pk} has no level-0 data array to place the lens against")
+        raise ValueError(
+            f"Dataset {dataset.pk} has no level-0 data array to place the lens against"
+        )
 
     slice_models = [slice.model_dump() for slice in slices]
     sliced = any(slice_models)
 
-    unknown = sorted({entry["axis"] for entry in slice_models} - set(dataset.axis_names))
+    unknown = sorted(
+        {entry["axis"] for entry in slice_models} - set(dataset.axis_names)
+    )
     if unknown:
-        raise ValueError(f"A lens slices the axes its dataset has, but {unknown} {'is' if len(unknown) == 1 else 'are'} not among {dataset.axis_names}")
+        raise ValueError(
+            f"A lens slices the axes its dataset has, but {unknown} {'is' if len(unknown) == 1 else 'are'} not among {dataset.axis_names}"
+        )
 
     # An unsliced lens lives in the dataset's own grid -- it selects everything, so its space
     # *is* that space -- and points at the same node. Only a sliced one needs a space of its

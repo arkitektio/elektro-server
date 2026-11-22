@@ -54,7 +54,9 @@ class ColorByModel(BaseModel):
     @model_validator(mode="after")
     def _window_is_ordered(self) -> "ColorByModel":
         if self.min is not None and self.max is not None and self.min > self.max:
-            raise ValueError(f"A colormap window runs from `min` to `max`, but {self.min} > {self.max}")
+            raise ValueError(
+                f"A colormap window runs from `min` to `max`, but {self.min} > {self.max}"
+            )
         return self
 
 
@@ -79,9 +81,15 @@ class FilterByModel(BaseModel):
     def _one_rule(self) -> "FilterByModel":
         ranged = self.min is not None or self.max is not None
         if ranged and self.values is not None:
-            raise ValueError("A filter keeps a range (`min` / `max`) of a measure or a set of `values` of a category -- not both")
+            raise ValueError(
+                "A filter keeps a range (`min` / `max`) of a measure or a set of `values` of a category -- not both"
+            )
         if not ranged and self.values is None:
-            raise ValueError("A filter needs a rule: a range (`min` / `max`) for a measure, or `values` for a category")
+            raise ValueError(
+                "A filter needs a rule: a range (`min` / `max`) for a measure, or `values` for a category"
+            )
         if self.min is not None and self.max is not None and self.min > self.max:
-            raise ValueError(f"A filter range runs from `min` to `max`, but {self.min} > {self.max}")
+            raise ValueError(
+                f"A filter range runs from `min` to `max`, but {self.min} > {self.max}"
+            )
         return self

@@ -11,34 +11,39 @@ interpretation layer (``experiment.py``), which names datasets by id exactly as 
 scenes and layers do.
 """
 
-from kante.types import Info
-import strawberry
-
-from core import enums, types, models, scalars
-from core import descriptors as descriptors_logic
-from arkitekt_datalayer.datalayer import get_current_datalayer
 import json
+import logging
 
 import kante
+import strawberry
+from arkitekt_datalayer.datalayer import get_current_datalayer
 from django.db import transaction
+from kante.types import Info
 from pydantic import BaseModel, Field
+
+from core import descriptors as descriptors_logic
+from core import enums, models, scalars, types
+from core.creation import CreationContext
+from core.guards import enforce_delete
+from core.inputs.coords import (
+    AxisInput,
+    AxisInputModel,
+    DerivedFromInput,
+    DerivedFromSpec,
+)
+from core.inputs.file_link import SourceFileInput, SourceFileInputModel
+from core.logic import coordinate_system as coordinate_system_logic
+from core.logic import coords as coords_logic
+from core.logic import file_link as file_link_logic
+from core.logic import folder as folder_logic
+from core.logic import graph as graph_logic
+from core.logic import sites as sites_logic
+from core.logic import spaces as spaces_logic
+from core.mutations.delete import delete_flagging_stores
+from core.scoping import get_for_org
 from kanne_server import scalars as kanne_scalars
 from rigkit.inputs import RigStateInput
 from rigkit.models import RigStateModel
-from core.creation import CreationContext
-from core.inputs.coords import AxisInput, AxisInputModel, DerivedFromInput, DerivedFromSpec
-from core.inputs.file_link import SourceFileInput, SourceFileInputModel
-from core.logic import coordinate_system as coordinate_system_logic
-from core.logic import file_link as file_link_logic
-from core.logic import folder as folder_logic
-from core.logic import coords as coords_logic
-from core.logic import graph as graph_logic
-from core.guards import enforce_delete
-from core.logic import spaces as spaces_logic
-from core.logic import sites as sites_logic
-from core.mutations.delete import delete_flagging_stores
-from core.scoping import get_for_org
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -48,56 +53,103 @@ class AxisAnchorInputModel(BaseModel):
     value: int
 
 
-@kante.pydantic_input(AxisAnchorInputModel, description="Input type for an axis anchor, which pins one axis to one discrete position")
+@kante.pydantic_input(
+    AxisAnchorInputModel,
+    description="Input type for an axis anchor, which pins one axis to one discrete position",
+)
 class AxisAnchorInput:
-    axis: str = strawberry.field(description="The axis to anchor to, e.g. 'c', 'sweep' or 't'")
-    value: int = strawberry.field(description="The position to anchor the axis to, e.g. 0 for the first position along that axis")
+    axis: str = strawberry.field(
+        description="The axis to anchor to, e.g. 'c', 'sweep' or 't'"
+    )
+    value: int = strawberry.field(
+        description="The position to anchor the axis to, e.g. 0 for the first position along that axis"
+    )
 
 
 class AcquisitionMetadataInputModel(BaseModel):
-    metadata_string: str = Field(..., description="The acquisition metadata as a JSON string")
+    metadata_string: str = Field(
+        ..., description="The acquisition metadata as a JSON string"
+    )
 
 
-@kante.pydantic_input(AcquisitionMetadataInputModel, description="Input type for acquisition metadata: whatever the source format said (an ABF header, an NWB attribute set), kept as a JSON object. mikro's OME metadata slot")
+@kante.pydantic_input(
+    AcquisitionMetadataInputModel,
+    description="Input type for acquisition metadata: whatever the source format said (an ABF header, an NWB attribute set), kept as a JSON object. mikro's OME metadata slot",
+)
 class AcquisitionMetadataInput:
-    metadata_string: str = strawberry.field(description="The acquisition metadata as a JSON string. Must be a JSON object")
+    metadata_string: str = strawberry.field(
+        description="The acquisition metadata as a JSON string. Must be a JSON object"
+    )
 
 
 class ValueUnitInputModel(BaseModel):
     unit: str
 
 
-@kante.pydantic_input(ValueUnitInputModel, description="Input type for a value unit: what the array's VALUES measure at the anchored coordinates. Not an axis unit -- an axis says where a sample is, this says what was measured there")
+@kante.pydantic_input(
+    ValueUnitInputModel,
+    description="Input type for a value unit: what the array's VALUES measure at the anchored coordinates. Not an axis unit -- an axis says where a sample is, this says what was measured there",
+)
 class ValueUnitInput:
-    unit: kanne_scalars.Unit = strawberry.field(description="The unit of the values, e.g. 'mV', 'pA', or 'second' for a dataset whose values are sample times. 'a.u.' for arbitrary units")
+    unit: kanne_scalars.Unit = strawberry.field(
+        description="The unit of the values, e.g. 'mV', 'pA', or 'second' for a dataset whose values are sample times. 'a.u.' for arbitrary units"
+    )
 
 
 class ValueHistogramInputModel(BaseModel):
-    histogram: list[float] = Field(..., description="The histogram of the values (y values)")
-    bins: list[float] = Field(..., description="The bin indices of the histogram (x values)")
+    histogram: list[float] = Field(
+        ..., description="The histogram of the values (y values)"
+    )
+    bins: list[float] = Field(
+        ..., description="The bin indices of the histogram (x values)"
+    )
     min: float | None = Field(None, description="The minimum value of the histogram")
     max: float | None = Field(None, description="The maximum value of the histogram")
-    p1: float | None = Field(None, description="The 1st percentile value of the histogram")
-    p99: float | None = Field(None, description="The 99th percentile value of the histogram")
+    p1: float | None = Field(
+        None, description="The 1st percentile value of the histogram"
+    )
+    p99: float | None = Field(
+        None, description="The 99th percentile value of the histogram"
+    )
 
 
-@kante.pydantic_input(ValueHistogramInputModel, description="Input type for a value histogram, which specifies the histogram of the values along certain dimensions, so a client can pick a display range without reading the array")
+@kante.pydantic_input(
+    ValueHistogramInputModel,
+    description="Input type for a value histogram, which specifies the histogram of the values along certain dimensions, so a client can pick a display range without reading the array",
+)
 class ValueHistogramInput:
-    histogram: list[float] = strawberry.field(description="The histogram of the values (y values)")
-    bins: list[float] = strawberry.field(description="The bin indices of the histogram (x values)")
-    min: float | None = strawberry.field(default=None, description="The minimum value of the histogram")
-    max: float | None = strawberry.field(default=None, description="The maximum value of the histogram")
-    p1: float | None = strawberry.field(default=None, description="The 1st percentile value of the histogram")
-    p99: float | None = strawberry.field(default=None, description="The 99th percentile value of the histogram")
+    histogram: list[float] = strawberry.field(
+        description="The histogram of the values (y values)"
+    )
+    bins: list[float] = strawberry.field(
+        description="The bin indices of the histogram (x values)"
+    )
+    min: float | None = strawberry.field(
+        default=None, description="The minimum value of the histogram"
+    )
+    max: float | None = strawberry.field(
+        default=None, description="The maximum value of the histogram"
+    )
+    p1: float | None = strawberry.field(
+        default=None, description="The 1st percentile value of the histogram"
+    )
+    p99: float | None = strawberry.field(
+        default=None, description="The 99th percentile value of the histogram"
+    )
 
 
 class LabelInputModel(BaseModel):
     label: str
 
 
-@kante.pydantic_input(LabelInputModel, description="Input type for a label, which specifies a label to associate with a coordinate anchor")
+@kante.pydantic_input(
+    LabelInputModel,
+    description="Input type for a label, which specifies a label to associate with a coordinate anchor",
+)
 class LabelInput:
-    label: str = strawberry.field(description="The label to associate with the coordinate anchor: the name of the channel, sweep or unit it pins")
+    label: str = strawberry.field(
+        description="The label to associate with the coordinate anchor: the name of the channel, sweep or unit it pins"
+    )
 
 
 class SiteInputModel(BaseModel):
@@ -116,24 +168,64 @@ class StimulusSiteInputModel(SiteInputModel):
     kind: enums.StimulusKind = enums.StimulusKind.CURRENT
 
 
-@kante.pydantic_input(RecordingSiteInputModel, description="A place on a neuron model where the anchored values were RECORDED: the model it is part of, NEURON's cell, section and position along it in that model, and what was recorded. elektro's own spoke; it replaces the `Recording` row of a simulation")
+@kante.pydantic_input(
+    RecordingSiteInputModel,
+    description="A place on a neuron model where the anchored values were RECORDED: the model it is part of, NEURON's cell, section and position along it in that model, and what was recorded. elektro's own spoke; it replaces the `Recording` row of a simulation",
+)
 class RecordingSiteInput:
-    kind: enums.RecordingKind = strawberry.field(default=enums.RecordingKind.VOLTAGE, description="What was recorded: a voltage, a current, or one named ionic current")
-    model: strawberry.ID = strawberry.field(description="The neuron model this site is part of. `cell` and `location` are checked against its config")
-    cell: str | None = strawberry.field(default=None, description="The id of the cell: one of the cells the model declares")
-    location: str | None = strawberry.field(default=None, description="The id of the section: one of the sections of that cell. Without `cell`, the model's only cell")
-    position: float | None = strawberry.field(default=None, description="The normalized position along the section, 0 to 1 (NEURON's section(x))")
-    label: str | None = strawberry.field(default=None, description="A display label. Defaults to 'cell: location(position)'")
+    kind: enums.RecordingKind = strawberry.field(
+        default=enums.RecordingKind.VOLTAGE,
+        description="What was recorded: a voltage, a current, or one named ionic current",
+    )
+    model: strawberry.ID = strawberry.field(
+        description="The neuron model this site is part of. `cell` and `location` are checked against its config"
+    )
+    cell: str | None = strawberry.field(
+        default=None,
+        description="The id of the cell: one of the cells the model declares",
+    )
+    location: str | None = strawberry.field(
+        default=None,
+        description="The id of the section: one of the sections of that cell. Without `cell`, the model's only cell",
+    )
+    position: float | None = strawberry.field(
+        default=None,
+        description="The normalized position along the section, 0 to 1 (NEURON's section(x))",
+    )
+    label: str | None = strawberry.field(
+        default=None,
+        description="A display label. Defaults to 'cell: location(position)'",
+    )
 
 
-@kante.pydantic_input(StimulusSiteInputModel, description="A place on a neuron model where the anchored values were INJECTED: the model it is part of, NEURON's cell, section and position along it in that model, and what was clamped. elektro's own spoke; it replaces the `Stimulus` row of a simulation")
+@kante.pydantic_input(
+    StimulusSiteInputModel,
+    description="A place on a neuron model where the anchored values were INJECTED: the model it is part of, NEURON's cell, section and position along it in that model, and what was clamped. elektro's own spoke; it replaces the `Stimulus` row of a simulation",
+)
 class StimulusSiteInput:
-    kind: enums.StimulusKind = strawberry.field(default=enums.StimulusKind.CURRENT, description="What was clamped: current or voltage")
-    model: strawberry.ID = strawberry.field(description="The neuron model this site is part of. `cell` and `location` are checked against its config")
-    cell: str | None = strawberry.field(default=None, description="The id of the cell: one of the cells the model declares")
-    location: str | None = strawberry.field(default=None, description="The id of the section: one of the sections of that cell. Without `cell`, the model's only cell")
-    position: float | None = strawberry.field(default=None, description="The normalized position along the section, 0 to 1 (NEURON's section(x))")
-    label: str | None = strawberry.field(default=None, description="A display label. Defaults to 'cell: location(position)'")
+    kind: enums.StimulusKind = strawberry.field(
+        default=enums.StimulusKind.CURRENT,
+        description="What was clamped: current or voltage",
+    )
+    model: strawberry.ID = strawberry.field(
+        description="The neuron model this site is part of. `cell` and `location` are checked against its config"
+    )
+    cell: str | None = strawberry.field(
+        default=None,
+        description="The id of the cell: one of the cells the model declares",
+    )
+    location: str | None = strawberry.field(
+        default=None,
+        description="The id of the section: one of the sections of that cell. Without `cell`, the model's only cell",
+    )
+    position: float | None = strawberry.field(
+        default=None,
+        description="The normalized position along the section, 0 to 1 (NEURON's section(x))",
+    )
+    label: str | None = strawberry.field(
+        default=None,
+        description="A display label. Defaults to 'cell: location(position)'",
+    )
 
 
 class SimulationStateInputModel(BaseModel):
@@ -150,9 +242,16 @@ class SimulationStateInputModel(BaseModel):
     ),
 )
 class SimulationStateInput:
-    model: strawberry.ID = strawberry.field(description="The neuron model that was integrated. Every recording or stimulus site of the same dataset is part of this model")
-    duration: kanne_scalars.Duration = strawberry.field(description="How long the model was run for (NEURON's tstop)")
-    dt: kanne_scalars.Duration | None = strawberry.field(default=None, description="The integration time step (NEURON's dt). An integrator parameter, not the sampling period: a run can record more coarsely than it integrates")
+    model: strawberry.ID = strawberry.field(
+        description="The neuron model that was integrated. Every recording or stimulus site of the same dataset is part of this model"
+    )
+    duration: kanne_scalars.Duration = strawberry.field(
+        description="How long the model was run for (NEURON's tstop)"
+    )
+    dt: kanne_scalars.Duration | None = strawberry.field(
+        default=None,
+        description="The integration time step (NEURON's dt). An integrator parameter, not the sampling period: a run can record more coarsely than it integrates",
+    )
 
 
 class CoordinateAnchorInputModel(BaseModel):
@@ -167,31 +266,69 @@ class CoordinateAnchorInputModel(BaseModel):
     simulation: SimulationStateInputModel | None = None
 
 
-@kante.pydantic_input(CoordinateAnchorInputModel, description="Input type for a coordinate anchor, which specifies a list of dimension anchors to anchor to")
+@kante.pydantic_input(
+    CoordinateAnchorInputModel,
+    description="Input type for a coordinate anchor, which specifies a list of dimension anchors to anchor to",
+)
 class CoordinateAnchorInput:
-    axis_anchors: list[AxisAnchorInput] = strawberry.field(description="A list of dimension anchors to anchor to, e.g. [{'axis': 'c', 'value': 0}, {'axis': 'sweep', 'value': 5}] to anchor to the first channel of the sixth sweep. An empty list anchors to the whole dataset")
-    rig: RigStateInput | None = strawberry.field(default=None, description="Optional recorded rig state to associate with the coordinate anchor: the hardware truth -- clamp mode, holding level, series resistance, per-device settings -- at this coordinate, as composable typed input (quantities like '-70 mV' or '12 Mohm' where the setting carries a unit). An acquisition fact, recorded at ingest like the other spokes")
-    acquisition_metadata: AcquisitionMetadataInput | None = strawberry.field(default=None, description="Optional acquisition metadata to associate with the coordinate anchor: whatever the source format said, kept as it said it")
-    value_histogram: ValueHistogramInput | None = strawberry.field(default=None, description="Optional value histogram to associate with the coordinate anchor, which can provide additional context about the distribution of values along the anchored dimensions")
-    label: LabelInput | None = strawberry.field(default=None, description="Optional label to associate with the coordinate anchor -- the name of the channel at `{c: 3}`, of the sweep at `{sweep: 12}`")
-    value_unit: ValueUnitInput | None = strawberry.field(default=None, description="Optional unit of the array's values at this coordinate. Anchor it to no axis at all to state it for the whole dataset (what `ArrayDataset.valueUnit` reads); anchor it per channel when the channels measure different things")
-    recording_site: RecordingSiteInput | None = strawberry.field(default=None, description="(simulation) Where on the model the values at this coordinate were recorded. The whole dataset at `{}`, one channel at `{c: i}`. Not together with `stimulusSite`")
-    stimulus_site: StimulusSiteInput | None = strawberry.field(default=None, description="(simulation) Where on the model the values at this coordinate were injected. The whole dataset at `{}`, one channel at `{c: i}`. Not together with `recordingSite`")
-    simulation: SimulationStateInput | None = strawberry.field(default=None, description="(simulation) The model and integrator parameters that computed the values at this coordinate. Usually once, at `{}`, for the whole dataset")
+    axis_anchors: list[AxisAnchorInput] = strawberry.field(
+        description="A list of dimension anchors to anchor to, e.g. [{'axis': 'c', 'value': 0}, {'axis': 'sweep', 'value': 5}] to anchor to the first channel of the sixth sweep. An empty list anchors to the whole dataset"
+    )
+    rig: RigStateInput | None = strawberry.field(
+        default=None,
+        description="Optional recorded rig state to associate with the coordinate anchor: the hardware truth -- clamp mode, holding level, series resistance, per-device settings -- at this coordinate, as composable typed input (quantities like '-70 mV' or '12 Mohm' where the setting carries a unit). An acquisition fact, recorded at ingest like the other spokes",
+    )
+    acquisition_metadata: AcquisitionMetadataInput | None = strawberry.field(
+        default=None,
+        description="Optional acquisition metadata to associate with the coordinate anchor: whatever the source format said, kept as it said it",
+    )
+    value_histogram: ValueHistogramInput | None = strawberry.field(
+        default=None,
+        description="Optional value histogram to associate with the coordinate anchor, which can provide additional context about the distribution of values along the anchored dimensions",
+    )
+    label: LabelInput | None = strawberry.field(
+        default=None,
+        description="Optional label to associate with the coordinate anchor -- the name of the channel at `{c: 3}`, of the sweep at `{sweep: 12}`",
+    )
+    value_unit: ValueUnitInput | None = strawberry.field(
+        default=None,
+        description="Optional unit of the array's values at this coordinate. Anchor it to no axis at all to state it for the whole dataset (what `ArrayDataset.valueUnit` reads); anchor it per channel when the channels measure different things",
+    )
+    recording_site: RecordingSiteInput | None = strawberry.field(
+        default=None,
+        description="(simulation) Where on the model the values at this coordinate were recorded. The whole dataset at `{}`, one channel at `{c: i}`. Not together with `stimulusSite`",
+    )
+    stimulus_site: StimulusSiteInput | None = strawberry.field(
+        default=None,
+        description="(simulation) Where on the model the values at this coordinate were injected. The whole dataset at `{}`, one channel at `{c: i}`. Not together with `recordingSite`",
+    )
+    simulation: SimulationStateInput | None = strawberry.field(
+        default=None,
+        description="(simulation) The model and integrator parameters that computed the values at this coordinate. Usually once, at `{}`, for the whole dataset",
+    )
 
 
 class ScaleInputModel(BaseModel):
     level: int
-    array: str = Field(..., description="The array-like object to create the dataset from")
+    array: str = Field(
+        ..., description="The array-like object to create the dataset from"
+    )
     scale_method: enums.ScaleMethod | None = None
 
 
-@kante.pydantic_input(ScaleInputModel, description="Input type for one pyramid level: the array backing it, and how it was downsampled. Its scale factor is derived from its actual shape, never supplied")
+@kante.pydantic_input(
+    ScaleInputModel,
+    description="Input type for one pyramid level: the array backing it, and how it was downsampled. Its scale factor is derived from its actual shape, never supplied",
+)
 class ScaleInput:
     """Input for one pyramid level."""
 
-    level: int = strawberry.field(description="The level of the scale, where 0 is the highest resolution scale and higher levels are lower resolution scales")
-    array: scalars.ArrayLike = strawberry.field(description="The array-like object to create the dataset from")
+    level: int = strawberry.field(
+        description="The level of the scale, where 0 is the highest resolution scale and higher levels are lower resolution scales"
+    )
+    array: scalars.ArrayLike = strawberry.field(
+        description="The array-like object to create the dataset from"
+    )
     scale_method: enums.ScaleMethod | None = strawberry.field(
         default=None,
         description="How this level's voxels were computed from the level above it. Stated, never derived -- nothing about two arrays says whether one was averaged or picked out of the other. **Required, and restricted to NEAREST or MODE, when this dataset's primary derivation is declared CATEGORIZED, or when any of its axes is an INDEX axis** -- an axis that enumerates objects: over an array of object ids every other method returns numbers that were not in the input, and an invented id is an object that does not exist",
@@ -209,12 +346,19 @@ class CreateDatasetInputModel(BaseModel):
     source_files: list[SourceFileInputModel] | None = None
 
 
-@kante.pydantic_input(CreateDatasetInputModel, description="Input type for creating an array dataset. Its axes are structural (name and kind); physical units, if known, arrive afterwards through createCoordinateSystem with a registrations entry naming the dataset")
+@kante.pydantic_input(
+    CreateDatasetInputModel,
+    description="Input type for creating an array dataset. Its axes are structural (name and kind); physical units, if known, arrive afterwards through createCoordinateSystem with a registrations entry naming the dataset",
+)
 class CreateArrayDatasetInput:
     """Input for creating an array dataset."""
 
-    data: scalars.ArrayLike = strawberry.field(description="The array-like object to create the dataset from")
-    scales: list[ScaleInput] = strawberry.field(description="The lower-resolution pyramid levels. Each level's absolute scale is derived from its actual shape against level 0's -- a pyramid whose axes do not halve cleanly is described correctly, and no caller can supply a wrong factor")
+    data: scalars.ArrayLike = strawberry.field(
+        description="The array-like object to create the dataset from"
+    )
+    scales: list[ScaleInput] = strawberry.field(
+        description="The lower-resolution pyramid levels. Each level's absolute scale is derived from its actual shape against level 0's -- a pyramid whose axes do not halve cleanly is described correctly, and no caller can supply a wrong factor"
+    )
     name: str = strawberry.field(description="The name of the dataset")
     axes: list[AxisInput] = strawberry.field(
         description="The dataset's structural axes, in array order (slowest-varying first) -- they must describe the store's dimensions, and are checked against its shape. No ordering by type is required beyond that: (t, c) and (c, t) are both accepted as given. TIME for the sample axis (even when sampling is irregular), CHANNEL for channels, INDEX for sweeps, trials or spike numbers. They carry no units: the intrinsic space is the sample grid, and units belong to the clock a sampling law maps it onto"
@@ -224,7 +368,8 @@ class CreateArrayDatasetInput:
         description="The folder to file this dataset in. Organisational only -- it says nothing about where the data sits in space. Defaults to the user's default folder",
     )
     anchors: list[CoordinateAnchorInput] | None = strawberry.field(
-        default=None, description="Optional list of coordinate anchors to associate with the dataset, each pinning metadata spokes (a value unit, a channel label, the rig state, a histogram, acquisition metadata) to specific positions along certain axes"
+        default=None,
+        description="Optional list of coordinate anchors to associate with the dataset, each pinning metadata spokes (a value unit, a channel label, the rig state, a histogram, acquisition metadata) to specific positions along certain axes",
     )
     derived_from: list[DerivedFromInput] | None = strawberry.field(
         default=None,
@@ -256,16 +401,29 @@ def _parse_json_object(value: str | None, field: str) -> dict:
         parsed = json.loads(value)
     except json.JSONDecodeError as exc:
         head = value.strip()[:80]
-        hint = " It looks like XML; it must be converted to JSON before it is sent." if head.startswith("<") else ""
-        raise ValueError(f"{field} is not valid JSON ({exc}).{hint} It starts: {head!r}") from exc
+        hint = (
+            " It looks like XML; it must be converted to JSON before it is sent."
+            if head.startswith("<")
+            else ""
+        )
+        raise ValueError(
+            f"{field} is not valid JSON ({exc}).{hint} It starts: {head!r}"
+        ) from exc
 
     if not isinstance(parsed, dict):
-        raise ValueError(f"{field} must be a JSON object, not a {type(parsed).__name__}.")
+        raise ValueError(
+            f"{field} must be a JSON object, not a {type(parsed).__name__}."
+        )
 
     return parsed
 
 
-def assert_pyramid_is_label_compliant(name: str, scales: list[ScaleInputModel], axes: list[AxisInputModel], derived_from: list | None) -> None:
+def assert_pyramid_is_label_compliant(
+    name: str,
+    scales: list[ScaleInputModel],
+    axes: list[AxisInputModel],
+    derived_from: list | None,
+) -> None:
     """A pyramid over object ids may only have been built by picking, never by averaging.
 
     The guard exists because the damage is silent and permanent. Downsample a mask with an
@@ -299,7 +457,10 @@ def assert_pyramid_is_label_compliant(name: str, scales: list[ScaleInputModel], 
     That case is reported instead, on ``ArrayDataset.pyramidIsLabelCompliant``.
     """
     primary = next(iter(derived_from or []), None)
-    categorized = primary is not None and primary.value_relation == enums.ValueRelation.CATEGORIZED
+    categorized = (
+        primary is not None
+        and primary.value_relation == enums.ValueRelation.CATEGORIZED
+    )
     indexed = [axis.name for axis in axes if axis.type == enums.AxisType.INDEX]
     if not categorized and not indexed:
         return
@@ -331,7 +492,9 @@ def parse_value_unit(unit: str) -> str:
     return kanne_scalars.parse_unit(unit)
 
 
-def assert_anchors_name_axes(anchors: list, axis_names: list[str], *, what: str = "dataset") -> None:
+def assert_anchors_name_axes(
+    anchors: list, axis_names: list[str], *, what: str = "dataset"
+) -> None:
     """Refuse an anchor pinned along an axis the container does not have, or pinned twice.
 
     Elektro's addition. An anchor's ``coordinates`` are keyed by axis name and read back by
@@ -348,16 +511,27 @@ def assert_anchors_name_axes(anchors: list, axis_names: list[str], *, what: str 
     for anchor in anchors:
         coordinates = {entry.axis: entry.value for entry in anchor.axis_anchors}
         if len(coordinates) != len(anchor.axis_anchors):
-            raise ValueError(f"An anchor names an axis once, but {[entry.axis for entry in anchor.axis_anchors]} repeats one. One position per axis; a second position is a second anchor.")
+            raise ValueError(
+                f"An anchor names an axis once, but {[entry.axis for entry in anchor.axis_anchors]} repeats one. One position per axis; a second position is a second anchor."
+            )
         unknown = sorted(set(coordinates) - set(known))
         if unknown:
             if not known:
-                raise ValueError(f"This {what} has no coordinate columns, so its anchors can only be global ({{}}), but an anchor pins {unknown}.")
-            raise ValueError(f"An anchor pins the axes its {what} has, but {unknown} {'is' if len(unknown) == 1 else 'are'} not among {known}.")
+                raise ValueError(
+                    f"This {what} has no coordinate columns, so its anchors can only be global ({{}}), but an anchor pins {unknown}."
+                )
+            raise ValueError(
+                f"An anchor pins the axes its {what} has, but {unknown} {'is' if len(unknown) == 1 else 'are'} not among {known}."
+            )
         if coordinates in seen:
-            raise ValueError(f"Two anchors are pinned to the same coordinates {coordinates or '{} (the whole ' + what + ')'}. One anchor per coordinate: put every spoke for it on the one anchor.")
+            raise ValueError(
+                f"Two anchors are pinned to the same coordinates {coordinates or '{} (the whole ' + what + ')'}. One anchor per coordinate: put every spoke for it on the one anchor."
+            )
         seen.append(coordinates)
-        if getattr(anchor, "recording_site", None) is not None and getattr(anchor, "stimulus_site", None) is not None:
+        if (
+            getattr(anchor, "recording_site", None) is not None
+            and getattr(anchor, "stimulus_site", None) is not None
+        ):
             raise ValueError(
                 f"The anchor at {coordinates or '{} (the whole dataset)'} carries both a recording site and a stimulus site. One value was either recorded or injected: "
                 "a clamp's command and its measured response are two channels, each with a site of its own."
@@ -372,12 +546,29 @@ def assert_one_model_per_dataset(anchors: list) -> None:
     its integrator facts are that run's. Two answers on two anchors of one dataset would be
     rivals, not detail.
     """
-    runs = {(spoke.model, spoke.dt, spoke.duration) for anchor in anchors if (spoke := getattr(anchor, "simulation", None)) is not None}
+    runs = {
+        (spoke.model, spoke.dt, spoke.duration)
+        for anchor in anchors
+        if (spoke := getattr(anchor, "simulation", None)) is not None
+    }
     if len(runs) > 1:
-        raise ValueError(f"The anchors of one dataset state {len(runs)} different simulation states. A dataset was computed by one run: one model, one dt, one duration.")
-    named = {spoke.model for anchor in anchors for spoke in (getattr(anchor, "recording_site", None), getattr(anchor, "stimulus_site", None), getattr(anchor, "simulation", None)) if spoke is not None}
+        raise ValueError(
+            f"The anchors of one dataset state {len(runs)} different simulation states. A dataset was computed by one run: one model, one dt, one duration."
+        )
+    named = {
+        spoke.model
+        for anchor in anchors
+        for spoke in (
+            getattr(anchor, "recording_site", None),
+            getattr(anchor, "stimulus_site", None),
+            getattr(anchor, "simulation", None),
+        )
+        if spoke is not None
+    }
     if len(named) > 1:
-        raise ValueError(f"The sites and simulation state of one dataset name different neuron models ({sorted(named)}). A dataset was computed by one model, and its sites are places in that model.")
+        raise ValueError(
+            f"The sites and simulation state of one dataset name different neuron models ({sorted(named)}). A dataset was computed by one model, and its sites are places in that model."
+        )
 
 
 def assert_axes_describe_the_store(axes: list, store: "models.ZarrStore") -> None:
@@ -454,12 +645,16 @@ def create_array_dataset(
         return _create_array_dataset(info, input)
 
 
-def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models.ArrayDataset":
+def _create_array_dataset(
+    info: Info, input: CreateArrayDatasetInput
+) -> "models.ArrayDataset":
     """The body of :func:`create_array_dataset`, which mikro's is verbatim."""
     model = input.to_pydantic()
 
     # Before anything is written: a pyramid the values forbid must not leave a dataset behind.
-    assert_pyramid_is_label_compliant(model.name, model.scales, model.axes, model.derived_from)
+    assert_pyramid_is_label_compliant(
+        model.name, model.scales, model.axes, model.derived_from
+    )
     assert_anchors_name_axes(model.anchors or [], [axis.name for axis in model.axes])
 
     datalayer = get_current_datalayer()
@@ -472,7 +667,10 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
     # AssertionError rather than as prose a caller could act on.
     assert_axes_describe_the_store(model.axes, data_store)
 
-    axis_specs = [coords_logic.AxisSpec(name=axis.name, type=axis.type.value) for axis in model.axes]
+    axis_specs = [
+        coords_logic.AxisSpec(name=axis.name, type=axis.type.value)
+        for axis in model.axes
+    ]
 
     # The declared order is taken as given. It is the store's dimension order -- that is
     # what `assert_axes_describe_the_store` above has just checked it against -- and no
@@ -492,7 +690,9 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
     dataset = models.ArrayDataset.objects.create(
         name=model.name,
         coordinate_system=intrinsic,
-        folder=folder_logic.folder_for_new_container(info, ctx, model.folder, model.derived_from),
+        folder=folder_logic.folder_for_new_container(
+            info, ctx, model.folder, model.derived_from
+        ),
         creator=ctx.user,
         organization=ctx.organization,
         **ctx.provenance_kwargs(),
@@ -502,8 +702,15 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
     # back, or the mutation answers `spec: []` for the dataset it has just described.
     dataset.refresh_from_db(fields=["stored_spec"])
 
-    levels = [(0, data_store)] + [(scale.level, get_for_org(models.ZarrStore, info, id=scale.array)) for scale in model.scales]
-    scale_methods = {scale.level: scale.scale_method.value for scale in model.scales if scale.scale_method is not None}
+    levels = [(0, data_store)] + [
+        (scale.level, get_for_org(models.ZarrStore, info, id=scale.array))
+        for scale in model.scales
+    ]
+    scale_methods = {
+        scale.level: scale.scale_method.value
+        for scale in model.scales
+        if scale.scale_method is not None
+    }
 
     for level, store in levels:
         if level != 0:
@@ -555,9 +762,17 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
         )
 
     if model.derived_from:
-        coordinate_system_logic.write_derivation_edges(info, name=dataset.name, own_system=intrinsic, derived_from=model.derived_from, ctx=ctx)
+        coordinate_system_logic.write_derivation_edges(
+            info,
+            name=dataset.name,
+            own_system=intrinsic,
+            derived_from=model.derived_from,
+            ctx=ctx,
+        )
 
-    file_link_logic.write_file_links(info, container=dataset, source_files=model.source_files or [], ctx=ctx)
+    file_link_logic.write_file_links(
+        info, container=dataset, source_files=model.source_files or [], ctx=ctx
+    )
 
     for anchor in model.anchors or []:
         coordinate_anchor = _get_or_create_anchor(dataset, anchor.axis_anchors)
@@ -571,7 +786,9 @@ def _create_array_dataset(info: Info, input: CreateArrayDatasetInput) -> "models
     return dataset
 
 
-def _assert_simulation_agrees_with_derivation(info: Info, dataset: "models.ArrayDataset", derived_from: list | None) -> None:
+def _assert_simulation_agrees_with_derivation(
+    info: Info, dataset: "models.ArrayDataset", derived_from: list | None
+) -> None:
     """Refuse a dataset whose simulation spoke and NEURON_MODEL derivation name different models.
 
     The two are different facts and both are kept. The ``simulation`` spoke says *what run this
@@ -587,11 +804,19 @@ def _assert_simulation_agrees_with_derivation(info: Info, dataset: "models.Array
     the spoke was restated -- the second copy free to disagree that this schema refuses
     everywhere. Authored once, checked where both are in hand.
     """
-    named = {entry.neuron_model for entry in (derived_from or []) if entry.kind == enums.DerivationSourceKind.NEURON_MODEL}
+    named = {
+        entry.neuron_model
+        for entry in (derived_from or [])
+        if entry.kind == enums.DerivationSourceKind.NEURON_MODEL
+    }
     if not named:
         return
 
-    simulated = set(models.SimulationState.objects.filter(anchor__dataset=dataset).values_list("model_id", flat=True))
+    simulated = set(
+        models.SimulationState.objects.filter(anchor__dataset=dataset).values_list(
+            "model_id", flat=True
+        )
+    )
     if not simulated:
         return
 
@@ -609,25 +834,44 @@ _ARRAY_ONLY_SPOKES: tuple[str, ...] = ("value_unit",)
 
 
 #: Which anchor column each container kind is keyed on.
-_CONTAINER_FIELDS: dict[type, str] = {models.ArrayDataset: "dataset", models.TableDataset: "table", models.SparseDataset: "sparse"}
+_CONTAINER_FIELDS: dict[type, str] = {
+    models.ArrayDataset: "dataset",
+    models.TableDataset: "table",
+    models.SparseDataset: "sparse",
+}
 
 
-def _get_or_create_anchor(container: "models.ArrayDataset | models.TableDataset | models.SparseDataset", axis_anchors: list[AxisAnchorInputModel] | None) -> "models.CoordinateAnchor":
+def _get_or_create_anchor(
+    container: "models.ArrayDataset | models.TableDataset | models.SparseDataset",
+    axis_anchors: list[AxisAnchorInputModel] | None,
+) -> "models.CoordinateAnchor":
     """Get-or-create rather than create: two spokes at one coordinate are two spokes of *one* anchor.
 
     Keyed on the container -- an array, table or sparse dataset -- and the coordinates; the
     namespaces cannot collide because an anchor has exactly one container.
     """
-    coordinates = {axis_anchor.axis: axis_anchor.value for axis_anchor in axis_anchors or []}
+    coordinates = {
+        axis_anchor.axis: axis_anchor.value for axis_anchor in axis_anchors or []
+    }
     try:
-        field = next(field for kind, field in _CONTAINER_FIELDS.items() if isinstance(container, kind))
+        field = next(
+            field
+            for kind, field in _CONTAINER_FIELDS.items()
+            if isinstance(container, kind)
+        )
     except StopIteration:
-        raise TypeError(f"A coordinate anchor pins into an array, table or sparse dataset, not a {type(container).__name__}.") from None
-    anchor, _ = models.CoordinateAnchor.objects.get_or_create(coordinates=coordinates, **{field: container})
+        raise TypeError(
+            f"A coordinate anchor pins into an array, table or sparse dataset, not a {type(container).__name__}."
+        ) from None
+    anchor, _ = models.CoordinateAnchor.objects.get_or_create(
+        coordinates=coordinates, **{field: container}
+    )
     return anchor
 
 
-def _write_anchor_spokes(info: Info, anchor: "models.CoordinateAnchor", input: CoordinateAnchorInputModel) -> None:
+def _write_anchor_spokes(
+    info: Info, anchor: "models.CoordinateAnchor", input: CoordinateAnchorInputModel
+) -> None:
     """Write every spoke the input states onto ``anchor``, replacing one already there.
 
     The one write path for anchor metadata, whether stated at ingest (``createArrayDataset``,
@@ -639,20 +883,34 @@ def _write_anchor_spokes(info: Info, anchor: "models.CoordinateAnchor", input: C
     walks ``anchor__dataset``, and a table has no sampling law to reconcile against.
     """
     if anchor.dataset_id is None:
-        offending = [name for name in _ARRAY_ONLY_SPOKES if getattr(input, name) is not None]
+        offending = [
+            name for name in _ARRAY_ONLY_SPOKES if getattr(input, name) is not None
+        ]
         if offending:
-            raise ValueError(f"{', '.join(repr(name) for name in offending)} {'is an array-only spoke' if len(offending) == 1 else 'are array-only spokes'} and cannot be attached to a table or sparse anchor. A table's units are its columns'.")
+            raise ValueError(
+                f"{', '.join(repr(name) for name in offending)} {'is an array-only spoke' if len(offending) == 1 else 'are array-only spokes'} and cannot be attached to a table or sparse anchor. A table's units are its columns'."
+            )
 
     if input.rig:
         # The typed model's dump IS the stored JSON, so the column never grows a shape
         # the types cannot express.
-        models.RigState.objects.update_or_create(anchor=anchor, defaults={"state": input.rig.model_dump(mode="json")})
+        models.RigState.objects.update_or_create(
+            anchor=anchor, defaults={"state": input.rig.model_dump(mode="json")}
+        )
 
     if input.acquisition_metadata:
-        logger.debug("Creating acquisition metadata for coordinate anchor with coordinates %s", anchor.coordinates)
+        logger.debug(
+            "Creating acquisition metadata for coordinate anchor with coordinates %s",
+            anchor.coordinates,
+        )
         models.AcquisitionMetadata.objects.update_or_create(
             anchor=anchor,
-            defaults={"metadata": _parse_json_object(input.acquisition_metadata.metadata_string, "anchor.acquisitionMetadata.metadataString")},
+            defaults={
+                "metadata": _parse_json_object(
+                    input.acquisition_metadata.metadata_string,
+                    "anchor.acquisitionMetadata.metadataString",
+                )
+            },
         )
 
     if input.value_histogram:
@@ -669,22 +927,32 @@ def _write_anchor_spokes(info: Info, anchor: "models.CoordinateAnchor", input: C
         )
 
     if input.label:
-        models.ChannelLabel.objects.update_or_create(anchor=anchor, defaults={"label": input.label.label})
+        models.ChannelLabel.objects.update_or_create(
+            anchor=anchor, defaults={"label": input.label.label}
+        )
 
     if input.value_unit:
-        models.ValueUnit.objects.update_or_create(anchor=anchor, defaults={"unit": parse_value_unit(input.value_unit.unit)})
+        models.ValueUnit.objects.update_or_create(
+            anchor=anchor, defaults={"unit": parse_value_unit(input.value_unit.unit)}
+        )
 
     if input.recording_site:
-        models.RecordingSite.objects.update_or_create(anchor=anchor, defaults=_site_fields(info, input.recording_site))
+        models.RecordingSite.objects.update_or_create(
+            anchor=anchor, defaults=_site_fields(info, input.recording_site)
+        )
 
     if input.stimulus_site:
-        models.StimulusSite.objects.update_or_create(anchor=anchor, defaults=_site_fields(info, input.stimulus_site))
+        models.StimulusSite.objects.update_or_create(
+            anchor=anchor, defaults=_site_fields(info, input.stimulus_site)
+        )
 
     if input.simulation:
         models.SimulationState.objects.update_or_create(
             anchor=anchor,
             defaults={
-                "model": get_for_org(models.NeuronModel, info, id=input.simulation.model),
+                "model": get_for_org(
+                    models.NeuronModel, info, id=input.simulation.model
+                ),
                 "duration": input.simulation.duration,
                 "dt": input.simulation.dt,
             },
@@ -714,10 +982,14 @@ class UpdateArrayDatasetInput:
 
     id: strawberry.ID = strawberry.field(description="The ID of the dataset to update")
     name: str | None = strawberry.field(default=None, description="A new name")
-    description: str | None = strawberry.field(default=None, description="A new description")
+    description: str | None = strawberry.field(
+        default=None, description="A new description"
+    )
 
 
-def update_array_dataset(info: Info, input: UpdateArrayDatasetInput) -> types.ArrayDataset:
+def update_array_dataset(
+    info: Info, input: UpdateArrayDatasetInput
+) -> types.ArrayDataset:
     """Rename a dataset, or redescribe it. Those two fields are the whole of what is editable.
 
     Deliberately not here: the arrays, the axes, and the coordinate systems derived from them.
@@ -746,22 +1018,31 @@ class DeleteArrayDatasetInputModel(BaseModel):
     id: str = Field(description="The ID of the array dataset to delete")
 
 
-@kante.pydantic_input(DeleteArrayDatasetInputModel, description="Input for deleting an array dataset by ID")
+@kante.pydantic_input(
+    DeleteArrayDatasetInputModel,
+    description="Input for deleting an array dataset by ID",
+)
 class DeleteArrayDatasetInput:
     """Input for deleting an array dataset by ID"""
 
-    id: strawberry.ID = strawberry.field(description="The ID of the array dataset to delete")
+    id: strawberry.ID = strawberry.field(
+        description="The ID of the array dataset to delete"
+    )
 
 
 class DeleteDataArrayInputModel(BaseModel):
     id: str = Field(description="The ID of the data array to delete")
 
 
-@kante.pydantic_input(DeleteDataArrayInputModel, description="Input for deleting a data array by ID")
+@kante.pydantic_input(
+    DeleteDataArrayInputModel, description="Input for deleting a data array by ID"
+)
 class DeleteDataArrayInput:
     """Input for deleting a data array by ID"""
 
-    id: strawberry.ID = strawberry.field(description="The ID of the data array to delete")
+    id: strawberry.ID = strawberry.field(
+        description="The ID of the data array to delete"
+    )
 
 
 def delete_array_dataset(info: Info, input: DeleteArrayDatasetInput) -> strawberry.ID:
@@ -790,7 +1071,9 @@ def delete_array_dataset(info: Info, input: DeleteArrayDatasetInput) -> strawber
 def _refuse_level_zero(array: "models.DataArray") -> None:
     """Level 0 is the dataset: its shape, its lenses and its grid are all read off it."""
     if array.level == 0:
-        raise ValueError(f"Data array {array.pk} is level 0 of dataset '{array.dataset.name}': it *is* the dataset's data, and its shape is what every lens and level is measured against. Delete the dataset instead.")
+        raise ValueError(
+            f"Data array {array.pk} is level 0 of dataset '{array.dataset.name}': it *is* the dataset's data, and its shape is what every lens and level is measured against. Delete the dataset instead."
+        )
 
 
 def delete_data_array(info: Info, input: DeleteDataArrayInput) -> strawberry.ID:

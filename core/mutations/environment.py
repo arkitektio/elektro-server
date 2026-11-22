@@ -1,16 +1,14 @@
-from kante.types import Info
+import kante
 import strawberry
-
-from core import types, models, scalars
+from arkitekt_datalayer import models as datalayer_models
 from arkitekt_datalayer.datalayer import get_current_datalayer
 from arkitekt_datalayer.scalars import BigFileLike
-import json
-from django.conf import settings
-from core.parameters import ParameterInput, ParameterInputModel
-from core.guards import enforce_delete
-from arkitekt_datalayer import models as datalayer_models
-import kante
+from kante.types import Info
 from pydantic import BaseModel
+
+from core import models, types
+from core.guards import enforce_delete
+from core.parameters import ParameterInput, ParameterInputModel
 from core.scoping import get_for_org
 
 
@@ -41,7 +39,10 @@ def delete_file(
     input: DeleteFileInput,
 ) -> strawberry.ID:
     parsed = input.to_pydantic()
-    view = get_for_org(models.File, info, id=parsed.id,
+    view = get_for_org(
+        models.File,
+        info,
+        id=parsed.id,
     )
     view.delete()
     return parsed.id
@@ -85,7 +86,9 @@ class ModEnvironmentInputModel(BaseModel):
     mechanisms: list[MechanismInputModel]
 
 
-@kante.pydantic_input(ModEnvironmentInputModel, description="Input for creating a mod environment")
+@kante.pydantic_input(
+    ModEnvironmentInputModel, description="Input for creating a mod environment"
+)
 class CreateModEnvironmentInput:
     name: str
     description: str | None = None

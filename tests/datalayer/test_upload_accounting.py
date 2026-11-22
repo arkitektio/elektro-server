@@ -18,12 +18,12 @@ can vouch for.
 
 import uuid
 
+import arkitekt_datalayer.datalayer as datalayer_module
 import pytest
+from arkitekt_datalayer.models import BigFileStore, ZarrStore
 from asgiref.sync import sync_to_async
 
-import arkitekt_datalayer.datalayer as datalayer_module
 from core import models
-from arkitekt_datalayer.models import BigFileStore, ZarrStore
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -45,29 +45,50 @@ def put_chunks(s3_client, key: str, sizes: list[int]) -> int:
 def prefix_bytes(s3_client, key: str) -> int:
     """The true size of everything under a store's prefix, read independently of the code under test."""
     total = 0
-    for page in s3_client.get_paginator("list_objects_v2").paginate(Bucket="zarr", Prefix=f"{key}/"):
+    for page in s3_client.get_paginator("list_objects_v2").paginate(
+        Bucket="zarr", Prefix=f"{key}/"
+    ):
         total += sum(item["Size"] for item in page.get("Contents", []))
     return total
 
 
-async def test_a_dataset_made_the_ordinary_way_records_every_levels_size(create_array_dataset, zarr_store, s3_client, aexecute):
+async def test_a_dataset_made_the_ordinary_way_records_every_levels_size(
+    create_array_dataset, zarr_store, s3_client, aexecute
+):
     """The path that carries the traffic, and the one that used to record nothing.
 
     Each pyramid level is its own zarr store, so each is measured on its own -- there is no
     single object whose ``ContentLength`` answers for a level, let alone for the dataset.
     """
-    dataset = await create_array_dataset("Measured", [1000], axes=T, levels=[([500], "AREA")])
+    dataset = await create_array_dataset(
+        "Measured", [1000], axes=T, levels=[([500], "AREA")]
+    )
 
-    keys = [key async for key in models.DataArray.objects.filter(dataset_id=dataset["id"]).order_by("level").values_list("store__key", flat=True)]
-    assert len(keys) == 2 and all(keys), "every level must really have a store, or this test asserts nothing"
+    keys = [
+        key
+        async for key in models.DataArray.objects.filter(dataset_id=dataset["id"])
+        .order_by("level")
+        .values_list("store__key", flat=True)
+    ]
+    assert len(keys) == 2 and all(keys), (
+        "every level must really have a store, or this test asserts nothing"
+    )
 
-    async for array in models.DataArray.objects.filter(dataset_id=dataset["id"]).select_related("store"):
+    async for array in models.DataArray.objects.filter(
+        dataset_id=dataset["id"]
+    ).select_related("store"):
         expected = await sync(prefix_bytes)(s3_client, array.store.key)
-        assert expected > 0, "the fixture seeds a real zarr.json, so the prefix is not empty"
-        assert array.store.size_bytes == expected, f"level {array.level} did not record its size"
+        assert expected > 0, (
+            "the fixture seeds a real zarr.json, so the prefix is not empty"
+        )
+        assert array.store.size_bytes == expected, (
+            f"level {array.level} did not record its size"
+        )
 
 
-async def test_a_size_is_the_sum_over_the_prefix_not_the_object_at_it(zarr_store, s3_client):
+async def test_a_size_is_the_sum_over_the_prefix_not_the_object_at_it(
+    zarr_store, s3_client
+):
     """A zarr's key names a directory. ``head_object`` on it answers for nothing.
 
     The same confusion that made ``DeleteObject`` on a prefix delete nothing, which is why
@@ -125,7 +146,9 @@ async def test_a_file_reports_the_size_its_store_measured(aexecute, bigfile_stor
     assert file["store"]["sizeBytes"] == len(body)
 
 
-async def test_a_finalization_survives_a_measurement_it_cannot_take(zarr_store, monkeypatch):
+async def test_a_finalization_survives_a_measurement_it_cannot_take(
+    zarr_store, monkeypatch
+):
     """Accounting must never cost an upload.
 
     The bytes are written and the manifest is parsed by the time this runs, so a listing that
@@ -146,7 +169,9 @@ async def test_a_finalization_survives_a_measurement_it_cannot_take(zarr_store, 
     assert store.size_bytes is None
 
 
-async def test_a_failed_measurement_does_not_erase_a_recorded_size(zarr_store, s3_client, monkeypatch):
+async def test_a_failed_measurement_does_not_erase_a_recorded_size(
+    zarr_store, s3_client, monkeypatch
+):
     """A re-``fill_info`` that cannot measure must leave the last good number alone.
 
     Null means "not measured". Overwriting a real size with it would turn a transient listing

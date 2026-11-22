@@ -27,26 +27,22 @@ are registered in :data:`transformation_types` and threaded into the schema's
 """
 
 import datetime
-from typing import TYPE_CHECKING, Annotated, List, Union
-
-from django.db.models import Prefetch
-
-import strawberry
-from strawberry import auto
+from typing import TYPE_CHECKING, Annotated, Union
 
 import kante
-from kante.types import Info
-
+import strawberry
 from authentikate.strawberry.types import User
-from kanne_server import scalars as kanne_scalars
+from django.db.models import Prefetch
+from kante.types import Info
 from koherent.strawberry.types import ProvenanceEntry
+from strawberry import auto
 
 from core import enums, filters, models, order
 from core.inputs.coords import BoundingBoxInput, CoordinateInput, at_map
 from core.logic import graph as graph_logic
 from core.logic import space_graph
 from core.types._shared import OrgScoped, OrgScopedOrNested
-
+from kanne_server import scalars as kanne_scalars
 
 if TYPE_CHECKING:
     # Only for the lazy annotations below: `core.types` imports this module, so importing
@@ -98,7 +94,10 @@ Resident = Annotated[
         # import of this one, so by the time strawberry resolves this the package is complete.
         Annotated["NeuronModel", strawberry.lazy("core.types")],
     ],
-    strawberry.union("Resident", description="A piece of data living in a coordinate system. Data belongs to a space; the space belongs to nobody"),
+    strawberry.union(
+        "Resident",
+        description="A piece of data living in a coordinate system. Data belongs to a space; the space belongs to nobody",
+    ),
 ]
 
 
@@ -122,11 +121,15 @@ def _placeable_ids(info: Info, system, *, require_affine: bool = True) -> set[in
     """
     loaders = getattr(info.context, "_loaders", None)
     if loaders is None:
-        return graph_logic.placeable_system_ids_in(system, require_affine=require_affine)
+        return graph_logic.placeable_system_ids_in(
+            system, require_affine=require_affine
+        )
     by_system = loaders.setdefault(_PLACEABLE_KEY, {})
     key = (system.pk, require_affine)
     if key not in by_system:
-        by_system[key] = graph_logic.placeable_system_ids_in(system, require_affine=require_affine)
+        by_system[key] = graph_logic.placeable_system_ids_in(
+            system, require_affine=require_affine
+        )
     return by_system[key]
 
 
@@ -142,11 +145,15 @@ class CoordinateSystem(OrgScoped):
 
     id: auto
     name: auto
-    axes: List[Axis] = kante.django_field(description="The system's axes, in the order the data has them: for a system backed by an array, its store's dimension order; for a table, its coordinate columns as declared. No ordering by type is imposed on either. What matters downstream is that the *spatial* axes are in array order, which is what the render axes are derived from")
+    axes: list[Axis] = kante.django_field(
+        description="The system's axes, in the order the data has them: for a system backed by an array, its store's dimension order; for a table, its coordinate columns as declared. No ordering by type is imposed on either. What matters downstream is that the *spatial* axes are in array order, which is what the render axes are derived from"
+    )
     epoch: datetime.datetime | None = kante.django_field(
         description="The wall-clock instant this system's time axis has its origin at: `wall_clock = epoch + t * unit`. A property of the space, not of any composition over it. Meaningful only for a unit-carrying system with a TIME axis (a shared world space); null when the clock is unanchored -- the time axis is still a perfectly composable relative coordinate"
     )
-    provenance_entries: List[ProvenanceEntry] = kante.django_field(description="Provenance entries for this coordinate system: who created it, and every subsequent change")
+    provenance_entries: list[ProvenanceEntry] = kante.django_field(
+        description="Provenance entries for this coordinate system: who created it, and every subsequent change"
+    )
     created_at: datetime.datetime
     # Nullable: the creator FK is SET_NULL, so a system outlives the user who made it.
     creator: User | None
@@ -163,9 +170,13 @@ class CoordinateSystem(OrgScoped):
             "one stage can be registered into one stage frame"
         ),
     )
-    def residents(self, info: Info) -> List[Resident]:
+    def residents(self, info: Info) -> list[Resident]:
         """Everything whose `coordinateSystem` is this one, outermost container first."""
-        return [resident for relation in graph_logic.RESIDENT_RELATIONS for resident in getattr(self, relation).all()]
+        return [
+            resident
+            for relation in graph_logic.RESIDENT_RELATIONS
+            for resident in getattr(self, relation).all()
+        ]
 
     # This used to hang off `Scene`, where its own description conceded it was a property of
     # the space rather than of the scene. Unprefetchable: `Transformation.input`/`output` are
@@ -180,9 +191,13 @@ class CoordinateSystem(OrgScoped):
             "inverse, so no path walks it backwards); it is a dereference, and `attributePlans` is what reads it"
         ),
     )
-    def registrations(self, info: Info) -> List["Transformation"]:
+    def registrations(self, info: Info) -> list["Transformation"]:
         """The top-level edges into this space."""
-        return list(models.Transformation.objects.filter(parent__isnull=True, output=self.pk).order_by("pk"))
+        return list(
+            models.Transformation.objects.filter(
+                parent__isnull=True, output=self.pk
+            ).order_by("pk")
+        )
 
     # `Scene.coordinateSystems` used to answer this, from a closure the scene built over its
     # world's edges alone -- which under-reported (a placed dataset's physical space, its
@@ -197,11 +212,17 @@ class CoordinateSystem(OrgScoped):
             "is in the clock's session though no matrix draws it"
         ),
     )
-    def placed_systems(self, info: Info, require_affine: bool = True) -> List["CoordinateSystem"]:
+    def placed_systems(
+        self, info: Info, require_affine: bool = True
+    ) -> list["CoordinateSystem"]:
         """The spaces with an affinely composable path into this one; see `graph_logic.placeable_system_ids_in`."""
         # The residents come along: a plain list is opaque to the optimizer, so a client
         # selecting `residents` would otherwise pay six reverse queries per space.
-        return list(models.CoordinateSystem.objects.filter(pk__in=_placeable_ids(info, self, require_affine=require_affine)).prefetch_related(*graph_logic.RESIDENT_RELATIONS))
+        return list(
+            models.CoordinateSystem.objects.filter(
+                pk__in=_placeable_ids(info, self, require_affine=require_affine)
+            ).prefetch_related(*graph_logic.RESIDENT_RELATIONS)
+        )
 
     @kante.django_field(
         description=(
@@ -210,7 +231,9 @@ class CoordinateSystem(OrgScoped):
             "collection, and outlives every experiment composing over this space"
         ),
     )
-    def annotations(self, info: Info) -> List[Annotated["Annotation", strawberry.lazy("core.types.annotation")]]:
+    def annotations(
+        self, info: Info
+    ) -> list[Annotated["Annotation", strawberry.lazy("core.types.annotation")]]:
         """The annotations whose collection's system can reach this space."""
         from django.db.models import Q
 
@@ -219,12 +242,20 @@ class CoordinateSystem(OrgScoped):
         # also counts when any of its (non-UNMAPPABLE) edges lands in a placeable space.
         placeable = _placeable_ids(info, self)
         anchored = (
-            models.Transformation.objects.filter(parent__isnull=True, input__annotation_collections__isnull=False, output__in=placeable)
+            models.Transformation.objects.filter(
+                parent__isnull=True,
+                input__annotation_collections__isnull=False,
+                output__in=placeable,
+            )
             .exclude(kind=enums.TransformKind.UNMAPPABLE.value)
             .values_list("input_id", flat=True)
         )
         return list(
-            models.Annotation.objects.filter(Q(collection__coordinate_system__in=placeable) | Q(collection__coordinate_system__in=anchored), collection__organization=info.context.request.organization)
+            models.Annotation.objects.filter(
+                Q(collection__coordinate_system__in=placeable)
+                | Q(collection__coordinate_system__in=anchored),
+                collection__organization=info.context.request.organization,
+            )
             .select_related("collection__coordinate_system")
             .distinct()
         )
@@ -244,26 +275,50 @@ class CoordinateSystem(OrgScoped):
             "scope; selecting those needs the region pulled back into their frame, and this server composes forward only"
         ),
     )
-    def in_view(self, info: Info, region: BoundingBoxInput, at: List[CoordinateInput] | None = None) -> List["SourcePlacement"]:
+    def in_view(
+        self,
+        info: Info,
+        region: BoundingBoxInput,
+        at: list[CoordinateInput] | None = None,
+    ) -> list["SourcePlacement"]:
         """The sources whose extent meets a region asked in this system; see `core.logic.space_graph`."""
         graph = space_graph.for_request(info, self)
         keyed = space_graph.region_from_bounds(self, region.min, region.max)
         # Anchors are thousands of rows on a long recording, so they are resolved only when
         # the selection set actually names them.
-        wants_anchors = any(field.name == "anchors" for selection in info.selected_fields for field in selection.selections if hasattr(field, "name"))
+        wants_anchors = any(
+            field.name == "anchors"
+            for selection in info.selected_fields
+            for field in selection.selections
+            if hasattr(field, "name")
+        )
 
         placements = []
         for hit in graph.in_view(keyed, with_anchors=wants_anchors, at=at_map(at)):
-            path = [PlacementStep(transformation=edge, inverted=inverted) for edge, inverted in hit.path]
-            extent = [AxisExtent(axis=axis, min=bounds[0], max=bounds[1]) for axis, bounds in (hit.extent or {}).items()]
+            path = [
+                PlacementStep(transformation=edge, inverted=inverted)
+                for edge, inverted in hit.path
+            ]
+            extent = [
+                AxisExtent(axis=axis, min=bounds[0], max=bounds[1])
+                for axis, bounds in (hit.extent or {}).items()
+            ]
             placements.append(
                 SourcePlacement(
                     source=hit.source.container,
                     system=hit.source.system,
                     extent=extent,
                     extent_state=enums.ExtentState(hit.extent_state),
-                    invariance=enums.TransformInvariance(graph_logic.weakest_invariance(graph_logic.invariance_of(edge) for edge, _ in hit.path)),
-                    validity=enums.PlacementValidity(graph_logic.weakest_validity(edge.validity for edge, _ in hit.path)),
+                    invariance=enums.TransformInvariance(
+                        graph_logic.weakest_invariance(
+                            graph_logic.invariance_of(edge) for edge, _ in hit.path
+                        )
+                    ),
+                    validity=enums.PlacementValidity(
+                        graph_logic.weakest_validity(
+                            edge.validity for edge, _ in hit.path
+                        )
+                    ),
                     path=path,
                     anchors=hit.anchors,
                 )
@@ -294,13 +349,18 @@ class CoordinateSystem(OrgScoped):
 class Selector:
     """One axis name and one discrete index on it."""
 
-    axis: str = strawberry.field(description="The axis of the input system this edge is scoped to")
-    index: int = strawberry.field(description="The position along that axis at which this map holds")
-
+    axis: str = strawberry.field(
+        description="The axis of the input system this edge is scoped to"
+    )
+    index: int = strawberry.field(
+        description="The position along that axis at which this map holds"
+    )
 
 
 def _endpoint_with_axes(side: str):  # noqa: ANN202 - a strawberry_django PrefetchCallable
-    return lambda info: Prefetch(side, queryset=models.CoordinateSystem.objects.prefetch_related("axes"))
+    return lambda info: Prefetch(
+        side, queryset=models.CoordinateSystem.objects.prefetch_related("axes")
+    )
 
 
 #: The endpoints' axes, which `inputAxes`/`outputAxes` are read from. The endpoints are
@@ -310,7 +370,12 @@ def _endpoint_with_axes(side: str):  # noqa: ANN202 - a strawberry_django Prefet
 #: seen with a different queryset"). Two `Prefetch`es on one path the optimizer merges,
 #: keeping its own filter. Callables, because a merge mutates the `Prefetch` it is given.
 #: `parent` is never selected, so its paths can stay strings.
-EDGE_AXIS_HINTS = [_endpoint_with_axes("input"), _endpoint_with_axes("output"), "parent__input__axes", "parent__output__axes"]
+EDGE_AXIS_HINTS = [
+    _endpoint_with_axes("input"),
+    _endpoint_with_axes("output"),
+    "parent__input__axes",
+    "parent__output__axes",
+]
 
 
 @kante.django_interface(
@@ -348,15 +413,16 @@ class Transformation(OrgScopedOrNested):
         # `getattr`, because the annotation above declares the *GraphQL* field's type while
         # `self` here is the Django row, where the same name is the history manager. Reading
         # it through the manager is what lets the prefetch hint above serve this.
-        return len(getattr(self, "provenance_entries").all())
+        return len(self.provenance_entries.all())
 
     validity: enums.PlacementValidity = kante.django_field(
         description="How much this map is actually known: VALIDATED for a map the server derived (or one someone checked), INFERRED for numbers read from metadata, MANUAL for an authored registration, UNKNOWN for one its author marked as a guess. A layer's validity is the weakest edge on its path to world"
     )
+
     @kante.field(
         description=(
             "Where along one axis this edge applies, or null for an edge that holds everywhere -- which is almost every edge. "
-            "A per-channel correction is scoped to {axis: \"c\", index: 2}; several such edges over one axis are one piecewise map. "
+            'A per-channel correction is scoped to {axis: "c", index: 2}; several such edges over one axis are one piecewise map. '
             "A path query crosses a scoped edge only when it fixes that coordinate with `at`"
         )
     )
@@ -372,7 +438,9 @@ class Transformation(OrgScopedOrNested):
     # (`updateTransformation`), which makes this the *only* place the previous states of a
     # placement exist. It is also what `CoordinateSystem.transformVersion` counts, so the
     # audit trail and the staleness token are one record rather than two that can disagree.
-    provenance_entries: List[ProvenanceEntry] = kante.django_field(description="Provenance entries for this edge: who authored it, and every refinement since. A refinement rewrites the edge in place, so this audit trail is where the placement's earlier states live -- and counting these rows along a chain is what `CoordinateSystem.transformVersion` reports")
+    provenance_entries: list[ProvenanceEntry] = kante.django_field(
+        description="Provenance entries for this edge: who authored it, and every refinement since. A refinement rewrites the edge in place, so this audit trail is where the placement's earlier states live -- and counting these rows along a chain is what `CoordinateSystem.transformVersion` reports"
+    )
     created_at: datetime.datetime
     creator: User | None
 
@@ -386,7 +454,7 @@ class Transformation(OrgScopedOrNested):
         prefetch_related=EDGE_AXIS_HINTS,
         description="The names of the input axes this edge's parameters are ordered by. `scale`, `translation` and the columns of `affine` follow this order -- which is the input system's axis order, NOT the reading layer's axis names, and the two differ often enough that indexing the arrays against them silently misplaces them. A BY_DIMENSION edge names only the subset of axes it acts on; the axes it does not name are the ones it leaves untouched",
     )
-    def input_axes(self, info: Info) -> List[str]:
+    def input_axes(self, info: Info) -> list[str]:
         """The axis order this edge's parameters are written in, on the input side."""
         return graph_logic.edge_axis_names(self, "input")
 
@@ -394,7 +462,7 @@ class Transformation(OrgScopedOrNested):
         prefetch_related=EDGE_AXIS_HINTS,
         description="The names of the output axes this edge produces. For a rank-changing BY_DIMENSION edge (placing a (c,y,x) dataset into a (t,z,y,x) world) this is the subset it maps onto; the world's other axes are untouched",
     )
-    def output_axes(self, info: Info) -> List[str]:
+    def output_axes(self, info: Info) -> list[str]:
         """The axis order this edge's parameters are written in, on the output side."""
         return graph_logic.edge_axis_names(self, "output")
 
@@ -417,7 +485,12 @@ class Transformation(OrgScopedOrNested):
         return enums.TransformInvariance(graph_logic.invariance_of(self))
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="The identity map: input and output coordinates are the same")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="The identity map: input and output coordinates are the same",
+)
 class IdentityTransformation(Transformation):
     """The identity map: input and output coordinates are the same."""
 
@@ -429,7 +502,12 @@ class IdentityTransformation(Transformation):
         return obj.kind == enums.TransformKind.IDENTITY.value
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="A per-axis multiplication, with one entry per input axis")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="A per-axis multiplication, with one entry per input axis",
+)
 class ScaleTransformation(Transformation):
     """A per-axis multiplication, with one entry per input axis."""
 
@@ -443,12 +521,17 @@ class ScaleTransformation(Transformation):
     @kante.django_field(
         description="The per-axis scale factors, in the axis order of the input system, expressed in the units of the output system's axes (dimensionless between pixel systems, e.g. within a pyramid). Absolute, not relative to another level"
     )
-    def scale(self, info: Info) -> List[float]:
+    def scale(self, info: Info) -> list[float]:
         """The per-axis scale factors."""
         return self.params.get("scale", [])
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="A per-axis offset, with one entry per input axis")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="A per-axis offset, with one entry per input axis",
+)
 class TranslationTransformation(Transformation):
     """A per-axis offset, with one entry per input axis."""
 
@@ -459,13 +542,20 @@ class TranslationTransformation(Transformation):
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.TRANSLATION.value
 
-    @kante.django_field(description="The per-axis offsets, in the axis order of the input system")
-    def translation(self, info: Info) -> List[float]:
+    @kante.django_field(
+        description="The per-axis offsets, in the axis order of the input system"
+    )
+    def translation(self, info: Info) -> list[float]:
         """The per-axis offsets."""
         return self.params.get("translation", [])
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="A general affine map, given as an M x (N+1) matrix with rows outermost")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="A general affine map, given as an M x (N+1) matrix with rows outermost",
+)
 class AffineTransformation(Transformation):
     """A general affine map, given as an M x (N+1) matrix with rows outermost."""
 
@@ -476,13 +566,20 @@ class AffineTransformation(Transformation):
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.AFFINE.value
 
-    @kante.django_field(description="The affine matrix, M x (N+1), rows outermost. The last column is the translation")
-    def affine(self, info: Info) -> List[List[float]]:
+    @kante.django_field(
+        description="The affine matrix, M x (N+1), rows outermost. The last column is the translation"
+    )
+    def affine(self, info: Info) -> list[list[float]]:
         """The affine matrix."""
         return self.params.get("affine", [])
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="A rotation, given as an orthonormal matrix")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="A rotation, given as an orthonormal matrix",
+)
 class RotationTransformation(Transformation):
     """A rotation, given as an orthonormal matrix."""
 
@@ -494,12 +591,17 @@ class RotationTransformation(Transformation):
         return obj.kind == enums.TransformKind.ROTATION.value
 
     @kante.django_field(description="The rotation matrix")
-    def affine(self, info: Info) -> List[List[float]]:
+    def affine(self, info: Info) -> list[list[float]]:
         """The rotation matrix."""
         return self.params.get("affine", [])
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="A permutation of axes, mapping each input axis to an output axis by name")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="A permutation of axes, mapping each input axis to an output axis by name",
+)
 class MapAxisTransformation(Transformation):
     """A permutation of axes, mapping each input axis to an output axis by name."""
 
@@ -510,18 +612,27 @@ class MapAxisTransformation(Transformation):
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.MAP_AXIS.value
 
-    @kante.django_field(description="The names of the input axes, positionally matched to `outputAxes`")
-    def input_axes(self, info: Info) -> List[str]:
+    @kante.django_field(
+        description="The names of the input axes, positionally matched to `outputAxes`"
+    )
+    def input_axes(self, info: Info) -> list[str]:
         """The input axis names."""
         return self.input_axes or []
 
-    @kante.django_field(description="The names of the output axes, positionally matched to `inputAxes`")
-    def output_axes(self, info: Info) -> List[str]:
+    @kante.django_field(
+        description="The names of the output axes, positionally matched to `inputAxes`"
+    )
+    def output_axes(self, info: Info) -> list[str]:
         """The output axis names."""
         return self.output_axes or []
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="An ordered composition of child transformations, applied first to last")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="An ordered composition of child transformations, applied first to last",
+)
 class SequenceTransformation(Transformation):
     """An ordered composition of child transformations, applied first to last."""
 
@@ -532,13 +643,18 @@ class SequenceTransformation(Transformation):
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.SEQUENCE.value
 
-    transformations: List[Transformation] = kante.django_field(
+    transformations: list[Transformation] = kante.django_field(
         field_name="children",
         description="The child transformations, applied first to last. They omit their own input and output: the sequence supplies them",
     )
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="A composition of child transformations, each acting on a named subset of the axes")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="A composition of child transformations, each acting on a named subset of the axes",
+)
 class ByDimensionTransformation(Transformation):
     """A composition of child transformations, each acting on a named subset of the axes."""
 
@@ -549,13 +665,18 @@ class ByDimensionTransformation(Transformation):
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.BY_DIMENSION.value
 
-    transformations: List[Transformation] = kante.django_field(
+    transformations: list[Transformation] = kante.django_field(
         field_name="children",
         description="The child transformations. Each carries the `inputAxes` and `outputAxes` it acts on",
     )
 
 
-@kante.django_type(models.Transformation, filters=filters.TransformationFilter, pagination=True, description="A non-affine map given by the values of an array rather than by a formula. The array is a `field`: a node of this graph, not a payload on this edge, so it keeps its own lineage and its axes say what its numbers mean. It has no closed-form inverse, so a placement path never walks it backwards")
+@kante.django_type(
+    models.Transformation,
+    filters=filters.TransformationFilter,
+    pagination=True,
+    description="A non-affine map given by the values of an array rather than by a formula. The array is a `field`: a node of this graph, not a payload on this edge, so it keeps its own lineage and its axes say what its numbers mean. It has no closed-form inverse, so a placement path never walks it backwards",
+)
 class FieldTransformation(Transformation):
     """A non-affine map given by the values of an array, which is itself a node of the graph."""
 
@@ -598,7 +719,9 @@ class UnmappableTransformation(Transformation):
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.UNMAPPABLE.value
 
-    @kante.django_field(description="Why the geometry does not survive, if the author said. Purely descriptive: the kind is what the graph acts on, and an absent reason does not make the edge any less of a statement")
+    @kante.django_field(
+        description="Why the geometry does not survive, if the author said. Purely descriptive: the kind is what the graph acts on, and an absent reason does not make the edge any less of a statement"
+    )
     def reason(self, info: Info) -> str | None:
         """Why nothing corresponds."""
         return self.params.get("reason")
@@ -610,8 +733,12 @@ class UnmappableTransformation(Transformation):
 class PlacementStep:
     """One step of a placement path: an edge, and the direction it is walked in."""
 
-    transformation: Transformation = strawberry.field(description="The transformation edge this step walks along")
-    inverted: bool = strawberry.field(description="True when the edge is traversed output-to-input, so its map must be inverted before composing. Only ever set on a step that has an inverse -- a rank-changing edge and a warp field are never offered backwards")
+    transformation: Transformation = strawberry.field(
+        description="The transformation edge this step walks along"
+    )
+    inverted: bool = strawberry.field(
+        description="True when the edge is traversed output-to-input, so its map must be inverted before composing. Only ever set on a step that has an inverse -- a rank-changing edge and a warp field are never offered backwards"
+    )
 
 
 @kante.type(
@@ -625,30 +752,44 @@ class PlacementStep:
 class AffinePlacement:
     """One placement path condensed into a single affine map, over named axes."""
 
-    matrix: List[List[float]] = strawberry.field(description="The composed map, M x (N+1), rows outermost. One row per axis in `outputAxes`, one column per axis in `inputAxes`, plus a final translation column")
-    input_axes: List[str] = strawberry.field(description="The axes the matrix's columns are in, which is the layer's own source coordinate system's axis order")
-    output_axes: List[str] = strawberry.field(description="The destination axes the matrix's rows are in, in the world's own axis order. An axis the path says nothing about has no row at all")
-    total: bool = strawberry.field(description="Whether `outputAxes` covers every axis of the destination space. False for a partial registration -- an honest map over the axes it names, and silence about the rest")
+    matrix: list[list[float]] = strawberry.field(
+        description="The composed map, M x (N+1), rows outermost. One row per axis in `outputAxes`, one column per axis in `inputAxes`, plus a final translation column"
+    )
+    input_axes: list[str] = strawberry.field(
+        description="The axes the matrix's columns are in, which is the layer's own source coordinate system's axis order"
+    )
+    output_axes: list[str] = strawberry.field(
+        description="The destination axes the matrix's rows are in, in the world's own axis order. An axis the path says nothing about has no row at all"
+    )
+    total: bool = strawberry.field(
+        description="Whether `outputAxes` covers every axis of the destination space. False for a partial registration -- an honest map over the axes it names, and silence about the rest"
+    )
 
 
-@kante.type(description="One axis of a source's extent: the range it occupies along a single named axis of the queried coordinate system")
+@kante.type(
+    description="One axis of a source's extent: the range it occupies along a single named axis of the queried coordinate system"
+)
 class AxisExtent:
     """One axis of an extent. An axis a source does not constrain has no entry at all."""
 
-    axis: str = strawberry.field(description="The name of the axis, as it is named on the queried coordinate system")
-    min: float = strawberry.field(description="The lower bound along this axis, inclusive")
-    max: float = strawberry.field(description="The upper bound along this axis, inclusive")
+    axis: str = strawberry.field(
+        description="The name of the axis, as it is named on the queried coordinate system"
+    )
+    min: float = strawberry.field(
+        description="The lower bound along this axis, inclusive"
+    )
+    max: float = strawberry.field(
+        description="The upper bound along this axis, inclusive"
+    )
 
 
 InViewSource = Annotated[
-    Union[
-        Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")],
-        Annotated["DataArray", strawberry.lazy("core.types.array_dataset")],
-        Annotated["Lens", strawberry.lazy("core.types.array_dataset")],
-        Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")],
-        Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")],
-        Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
-    ],
+    Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]
+    | Annotated["DataArray", strawberry.lazy("core.types.array_dataset")]
+    | Annotated["Lens", strawberry.lazy("core.types.array_dataset")]
+    | Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")]
+    | Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")]
+    | Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
     strawberry.union(
         "InViewSource",
         description=(
@@ -659,18 +800,22 @@ InViewSource = Annotated[
 ]
 
 
-@kante.type(description="One source in view of a region: where it sits in the queried coordinate system, how it got there, and which of its coordinate anchors are in view")
+@kante.type(
+    description="One source in view of a region: where it sits in the queried coordinate system, how it got there, and which of its coordinate anchors are in view"
+)
 class SourcePlacement:
     """One container in view of a region asked in a coordinate system."""
 
-    source: InViewSource = strawberry.field(description="The container in view: a dataset, a lens over one, an event or unit table, a spike raster, or an annotation collection. A collection comes back with `extentState: UNREADABLE` -- the server does not bound a set of rows or shapes as one box; read the rows, or ask an annotation collection's annotations with `intersects`")
+    source: InViewSource = strawberry.field(
+        description="The container in view: a dataset, a lens over one, an event or unit table, a spike raster, or an annotation collection. A collection comes back with `extentState: UNREADABLE` -- the server does not bound a set of rows or shapes as one box; read the rows, or ask an annotation collection's annotations with `intersects`"
+    )
     system: CoordinateSystem = strawberry.field(
         description=(
             "The source's own coordinate system that `extent` is anchored at and `path` starts from -- its pixel grid, its lens crop, or its collection's space. Which one it "
             "is follows from where the registration into the queried system actually attaches, which is what keeps the walk running forward"
         )
     )
-    extent: List[AxisExtent] = strawberry.field(
+    extent: list[AxisExtent] = strawberry.field(
         description=(
             "The source's axis-aligned extent in the queried system's coordinates, one entry per axis it constrains -- and only those. Usually a proper subset: a (c,y,x) "
             "dataset registered onto the (y,x) of a (t,z,y,x) world is a slab, extended along t and z, and an entry there would be a number nothing measured. Empty when "
@@ -686,10 +831,12 @@ class SourcePlacement:
     validity: enums.PlacementValidity = strawberry.field(
         description="How much this placement is actually known: the weakest edge on `path`. VALIDATED for a source that already IS the queried system, a placement exact by construction"
     )
-    path: List[PlacementStep] = strawberry.field(
+    path: list[PlacementStep] = strawberry.field(
         description="The ordered edges from `system` into the queried system, in stored direction with the inversions flagged. Empty when the source's own system IS the queried system. The server returns the steps; composing them stays the client's job, exactly as for `Layer.pathToWorld`"
     )
-    anchors: List[Annotated["CoordinateAnchor", strawberry.lazy("core.types.array_dataset")]] = strawberry.field(
+    anchors: list[
+        Annotated["CoordinateAnchor", strawberry.lazy("core.types.array_dataset")]
+    ] = strawberry.field(
         description=(
             "The source's coordinate anchors whose slab overlaps the region. An anchor pins some axes and is global along every axis it omits, so its slab is one voxel wide "
             "where it pins and the container's full extent where it does not. Only an array dataset has anchors; every other source kind reports none, which is not a gap"
@@ -703,9 +850,15 @@ class SourcePlacement:
 class CoordinateGraph:
     """The subgraph reachable from one coordinate system, edges included."""
 
-    root: CoordinateSystem = strawberry.field(description="The coordinate system the walk started from")
-    systems: List[CoordinateSystem] = strawberry.field(description="Every coordinate system reachable from the root, the root included, ordered by ID")
-    transformations: List[Transformation] = strawberry.field(description="Every top-level edge with both endpoints in `systems`, ordered by ID. The children of a SEQUENCE / BY_DIMENSION wrapper are not listed here; they hang off their wrapper")
+    root: CoordinateSystem = strawberry.field(
+        description="The coordinate system the walk started from"
+    )
+    systems: list[CoordinateSystem] = strawberry.field(
+        description="Every coordinate system reachable from the root, the root included, ordered by ID"
+    )
+    transformations: list[Transformation] = strawberry.field(
+        description="Every top-level edge with both endpoints in `systems`, ordered by ID. The children of a SEQUENCE / BY_DIMENSION wrapper are not listed here; they hang off their wrapper"
+    )
 
 
 @kante.type(
@@ -719,15 +872,17 @@ class CoordinateGraph:
 class LineageGraph:
     """The derivation component around one container: its ancestors, its descendants, and the edges."""
 
-    root: CoordinateSystem = strawberry.field(description="The coordinate system the walk started from. Its container is the node the graph is centred on")
-    nodes: List[Resident] = strawberry.field(
+    root: CoordinateSystem = strawberry.field(
+        description="The coordinate system the walk started from. Its container is the node the graph is centred on"
+    )
+    nodes: list[Resident] = strawberry.field(
         description=(
             "Every container in the component, the root's own included, ordered by kind and then by ID. Containers rather than spaces: a lineage is a story about data, and a "
             "dataset's pixel grid, its pyramid levels and its lenses are one node in it rather than three. Empty when the root space belongs to no container -- a world was "
             "computed from nothing and nothing was computed from it"
         )
     )
-    edges: List[Transformation] = strawberry.field(
+    edges: list[Transformation] = strawberry.field(
         description=(
             "Every derivation edge with both containers in `nodes`, ordered by ID. Stored direction throughout -- child to source -- so the arrow points the way provenance "
             "reads. **Kind-blind**: an UNMAPPABLE edge is here, and is the point of the kind existing, since 'this came from that and the geometry did not survive' is exactly "

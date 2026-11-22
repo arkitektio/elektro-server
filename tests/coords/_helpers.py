@@ -61,7 +61,9 @@ class QueryCounter:
         return len(self.queries)
 
 
-async def counted(aexecute, query: str, variables: dict | None = None) -> tuple[dict, int]:  # noqa: ANN001 - the conftest fixture
+async def counted(
+    aexecute, query: str, variables: dict | None = None
+) -> tuple[dict, int]:  # noqa: ANN001 - the conftest fixture
     """The query's data and the number of SQL statements one fresh request costs.
 
     Warmed once and measured on a second, separate request: the first execution of a
@@ -76,13 +78,29 @@ async def counted(aexecute, query: str, variables: dict | None = None) -> tuple[
     return result.data, len(counter)
 
 
-def _experiment_sync(ctx: HttpContext, name: str, world: models.CoordinateSystem | None, axes: list | None) -> models.Experiment:
+def _experiment_sync(
+    ctx: HttpContext,
+    name: str,
+    world: models.CoordinateSystem | None,
+    axes: list | None,
+) -> models.Experiment:
     if world is None:
         world = seed._seed_world_sync(ctx, name, axes or seed.ZYX_WORLD_AXES, None)
-    return models.Experiment.objects.create(name=name, world=world, creator=ctx.request.user, organization=ctx.request.organization)
+    return models.Experiment.objects.create(
+        name=name,
+        world=world,
+        creator=ctx.request.user,
+        organization=ctx.request.organization,
+    )
 
 
-async def create_experiment(ctx: HttpContext, name: str = "Experiment", *, world: models.CoordinateSystem | None = None, axes: list | None = None) -> models.Experiment:
+async def create_experiment(
+    ctx: HttpContext,
+    name: str = "Experiment",
+    *,
+    world: models.CoordinateSystem | None = None,
+    axes: list | None = None,
+) -> models.Experiment:
     """An experiment over a fresh ownerless world: mikro's ``seed.create_scene``.
 
     The world defaults to mikro's (z, y, x) in micrometers, because the tests that use this are
@@ -92,11 +110,25 @@ async def create_experiment(ctx: HttpContext, name: str = "Experiment", *, world
     return await sync_to_async(_experiment_sync)(ctx, name, world, axes)
 
 
-def _layer_sync(ctx: HttpContext, experiment: models.Experiment, lens: models.Lens, name: str | None) -> models.ExperimentLayer:
-    return models.ExperimentLayer.objects.create(experiment=experiment, kind="trace", lens=lens, order=experiment.layers.count(), name=name)
+def _layer_sync(
+    ctx: HttpContext, experiment: models.Experiment, lens: models.Lens, name: str | None
+) -> models.ExperimentLayer:
+    return models.ExperimentLayer.objects.create(
+        experiment=experiment,
+        kind="trace",
+        lens=lens,
+        order=experiment.layers.count(),
+        name=name,
+    )
 
 
-async def add_layer(ctx: HttpContext, experiment: models.Experiment, lens: models.Lens, *, name: str | None = None) -> models.ExperimentLayer:
+async def add_layer(
+    ctx: HttpContext,
+    experiment: models.Experiment,
+    lens: models.Lens,
+    *,
+    name: str | None = None,
+) -> models.ExperimentLayer:
     """A TRACE layer of ``lens`` in ``experiment``: mikro's ``Layer.objects.create(scene=, lens=)``.
 
     Written through the ORM, so nothing checks that the lens is placeable -- which is what the
@@ -112,7 +144,18 @@ mutation Derive($input: CreateArrayDatasetInput!) {
 """
 
 
-async def derive(aexecute, zarr_store, name: str, *, axes: list, shape: list[int], lens=None, entries: list[dict] | None = None, transform: dict | None = None, value_relation: str | None = None):  # noqa: ANN001, ANN201
+async def derive(
+    aexecute,
+    zarr_store,
+    name: str,
+    *,
+    axes: list,
+    shape: list[int],
+    lens=None,
+    entries: list[dict] | None = None,
+    transform: dict | None = None,
+    value_relation: str | None = None,
+):  # noqa: ANN001, ANN201
     """Create a dataset through the real mutation, stating what it was computed from: mikro's ``_derive``.
 
     Either one ``lens`` plus its ``transform`` dict (and optional ``value_relation``), or
@@ -120,23 +163,39 @@ async def derive(aexecute, zarr_store, name: str, *, axes: list, shape: list[int
     no object store is needed; this one does not -- ``zarr_store(shape=...)`` writes a real
     ``zarr.json`` to the compose RustFS, and ``createArrayDataset`` reads it back.
     """
-    store = await zarr_store(shape=list(shape), dimension_names=[axis.name for axis in axes])
+    store = await zarr_store(
+        shape=list(shape), dimension_names=[axis.name for axis in axes]
+    )
 
     if entries is None:
         # IDENTITY stated, not assumed: an omitted `transform` means UNMAPPABLE, and most
         # callers are about a derived dataset that *does* place through its source.
-        entry = {"kind": "LENS", "lens": str(lens.pk), "transform": transform if transform is not None else {"kind": "IDENTITY"}}
+        entry = {
+            "kind": "LENS",
+            "lens": str(lens.pk),
+            "transform": transform if transform is not None else {"kind": "IDENTITY"},
+        }
         if value_relation is not None:
             entry["valueRelation"] = value_relation
         entries = [entry]
 
     return await aexecute(
         DERIVE,
-        {"input": {"data": str(store.pk), "scales": [], "name": name, "axes": [{"name": axis.name, "type": axis.type.value} for axis in axes], "derivedFrom": entries}},
+        {
+            "input": {
+                "data": str(store.pk),
+                "scales": [],
+                "name": name,
+                "axes": [{"name": axis.name, "type": axis.type.value} for axis in axes],
+                "derivedFrom": entries,
+            }
+        },
     )
 
 
 async def derived_dataset(result) -> models.ArrayDataset:  # noqa: ANN001 - an ExecutionResult of `DERIVE`
     """The dataset a successful :func:`derive` made."""
     assert not result.errors, result.errors
-    return await models.ArrayDataset.objects.select_related("coordinate_system").aget(pk=result.data["createArrayDataset"]["id"])
+    return await models.ArrayDataset.objects.select_related("coordinate_system").aget(
+        pk=result.data["createArrayDataset"]["id"]
+    )

@@ -12,7 +12,6 @@ from core.analysis import compute_dominance
 from core.analysis.dominance import _section_geometry
 from core.base_models.type.model import ModelConfigModel
 
-
 # --- fixtures / builders -----------------------------------------------------
 
 
@@ -133,7 +132,13 @@ def test_scores_normalize_to_one():
 
 
 def test_single_section_scores_one():
-    config = _config([_cell([{"id": "only", "category": "soma", "diam": "10 um", "length": "10 um"}])])
+    config = _config(
+        [
+            _cell(
+                [{"id": "only", "category": "soma", "diam": "10 um", "length": "10 um"}]
+            )
+        ]
+    )
     (only,) = compute_dominance(config)
     assert only.global_score == pytest.approx(1.0)
     assert only.reference_score == pytest.approx(1.0)
@@ -176,8 +181,14 @@ def test_weights_shift_the_global_score():
     config = _config([_cell([SOMA, THIN_DEND])])
     cap_only = _by_id(compute_dominance(config, weights=(0.0, 1.0, 0.0)))
     axial_only = _by_id(compute_dominance(config, weights=(0.0, 0.0, 1.0)))
-    cap_ratio = cap_only[("cell0", "soma")].global_score / cap_only[("cell0", "dend")].global_score
-    axial_ratio = axial_only[("cell0", "soma")].global_score / axial_only[("cell0", "dend")].global_score
+    cap_ratio = (
+        cap_only[("cell0", "soma")].global_score
+        / cap_only[("cell0", "dend")].global_score
+    )
+    axial_ratio = (
+        axial_only[("cell0", "soma")].global_score
+        / axial_only[("cell0", "dend")].global_score
+    )
     assert cap_ratio != pytest.approx(axial_ratio)
 
 

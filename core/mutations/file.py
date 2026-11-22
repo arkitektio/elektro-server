@@ -3,34 +3,47 @@
 **Vendored from mikro** (``mikro/core/mutations/file.py``).
 """
 
-from kante.types import Info
 import kante
 import strawberry
+from arkitekt_datalayer.datalayer import get_current_datalayer
+from kante.types import Info
 from pydantic import BaseModel, Field
 
-from core import types, models, scalars
-from arkitekt_datalayer.datalayer import get_current_datalayer
+from core import models, scalars, types
 from core.creation import CreationContext
 from core.inputs.file_link import ExportOfInput, ExportOfSpec
 from core.logic import file_link as file_link_logic
-from core.scoping import get_for_org
 from core.mutations._generic import make_delete
+from core.scoping import get_for_org
 
 
 class FromFileLikeModel(BaseModel):
     file: str = Field(description="The uploaded big-file store to create the file from")
     file_name: str = Field(description="The name of the file")
-    folder: str | None = Field(default=None, description="The ID of the folder to put the file in (defaults to the current default folder)")
-    export_of: list[ExportOfSpec] | None = Field(default=None, description="The containers this file was written from")
+    folder: str | None = Field(
+        default=None,
+        description="The ID of the folder to put the file in (defaults to the current default folder)",
+    )
+    export_of: list[ExportOfSpec] | None = Field(
+        default=None, description="The containers this file was written from"
+    )
 
 
-@kante.pydantic_input(FromFileLikeModel, description="Input for creating a file record from an uploaded big-file store")
+@kante.pydantic_input(
+    FromFileLikeModel,
+    description="Input for creating a file record from an uploaded big-file store",
+)
 class FromFileLike:
     """Input for creating a file record from an uploaded big-file store"""
 
-    file: scalars.FileLike = strawberry.field(description="The uploaded big-file store to create the file from")
+    file: scalars.FileLike = strawberry.field(
+        description="The uploaded big-file store to create the file from"
+    )
     file_name: str = strawberry.field(description="The name of the file")
-    folder: strawberry.ID | None = strawberry.field(default=None, description="The ID of the folder to put the file in (defaults to the current default folder)")
+    folder: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="The ID of the folder to put the file in (defaults to the current default folder)",
+    )
     export_of: list[ExportOfInput] | None = strawberry.field(
         default=None,
         description=(
@@ -51,7 +64,11 @@ def from_file_like(
     store.fill_info(dl)
 
     ctx = CreationContext.from_info(info)
-    folder = get_for_org(models.Folder, info, id=parsed.folder) if parsed.folder else models.Folder.objects.get_current_default(ctx)
+    folder = (
+        get_for_org(models.Folder, info, id=parsed.folder)
+        if parsed.folder
+        else models.Folder.objects.get_current_default(ctx)
+    )
 
     file = models.File.objects.create(
         folder=folder,
@@ -73,7 +90,9 @@ def from_file_like(
         **ctx.provenance_kwargs(),
     )
 
-    file_link_logic.write_export_links(info, file=file, export_of=parsed.export_of or [], ctx=ctx)
+    file_link_logic.write_export_links(
+        info, file=file, export_of=parsed.export_of or [], ctx=ctx
+    )
 
     return strawberry.cast(types.File, file)
 
@@ -82,7 +101,9 @@ class DeleteFileInputModel(BaseModel):
     id: str = Field(description="The ID of the file to delete")
 
 
-@kante.pydantic_input(DeleteFileInputModel, description="Input for deleting a file by ID")
+@kante.pydantic_input(
+    DeleteFileInputModel, description="Input for deleting a file by ID"
+)
 class DeleteFileInput:
     """Input for deleting a file by ID"""
 

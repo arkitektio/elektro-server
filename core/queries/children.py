@@ -1,11 +1,15 @@
-from core import enums, models, types, filters as f, pagination as p
-from core.utils import paginate_querysets
-import strawberry
-from typing import Annotated, Union
-from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from enum import Enum
-from core.scoping import get_for_org, scope_queryset
+from typing import Annotated
+
+import strawberry
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from kante.types import Info
+
+from core import enums, models, types
+from core import filters as f
+from core import pagination as p
+from core.scoping import get_for_org, scope_queryset
+from core.utils import paginate_querysets
 
 
 @strawberry.enum
@@ -35,15 +39,16 @@ class ChildrenOrder:
 #:
 #: Vendored from mikro (``mikro/core/queries/children.py``).
 FolderChild = Annotated[
-    Union[
-        types.Folder,
-        types.File,
-        types.ArrayDataset,
-        types.TableDataset,
-        types.SparseDataset,
-        types.AnnotationCollection,
-    ],
-    strawberry.union("FolderChild", description="Anything filed in a folder: a sub-folder, a file, an array dataset, a table dataset, a sparse dataset, or an annotation collection"),
+    types.Folder
+    | types.File
+    | types.ArrayDataset
+    | types.TableDataset
+    | types.SparseDataset
+    | types.AnnotationCollection,
+    strawberry.union(
+        "FolderChild",
+        description="Anything filed in a folder: a sub-folder, a file, an array dataset, a table dataset, a sparse dataset, or an annotation collection",
+    ),
 ]
 
 
@@ -88,16 +93,28 @@ def children(
         # already in the listing. Only a SOURCE link says so: a RENDITION is a file written
         # *out of* the container, and a container is not hidden for having been exported.
         if is_container and not filters.show_converted:
-            queryset = queryset.exclude(file_links__direction=enums.FileLinkDirectionChoices.SOURCE)
+            queryset = queryset.exclude(
+                file_links__direction=enums.FileLinkDirectionChoices.SOURCE
+            )
 
         if search_query is not None:
             fields = [name_field] + ([description_field] if description_field else [])
             search_vector = SearchVector(*fields)
-            queryset = queryset.annotate(search=search_vector, rank=SearchRank(search_vector, search_query)).filter(search=search_query).order_by("-rank")
+            queryset = (
+                queryset.annotate(
+                    search=search_vector, rank=SearchRank(search_vector, search_query)
+                )
+                .filter(search=search_query)
+                .order_by("-rank")
+            )
 
         if order:
             order_prefix = "" if order.direction == ChildrenOrderDirection.ASC else "-"
-            order_field = name_field if order.field is ChildrenOrderField.NAME else order.field.value
+            order_field = (
+                name_field
+                if order.field is ChildrenOrderField.NAME
+                else order.field.value
+            )
             queryset = queryset.order_by(f"{order_prefix}{order_field}")
 
         querysets.append(queryset)

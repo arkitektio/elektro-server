@@ -1,6 +1,6 @@
 """The array dataset subscription: created, updated and deleted datasets of the subscriber's organization."""
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import strawberry
 from kante.types import Info
@@ -9,7 +9,9 @@ from core import channels, models, scoping, types
 from core.signals import array_dataset_channels
 
 
-@strawberry.type(description="One change to an array dataset: exactly one of the three fields is set")
+@strawberry.type(
+    description="One change to an array dataset: exactly one of the three fields is set"
+)
 class ArrayDatasetEvent:
     """A created, updated or deleted array dataset."""
 
@@ -43,7 +45,13 @@ async def array_datasets(
             continue
 
         try:
-            dataset = await scoping.aget_for_org(models.ArrayDataset, info, id=message.create or message.update)
+            dataset = await scoping.aget_for_org(
+                models.ArrayDataset, info, id=message.create or message.update
+            )
         except models.ArrayDataset.DoesNotExist:
             continue  # Deleted between the broadcast and this read, or not this organization's.
-        yield ArrayDatasetEvent(create=dataset) if message.create else ArrayDatasetEvent(update=dataset)
+        yield (
+            ArrayDatasetEvent(create=dataset)
+            if message.create
+            else ArrayDatasetEvent(update=dataset)
+        )

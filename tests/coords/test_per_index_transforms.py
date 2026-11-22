@@ -76,8 +76,18 @@ query InView($id: ID!, $at: [CoordinateInput!]) {
 _OVER_YX = {"kind": "BY_DIMENSION", "inputAxes": ["y", "x"], "outputAxes": ["y", "x"]}
 
 
-async def _register(aexecute, input_id: int, output_id: int, transform: dict, selector: dict | None = None) -> dict:  # noqa: ANN001 - the conftest fixture
-    payload: dict = {"input": str(input_id), "output": str(output_id), "transform": transform}
+async def _register(
+    aexecute,
+    input_id: int,
+    output_id: int,
+    transform: dict,
+    selector: dict | None = None,
+) -> dict:  # noqa: ANN001 - the conftest fixture
+    payload: dict = {
+        "input": str(input_id),
+        "output": str(output_id),
+        "transform": transform,
+    }
     if selector is not None:
         payload["selector"] = selector
     result = await aexecute(CREATE_TRANSFORM, {"input": payload})
@@ -85,12 +95,26 @@ async def _register(aexecute, input_id: int, output_id: int, transform: dict, se
     return result.data["createTransformation"]
 
 
-async def _errors(aexecute, input_id: int, output_id: int, transform: dict, selector: dict) -> list:  # noqa: ANN001
-    result = await aexecute(CREATE_TRANSFORM, {"input": {"input": str(input_id), "output": str(output_id), "transform": transform, "selector": selector}})
+async def _errors(
+    aexecute, input_id: int, output_id: int, transform: dict, selector: dict
+) -> list:  # noqa: ANN001
+    result = await aexecute(
+        CREATE_TRANSFORM,
+        {
+            "input": {
+                "input": str(input_id),
+                "output": str(output_id),
+                "transform": transform,
+                "selector": selector,
+            }
+        },
+    )
     return list(result.errors or [])
 
 
-async def _view_at(aexecute, experiment: models.Experiment, at: list | None, query: str = AT_AFFINE) -> dict:  # noqa: ANN001
+async def _view_at(
+    aexecute, experiment: models.Experiment, at: list | None, query: str = AT_AFFINE
+) -> dict:  # noqa: ANN001
     result = await aexecute(query, {"id": str(experiment.pk), "at": at})
     assert not result.errors, result.errors
     (view,) = result.data["experiment"]["layers"]
@@ -110,7 +134,9 @@ async def _chromatic_experiment(ctx) -> tuple[models.Experiment, models.ArrayDat
     return experiment, dataset
 
 
-async def test_one_layer_resolves_differently_per_channel(aexecute, authenticated_context):
+async def test_one_layer_resolves_differently_per_channel(
+    aexecute, authenticated_context
+):
     """The whole point: two channels, one view, two placements.
 
     Each channel's correction is its own edge into the same world -- the shape that used to
@@ -119,21 +145,35 @@ async def test_one_layer_resolves_differently_per_channel(aexecute, authenticate
     experiment, dataset = await _chromatic_experiment(authenticated_context)
 
     for index, offset in ((0, [0.0, 0.0]), (2, [3.0, 5.0])):
-        await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, {**_OVER_YX, "translation": offset}, selector={"axis": "c", "index": index})
+        await _register(
+            aexecute,
+            dataset.coordinate_system_id,
+            experiment.world_id,
+            {**_OVER_YX, "translation": offset},
+            selector={"axis": "c", "index": index},
+        )
 
     first = await _view_at(aexecute, experiment, [{"name": "c", "value": 0}])
     third = await _view_at(aexecute, experiment, [{"name": "c", "value": 2}])
 
     assert _translation(first["asAffine"]["matrix"]) == approx([0.0, 0.0])
-    assert _translation(third["asAffine"]["matrix"]) == approx([3.0, 5.0]), "the third channel is corrected; the first is not"
-    assert first["asAffine"]["outputAxes"] == third["asAffine"]["outputAxes"] == ["y", "x"]
+    assert _translation(third["asAffine"]["matrix"]) == approx([3.0, 5.0]), (
+        "the third channel is corrected; the first is not"
+    )
+    assert (
+        first["asAffine"]["outputAxes"] == third["asAffine"]["outputAxes"] == ["y", "x"]
+    )
 
     # And the path reports which scoped edge it actually crossed, rather than leaving the
     # client to infer it from the numbers.
-    assert [step["transformation"]["selector"] for step in third["pathToWorld"]] == [{"axis": "c", "index": 2}]
+    assert [step["transformation"]["selector"] for step in third["pathToWorld"]] == [
+        {"axis": "c", "index": 2}
+    ]
 
 
-async def test_without_a_fixed_coordinate_a_scoped_edge_is_not_crossed(aexecute, authenticated_context):
+async def test_without_a_fixed_coordinate_a_scoped_edge_is_not_crossed(
+    aexecute, authenticated_context
+):
     """No `at`, no answer -- rather than an arbitrary one.
 
     Where the data sits depends on the channel. A query that has not said which channel has no
@@ -141,7 +181,13 @@ async def test_without_a_fixed_coordinate_a_scoped_edge_is_not_crossed(aexecute,
     which `placement` distinguishes) instead of whichever edge happened to sort first.
     """
     experiment, dataset = await _chromatic_experiment(authenticated_context)
-    await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, {**_OVER_YX, "translation": [3.0, 5.0]}, selector={"axis": "c", "index": 2})
+    await _register(
+        aexecute,
+        dataset.coordinate_system_id,
+        experiment.world_id,
+        {**_OVER_YX, "translation": [3.0, 5.0]},
+        selector={"axis": "c", "index": 2},
+    )
 
     unfixed = await _view_at(aexecute, experiment, None)
     assert unfixed["asAffine"] is None
@@ -149,21 +195,32 @@ async def test_without_a_fixed_coordinate_a_scoped_edge_is_not_crossed(aexecute,
 
     # Fixing a *different* index on the same axis is equally not a match.
     elsewhere = await _view_at(aexecute, experiment, [{"name": "c", "value": 1}])
-    assert elsewhere["asAffine"] is None, "channel 1 has no correction authored, and channel 2's is not it"
+    assert elsewhere["asAffine"] is None, (
+        "channel 1 has no correction authored, and channel 2's is not it"
+    )
 
 
-async def test_an_unscoped_edge_still_answers_without_at(aexecute, authenticated_context):
+async def test_an_unscoped_edge_still_answers_without_at(
+    aexecute, authenticated_context
+):
     """Every edge written before selectors existed is unscoped, and none of them changed.
 
     This is the compatibility claim the whole design rests on: `selector_admits` returns True for
     a null selector, so a graph with no per-index edges behaves exactly as it did.
     """
     experiment, dataset = await _chromatic_experiment(authenticated_context)
-    await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, {**_OVER_YX, "translation": [1.0, 1.0]})
+    await _register(
+        aexecute,
+        dataset.coordinate_system_id,
+        experiment.world_id,
+        {**_OVER_YX, "translation": [1.0, 1.0]},
+    )
 
     unfixed = await _view_at(aexecute, experiment, None)
     assert _translation(unfixed["asAffine"]["matrix"]) == approx([1.0, 1.0])
-    assert [step["transformation"]["selector"] for step in unfixed["pathToWorld"]] == [None]
+    assert [step["transformation"]["selector"] for step in unfixed["pathToWorld"]] == [
+        None
+    ]
 
     # And it still answers when a coordinate *is* fixed: `at` narrows what may be crossed, it
     # does not require that everything be scoped.
@@ -171,23 +228,37 @@ async def test_an_unscoped_edge_still_answers_without_at(aexecute, authenticated
     assert _translation(fixed["asAffine"]["matrix"]) == approx([1.0, 1.0])
 
 
-async def test_a_selector_must_name_an_axis_that_can_be_indexed(aexecute, authenticated_context):
+async def test_a_selector_must_name_an_axis_that_can_be_indexed(
+    aexecute, authenticated_context
+):
     """Three rejections, all at write time where the author is still in the room."""
     experiment, dataset = await _chromatic_experiment(authenticated_context)
     source, world = dataset.coordinate_system_id, experiment.world_id
     transform = {**_OVER_YX, "translation": [1.0, 1.0]}
 
-    absent = await _errors(aexecute, source, world, transform, {"axis": "t", "index": 0})
-    assert absent and "does not have" in str(absent[0]), "the dataset is (c,y,x); it has no time axis to be at a position along"
+    absent = await _errors(
+        aexecute, source, world, transform, {"axis": "t", "index": 0}
+    )
+    assert absent and "does not have" in str(absent[0]), (
+        "the dataset is (c,y,x); it has no time axis to be at a position along"
+    )
 
-    spatial = await _errors(aexecute, source, world, transform, {"axis": "y", "index": 3})
-    assert spatial and "measured rather than indexed" in str(spatial[0]), "a correction varying through space is a FIELD, not a piecewise map"
+    spatial = await _errors(
+        aexecute, source, world, transform, {"axis": "y", "index": 3}
+    )
+    assert spatial and "measured rather than indexed" in str(spatial[0]), (
+        "a correction varying through space is a FIELD, not a piecewise map"
+    )
 
-    negative = await _errors(aexecute, source, world, transform, {"axis": "c", "index": -1})
+    negative = await _errors(
+        aexecute, source, world, transform, {"axis": "c", "index": -1}
+    )
     assert negative and "non-negative" in str(negative[0])
 
 
-async def test_refining_one_channel_moves_only_that_channel(aexecute, authenticated_context):
+async def test_refining_one_channel_moves_only_that_channel(
+    aexecute, authenticated_context
+):
     """Piecewise as several facts, not one row with a list in it.
 
     Each index is its own edge, so it carries its own `version` and its own provenance, and a
@@ -197,13 +268,31 @@ async def test_refining_one_channel_moves_only_that_channel(aexecute, authentica
     experiment, dataset = await _chromatic_experiment(authenticated_context)
 
     for index, offset in ((0, [1.0, 1.0]), (1, [2.0, 2.0])):
-        await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, {**_OVER_YX, "translation": offset}, selector={"axis": "c", "index": index})
+        await _register(
+            aexecute,
+            dataset.coordinate_system_id,
+            experiment.world_id,
+            {**_OVER_YX, "translation": offset},
+            selector={"axis": "c", "index": index},
+        )
 
-    edge_zero = await models.Transformation.objects.aget(selector={"axis": "c", "index": 0})
-    await models.Transformation.objects.filter(pk=edge_zero.pk).aupdate(params={"translation": [9.0, 9.0]})
+    edge_zero = await models.Transformation.objects.aget(
+        selector={"axis": "c", "index": 0}
+    )
+    await models.Transformation.objects.filter(pk=edge_zero.pk).aupdate(
+        params={"translation": [9.0, 9.0]}
+    )
 
-    assert _translation((await _view_at(aexecute, experiment, [{"name": "c", "value": 0}]))["asAffine"]["matrix"]) == approx([9.0, 9.0])
-    assert _translation((await _view_at(aexecute, experiment, [{"name": "c", "value": 1}]))["asAffine"]["matrix"]) == approx([2.0, 2.0]), "channel 1 did not move"
+    assert _translation(
+        (await _view_at(aexecute, experiment, [{"name": "c", "value": 0}]))["asAffine"][
+            "matrix"
+        ]
+    ) == approx([9.0, 9.0])
+    assert _translation(
+        (await _view_at(aexecute, experiment, [{"name": "c", "value": 1}]))["asAffine"][
+            "matrix"
+        ]
+    ) == approx([2.0, 2.0]), "channel 1 did not move"
 
 
 async def test_the_selector_predicate_is_the_only_reader_of_the_convention():
@@ -214,12 +303,16 @@ async def test_the_selector_predicate_is_the_only_reader_of_the_convention():
     assert graph_logic.selector_admits(unscoped, None) is True
     assert graph_logic.selector_admits(unscoped, {"c": 7}) is True
     assert graph_logic.selector_admits(scoped, None) is False
-    assert graph_logic.selector_admits(scoped, {"t": 2}) is False, "a coordinate on another axis is not a match"
+    assert graph_logic.selector_admits(scoped, {"t": 2}) is False, (
+        "a coordinate on another axis is not a match"
+    )
     assert graph_logic.selector_admits(scoped, {"c": 1}) is False
     assert graph_logic.selector_admits(scoped, {"c": 2}) is True
 
 
-async def test_a_per_index_registration_is_a_registration_everywhere_it_is_asked(aexecute, authenticated_context):
+async def test_a_per_index_registration_is_a_registration_everywhere_it_is_asked(
+    aexecute, authenticated_context
+):
     """The plumbing around the selector, which the walk had and nothing else did.
 
     `adjacency_of` was the only reader of `selector_admits`, and every other consumer walked
@@ -234,25 +327,41 @@ async def test_a_per_index_registration_is_a_registration_everywhere_it_is_asked
     experiment, dataset = await _chromatic_experiment(authenticated_context)
 
     for index, offset in ((0, [0.0, 0.0]), (2, [3.0, 5.0])):
-        await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, {**_OVER_YX, "translation": offset}, selector={"axis": "c", "index": index})
+        await _register(
+            aexecute,
+            dataset.coordinate_system_id,
+            experiment.world_id,
+            {**_OVER_YX, "translation": offset},
+            selector={"axis": "c", "index": index},
+        )
 
     # Without a coordinate: a placement, said so, rather than a gap to go and close.
     view = await _view_at(aexecute, experiment, None, STATE)
     assert view["placement"] == "CONDITIONAL", "registered per channel is registered"
-    assert view["placementValidity"] != "UNKNOWN", "there is a registration, and how known it is can be read off it"
-    assert view["placementInvariance"] != "NONE", "a translation per channel is still a translation"
+    assert view["placementValidity"] != "UNKNOWN", (
+        "there is a registration, and how known it is can be read off it"
+    )
+    assert view["placementInvariance"] != "NONE", (
+        "a translation per channel is still a translation"
+    )
 
     # With one: the ordinary answers, about that channel.
     at_two = await _view_at(aexecute, experiment, [{"name": "c", "value": 2}], STATE)
     assert at_two["placement"] == "PLACED"
-    assert at_two["placementInvariance"] == "ISOMETRY", "a translation preserves distances"
+    assert at_two["placementInvariance"] == "ISOMETRY", (
+        "a translation preserves distances"
+    )
 
     # A channel nobody corrected is the one real gap here, and keeps its own answer.
     elsewhere = await _view_at(aexecute, experiment, [{"name": "c", "value": 1}], STATE)
-    assert elsewhere["placement"] == "CONDITIONAL", "c=1 has no correction, but the data is still placed per index elsewhere"
+    assert elsewhere["placement"] == "CONDITIONAL", (
+        "c=1 has no correction, but the data is still placed per index elsewhere"
+    )
 
 
-async def test_a_layer_can_be_created_over_a_scoped_only_registration(aexecute, authenticated_context):
+async def test_a_layer_can_be_created_over_a_scoped_only_registration(
+    aexecute, authenticated_context
+):
     """The creation gate refused the view the feature exists to allow.
 
     Every gate asks `is_placeable_in`, whose walk could not see a scoped edge at all. The shape
@@ -280,26 +389,51 @@ async def test_a_layer_can_be_created_over_a_scoped_only_registration(aexecute, 
     # how an axis with no measured dimension carries a unit in a unit-carrying space.
     aligned = await aexecute(
         "mutation M($input: CreateCoordinateSystemInput!) { createCoordinateSystem(input: $input) { id } }",
-        {"input": {"name": "Aligned", "axes": [{"name": "c", "type": "CHANNEL", "unit": "a.u."}, {"name": "y", "type": "SPACE", "unit": "micrometer"}, {"name": "x", "type": "SPACE", "unit": "micrometer"}]}},
+        {
+            "input": {
+                "name": "Aligned",
+                "axes": [
+                    {"name": "c", "type": "CHANNEL", "unit": "a.u."},
+                    {"name": "y", "type": "SPACE", "unit": "micrometer"},
+                    {"name": "x", "type": "SPACE", "unit": "micrometer"},
+                ],
+            }
+        },
     )
     assert not aligned.errors, aligned.errors
     aligned_id = int(aligned.data["createCoordinateSystem"]["id"])
 
     # grid -> aligned, per channel. Then aligned -> world, unscoped: nothing unscoped
     # reaches world from the dataset, and the only thing that does is scoped.
-    await _register(aexecute, grid.pk, aligned_id, {**_OVER_YX, "translation": [3.0, 5.0]}, selector={"axis": "c", "index": 2})
+    await _register(
+        aexecute,
+        grid.pk,
+        aligned_id,
+        {**_OVER_YX, "translation": [3.0, 5.0]},
+        selector={"axis": "c", "index": 2},
+    )
     await _register(aexecute, aligned_id, world.pk, {**_OVER_YX, "scale": [0.5, 0.5]})
 
-    assert await sync_to_async(graph_logic.is_placeable_in)(world, grid, require_affine=False), "a scoped hop in the middle of the chain is still a route"
-    assert await sync_to_async(graph_logic.is_placeable_in)(world, grid, require_affine=True)
+    assert await sync_to_async(graph_logic.is_placeable_in)(
+        world, grid, require_affine=False
+    ), "a scoped hop in the middle of the chain is still a route"
+    assert await sync_to_async(graph_logic.is_placeable_in)(
+        world, grid, require_affine=True
+    )
 
     # And it reads as the placement it is, resolving when the channel is fixed.
     await add_layer(ctx, experiment, lens)
-    assert (await _view_at(aexecute, experiment, None, STATE))["placement"] == "CONDITIONAL"
-    assert (await _view_at(aexecute, experiment, [{"name": "c", "value": 2}], STATE))["placement"] == "PLACED"
+    assert (await _view_at(aexecute, experiment, None, STATE))[
+        "placement"
+    ] == "CONDITIONAL"
+    assert (await _view_at(aexecute, experiment, [{"name": "c", "value": 2}], STATE))[
+        "placement"
+    ] == "PLACED"
 
 
-async def test_a_scoped_source_is_in_view_of_the_space_it_is_registered_into(aexecute, authenticated_context):
+async def test_a_scoped_source_is_in_view_of_the_space_it_is_registered_into(
+    aexecute, authenticated_context
+):
     """`inView` never passed `at`, so a per-channel registration was invisible to it.
 
     The source is in the space -- returning nothing for it was the graph withholding what it
@@ -307,14 +441,26 @@ async def test_a_scoped_source_is_in_view_of_the_space_it_is_registered_into(aex
     that rather than leaving an empty extent to be read as "unbounded" or "not here".
     """
     experiment, dataset = await _chromatic_experiment(authenticated_context)
-    await _register(aexecute, dataset.coordinate_system_id, experiment.world_id, {**_OVER_YX, "translation": [3.0, 5.0]}, selector={"axis": "c", "index": 2})
+    await _register(
+        aexecute,
+        dataset.coordinate_system_id,
+        experiment.world_id,
+        {**_OVER_YX, "translation": [3.0, 5.0]},
+        selector={"axis": "c", "index": 2},
+    )
 
     unfixed = await aexecute(IN_VIEW, {"id": str(experiment.world_id), "at": None})
     assert not unfixed.errors, unfixed.errors
     seen = unfixed.data["coordinateSystem"]["inView"]
-    assert [hit["source"]["id"] for hit in seen] == [str(dataset.pk)], "in the space, whether or not the question fixed a channel"
+    assert [hit["source"]["id"] for hit in seen] == [str(dataset.pk)], (
+        "in the space, whether or not the question fixed a channel"
+    )
     assert seen[0]["extentState"] == "CONDITIONAL"
 
-    fixed = await aexecute(IN_VIEW, {"id": str(experiment.world_id), "at": [{"name": "c", "value": 2}]})
+    fixed = await aexecute(
+        IN_VIEW, {"id": str(experiment.world_id), "at": [{"name": "c", "value": 2}]}
+    )
     assert not fixed.errors, fixed.errors
-    assert fixed.data["coordinateSystem"]["inView"][0]["extentState"] == "KNOWN", "fixing the channel is what makes a box computable"
+    assert fixed.data["coordinateSystem"]["inView"][0]["extentState"] == "KNOWN", (
+        "fixing the channel is what makes a box computable"
+    )

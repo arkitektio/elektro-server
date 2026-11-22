@@ -30,21 +30,34 @@ def sweep_empty_systems(system_ids) -> list[int]:  # noqa: ANN001 - any iterable
     ids = {system_id for system_id in system_ids if system_id is not None}
     if not ids:
         return []
-    unused = {f"{relation}__isnull": True for relation in (*graph_logic.RESIDENT_RELATIONS, *graph_logic.WORLD_RELATIONS)}
-    empty = list(models.CoordinateSystem.objects.filter(pk__in=ids, **unused).values_list("pk", flat=True))
+    unused = {
+        f"{relation}__isnull": True
+        for relation in (*graph_logic.RESIDENT_RELATIONS, *graph_logic.WORLD_RELATIONS)
+    }
+    empty = list(
+        models.CoordinateSystem.objects.filter(pk__in=ids, **unused).values_list(
+            "pk", flat=True
+        )
+    )
 
     # The edges first, then the spaces. They would cascade with the spaces anyway -- except
     # that a time lookup holds its *field* under PROTECT (so a times dataset's system cannot be
     # deleted out from under the edge reading it), and PROTECT, unlike RESTRICT, refuses even
     # when the protecting row is going in the same delete. So a signal's grid and its times
     # dataset's system, swept together, have to lose the edge between them before either goes.
-    models.Transformation.objects.filter(Q(input_id__in=empty) | Q(output_id__in=empty)).delete()
+    models.Transformation.objects.filter(
+        Q(input_id__in=empty) | Q(output_id__in=empty)
+    ).delete()
     # What a lookup elsewhere still reads through stays: the edge is a fact about data that
     # still exists, and the honest state is a field system nothing lives in -- which
     # `assert_field_is_dereferenceable` names, and which the orphan sweep leaves alone too.
     # The same for a space an annotation collection's bounding boxes are denominated in
     # (`AnnotationCollection.bbox_system`, PROTECT): deleting a dataset must not silently
     # relabel the numbers of the marks drawn over it. The emptied grid stays, holding the frame.
-    empty = list(models.CoordinateSystem.objects.filter(pk__in=empty, fields_of__isnull=True, annotation_bbox_frames__isnull=True).values_list("pk", flat=True))
+    empty = list(
+        models.CoordinateSystem.objects.filter(
+            pk__in=empty, fields_of__isnull=True, annotation_bbox_frames__isnull=True
+        ).values_list("pk", flat=True)
+    )
     models.CoordinateSystem.objects.filter(pk__in=empty).delete()
     return empty

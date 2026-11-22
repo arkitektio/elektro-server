@@ -72,30 +72,59 @@ _STATE_INPUT = {
     ],
 }
 
-_SNAKE = {"holdingPotential": "holding_potential", "seriesResistance": "series_resistance", "membraneCapacitance": "membrane_capacitance"}
+_SNAKE = {
+    "holdingPotential": "holding_potential",
+    "seriesResistance": "series_resistance",
+    "membraneCapacitance": "membrane_capacitance",
+}
 
 
 def _sent() -> RigStateModel:
     """The state a client sent, as the model the input converts to."""
-    return RigStateModel(**{_SNAKE.get(key, key): value for key, value in _STATE_INPUT.items()})
+    return RigStateModel(
+        **{_SNAKE.get(key, key): value for key, value in _STATE_INPUT.items()}
+    )
 
 
-async def test_a_rig_state_is_written_as_a_typed_anchor_spoke(aexecute, create_array_dataset, authenticated_context):
+async def test_a_rig_state_is_written_as_a_typed_anchor_spoke(
+    aexecute, create_array_dataset, authenticated_context
+):
     """Ingest pins the recorded rig state to its coordinate, through composable typed input.
 
     Quantities arrive as unit-carrying strings and are stored canonically; the stored
     JSON is exactly the model's dump. (That reconstructing it recovers the same *model* is
     mikro's next assertion, and is `test_the_stored_rig_state_reconstructs_the_state_that_was_sent`.)
     """
-    created = await create_array_dataset("Acquired", [1000, 2], axes=TC, anchors=[{"axisAnchors": [{"axis": "c", "value": 0}], "rig": _STATE_INPUT}])
+    created = await create_array_dataset(
+        "Acquired",
+        [1000, 2],
+        axes=TC,
+        anchors=[{"axisAnchors": [{"axis": "c", "value": 0}], "rig": _STATE_INPUT}],
+    )
 
     spoke = await models.RigState.objects.aget(anchor__dataset_id=created["id"])
     anchor = await sync_to_async(lambda: spoke.anchor)()
-    assert anchor.coordinates == {"c": 0}, "the hardware truth is pinned to the coordinate it was recorded at"
+    assert anchor.coordinates == {"c": 0}, (
+        "the hardware truth is pinned to the coordinate it was recorded at"
+    )
 
-    assert spoke.state == _sent().model_dump(mode="json"), "the typed model's dump IS the stored JSON, so the column never grows a shape the types cannot express"
+    assert spoke.state == _sent().model_dump(mode="json"), (
+        "the typed model's dump IS the stored JSON, so the column never grows a shape the types cannot express"
+    )
     stored = RigStateModel(**spoke.state)
-    assert (stored.mode, stored.holding_potential, stored.series_resistance, stored.membrane_capacitance, stored.temperature) == (_sent().mode, _sent().holding_potential, _sent().series_resistance, _sent().membrane_capacitance, _sent().temperature), "the dimension-locked quantities compare canonically, not by their spelling"
+    assert (
+        stored.mode,
+        stored.holding_potential,
+        stored.series_resistance,
+        stored.membrane_capacitance,
+        stored.temperature,
+    ) == (
+        _sent().mode,
+        _sent().holding_potential,
+        _sent().series_resistance,
+        _sent().membrane_capacitance,
+        _sent().temperature,
+    ), "the dimension-locked quantities compare canonically, not by their spelling"
     assert stored.devices[0].settings[0].name == "lowpass"
     assert stored.devices[1].settings[0].text == "ACSF"
 
@@ -122,9 +151,16 @@ async def test_a_rig_state_is_written_as_a_typed_anchor_spoke(aexecute, create_a
         "with an integer-valued quantity breaks RigStateModel equality after one save. mikro's vendored copy is identical ('20 milliwatt' vs '20.0 milliwatt')."
     ),
 )
-async def test_the_stored_rig_state_reconstructs_the_state_that_was_sent(create_array_dataset):
+async def test_the_stored_rig_state_reconstructs_the_state_that_was_sent(
+    create_array_dataset,
+):
     """mikro's assertion, verbatim: reconstructing the stored JSON recovers the state the client sent, quantities compared canonically rather than by their spelling."""
-    created = await create_array_dataset("Acquired", [1000, 2], axes=TC, anchors=[{"axisAnchors": [{"axis": "c", "value": 0}], "rig": _STATE_INPUT}])
+    created = await create_array_dataset(
+        "Acquired",
+        [1000, 2],
+        axes=TC,
+        anchors=[{"axisAnchors": [{"axis": "c", "value": 0}], "rig": _STATE_INPUT}],
+    )
     spoke = await models.RigState.objects.aget(anchor__dataset_id=created["id"])
 
     stored = RigStateModel(**spoke.state)
@@ -133,60 +169,123 @@ async def test_the_stored_rig_state_reconstructs_the_state_that_was_sent(create_
 
 async def test_a_setting_holds_exactly_one_value(create_array_dataset):
     """A setting filling two value slots is refused: it is two settings."""
-    rig = {"devices": [{"label": "amplifier", "settings": [{"name": "lowpass", "quantity": "10 kHz", "number": 10000.0}]}]}
-    result = await create_array_dataset("Broken", [1000, 2], axes=TC, anchors=[{"axisAnchors": [], "rig": rig}], raw=True)
+    rig = {
+        "devices": [
+            {
+                "label": "amplifier",
+                "settings": [
+                    {"name": "lowpass", "quantity": "10 kHz", "number": 10000.0}
+                ],
+            }
+        ]
+    }
+    result = await create_array_dataset(
+        "Broken",
+        [1000, 2],
+        axes=TC,
+        anchors=[{"axisAnchors": [], "rig": rig}],
+        raw=True,
+    )
     assert result.errors
     assert "one value" in str(result.errors[0])
-    assert not await models.ArrayDataset.objects.filter(name="Broken").aexists(), "one transaction here, which mikro's is not: the refusal leaves no dataset behind"
+    assert not await models.ArrayDataset.objects.filter(name="Broken").aexists(), (
+        "one transaction here, which mikro's is not: the refusal leaves no dataset behind"
+    )
     assert await models.CoordinateSystem.objects.acount() == 0
 
 
 @pytest.mark.parametrize(
     ("rig", "fragment"),
     [
-        ({"mode": "VOLTAGE_CLAMP", "holdingCurrent": "50 pA"}, "contradicts `mode: VOLTAGE_CLAMP`"),
-        ({"mode": "CURRENT_CLAMP", "holdingPotential": "-70 mV"}, "contradicts `mode: CURRENT_CLAMP`"),
+        (
+            {"mode": "VOLTAGE_CLAMP", "holdingCurrent": "50 pA"},
+            "contradicts `mode: VOLTAGE_CLAMP`",
+        ),
+        (
+            {"mode": "CURRENT_CLAMP", "holdingPotential": "-70 mV"},
+            "contradicts `mode: CURRENT_CLAMP`",
+        ),
         ({"mode": "ZERO_CURRENT", "holdingCurrent": "0 pA"}, "holds nothing"),
     ],
     ids=["voltage-clamp", "current-clamp", "zero-current"],
 )
-async def test_a_holding_level_may_not_contradict_the_clamp_mode(create_array_dataset, rig: dict, fragment: str):
+async def test_a_holding_level_may_not_contradict_the_clamp_mode(
+    create_array_dataset, rig: dict, fragment: str
+):
     """The holding level is the level of whatever was *clamped*: stating the other one is a contradiction, not extra information."""
-    result = await create_array_dataset("Contradiction", [1000, 2], axes=TC, anchors=[{"axisAnchors": [], "rig": rig}], raw=True)
+    result = await create_array_dataset(
+        "Contradiction",
+        [1000, 2],
+        axes=TC,
+        anchors=[{"axisAnchors": [], "rig": rig}],
+        raw=True,
+    )
     assert result.errors and fragment in str(result.errors[0])
     assert not await models.ArrayDataset.objects.filter(name="Contradiction").aexists()
 
 
-async def test_a_lens_reads_the_spokes_of_the_channels_it_keeps(aexecute, create_array_dataset, authenticated_context):
+async def test_a_lens_reads_the_spokes_of_the_channels_it_keeps(
+    aexecute, create_array_dataset, authenticated_context
+):
     """Every spoke kind this service has, on one dataset, read back through a lens that keeps one channel.
 
     The dataset-wide anchor is global along every axis, so it is always in; a channel's anchor
     is in only while the slice keeps that channel.
     """
     anchors = [
-        {"axisAnchors": [], "valueUnit": {"unit": "mV"}, "acquisitionMetadata": {"metadataString": '{"protocol": "IV"}'}},
+        {
+            "axisAnchors": [],
+            "valueUnit": {"unit": "mV"},
+            "acquisitionMetadata": {"metadataString": '{"protocol": "IV"}'},
+        },
         {"axisAnchors": [{"axis": "c", "value": 0}], "label": {"label": "Vm"}},
-        {"axisAnchors": [{"axis": "c", "value": 1}], "label": {"label": "Icmd"}, "valueUnit": {"unit": "pA"}},
+        {
+            "axisAnchors": [{"axis": "c", "value": 1}],
+            "label": {"label": "Icmd"},
+            "valueUnit": {"unit": "pA"},
+        },
     ]
     created = await create_array_dataset("Paired", [1000, 2], axes=TC, anchors=anchors)
     dataset = await models.ArrayDataset.objects.aget(pk=created["id"])
 
-    command_only = await seed.create_lens(authenticated_context, dataset, slices=[{"axis": "c", "start": 1, "stop": 2}])
+    command_only = await seed.create_lens(
+        authenticated_context, dataset, slices=[{"axis": "c", "start": 1, "stop": 2}]
+    )
     read = await aexecute(ACTIVE_ANCHORS, {"id": str(command_only.pk)})
     assert not read.errors, read.errors
-    by_coordinates = {str(anchor["coordinates"]): anchor for anchor in read.data["lens"]["activeAnchors"]}
+    by_coordinates = {
+        str(anchor["coordinates"]): anchor
+        for anchor in read.data["lens"]["activeAnchors"]
+    }
 
-    assert set(by_coordinates) == {"{}", "{'c': 1}"}, "channel 0's label is outside the slice"
+    assert set(by_coordinates) == {"{}", "{'c': 1}"}, (
+        "channel 0's label is outside the slice"
+    )
     assert by_coordinates["{}"]["valueUnit"]["unit"] == "mV"
     assert by_coordinates["{}"]["acquisitionMetadata"]["metadata"] == {"protocol": "IV"}
     assert by_coordinates["{'c': 1}"]["channelLabel"]["label"] == "Icmd"
-    assert by_coordinates["{'c': 1}"]["valueUnit"] == {"unit": "pA", "dimension": "[current]"}
-    assert all(anchor["rig"] is None for anchor in by_coordinates.values()), "an unstated spoke is null, not an empty state"
+    assert by_coordinates["{'c': 1}"]["valueUnit"] == {
+        "unit": "pA",
+        "dimension": "[current]",
+    }
+    assert all(anchor["rig"] is None for anchor in by_coordinates.values()), (
+        "an unstated spoke is null, not an empty state"
+    )
 
 
 async def test_acquisition_metadata_must_be_a_json_object(create_array_dataset):
-    for bad, fragment in (("not json", "is not valid JSON"), ("[1, 2]", "must be a JSON object")):
-        result = await create_array_dataset("Meta", [10], anchors=[{"axisAnchors": [], "acquisitionMetadata": {"metadataString": bad}}], raw=True)
+    for bad, fragment in (
+        ("not json", "is not valid JSON"),
+        ("[1, 2]", "must be a JSON object"),
+    ):
+        result = await create_array_dataset(
+            "Meta",
+            [10],
+            anchors=[
+                {"axisAnchors": [], "acquisitionMetadata": {"metadataString": bad}}
+            ],
+            raw=True,
+        )
         assert result.errors and fragment in str(result.errors[0]), bad
     assert not await models.ArrayDataset.objects.filter(name="Meta").aexists()
 
@@ -196,28 +295,60 @@ async def test_acquisition_metadata_must_be_a_json_object(create_array_dataset):
 
 async def test_an_anchor_may_not_name_an_axis_twice(create_array_dataset):
     """One position per axis; a second position is a second anchor."""
-    twice = {"axisAnchors": [{"axis": "c", "value": 0}, {"axis": "c", "value": 1}], "label": {"label": "both"}}
-    result = await create_array_dataset("Twice", [1000, 2], axes=TC, anchors=[twice], raw=True)
+    twice = {
+        "axisAnchors": [{"axis": "c", "value": 0}, {"axis": "c", "value": 1}],
+        "label": {"label": "both"},
+    }
+    result = await create_array_dataset(
+        "Twice", [1000, 2], axes=TC, anchors=[twice], raw=True
+    )
     assert result.errors and "An anchor names an axis once" in str(result.errors[0])
     assert not await models.ArrayDataset.objects.filter(name="Twice").aexists()
 
 
 async def test_an_anchor_may_not_name_an_axis_the_dataset_lacks(create_array_dataset):
-    result = await create_array_dataset("Unknown", [1000, 2], axes=TC, anchors=[{"axisAnchors": [{"axis": "sweep", "value": 3}], "label": {"label": "s3"}}], raw=True)
-    assert result.errors and "['sweep'] is not among ['t', 'c']" in str(result.errors[0])
+    result = await create_array_dataset(
+        "Unknown",
+        [1000, 2],
+        axes=TC,
+        anchors=[
+            {"axisAnchors": [{"axis": "sweep", "value": 3}], "label": {"label": "s3"}}
+        ],
+        raw=True,
+    )
+    assert result.errors and "['sweep'] is not among ['t', 'c']" in str(
+        result.errors[0]
+    )
     assert not await models.ArrayDataset.objects.filter(name="Unknown").aexists()
 
 
 async def test_two_anchors_may_not_share_their_coordinates(create_array_dataset):
     """A spoke is one-to-one with its anchor, so a second anchor at the same place is a rival answer to the first."""
-    rivals = [{"axisAnchors": [], "valueUnit": {"unit": "mV"}}, {"axisAnchors": [], "acquisitionMetadata": {"metadataString": "{}"}}]
-    result = await create_array_dataset("Rivals", [1000, 2], axes=TC, anchors=rivals, raw=True)
-    assert result.errors and "Two anchors are pinned to the same coordinates {} (the whole dataset)" in str(result.errors[0])
+    rivals = [
+        {"axisAnchors": [], "valueUnit": {"unit": "mV"}},
+        {"axisAnchors": [], "acquisitionMetadata": {"metadataString": "{}"}},
+    ]
+    result = await create_array_dataset(
+        "Rivals", [1000, 2], axes=TC, anchors=rivals, raw=True
+    )
+    assert (
+        result.errors
+        and "Two anchors are pinned to the same coordinates {} (the whole dataset)"
+        in str(result.errors[0])
+    )
     assert not await models.ArrayDataset.objects.filter(name="Rivals").aexists()
 
     # The same two spokes on the one anchor are what the refusal asks for.
-    merged = [{"axisAnchors": [], "valueUnit": {"unit": "mV"}, "acquisitionMetadata": {"metadataString": "{}"}}]
-    accepted = await create_array_dataset("Rivals", [1000, 2], axes=TC, anchors=merged, raw=True)
+    merged = [
+        {
+            "axisAnchors": [],
+            "valueUnit": {"unit": "mV"},
+            "acquisitionMetadata": {"metadataString": "{}"},
+        }
+    ]
+    accepted = await create_array_dataset(
+        "Rivals", [1000, 2], axes=TC, anchors=merged, raw=True
+    )
     assert not accepted.errors, accepted.errors
 
 
@@ -233,38 +364,67 @@ query Within($id: ID!, $within: [AnchorWindowInput!], $pagination: OffsetPaginat
 """
 
 
-async def _channel_and_time_anchors(create_array_dataset, authenticated_context) -> models.Lens:  # noqa: ANN001
+async def _channel_and_time_anchors(
+    create_array_dataset, authenticated_context
+) -> models.Lens:  # noqa: ANN001
     anchors = [
         {"axisAnchors": [], "valueUnit": {"unit": "mV"}},
         {"axisAnchors": [{"axis": "c", "value": 0}], "label": {"label": "Vm"}},
         {"axisAnchors": [{"axis": "c", "value": 1}], "label": {"label": "Icmd"}},
-        {"axisAnchors": [{"axis": "t", "value": 100}, {"axis": "c", "value": 0}], "label": {"label": "Vm (early)"}},
-        {"axisAnchors": [{"axis": "t", "value": 600}, {"axis": "c", "value": 0}], "label": {"label": "Vm (late)"}},
+        {
+            "axisAnchors": [{"axis": "t", "value": 100}, {"axis": "c", "value": 0}],
+            "label": {"label": "Vm (early)"},
+        },
+        {
+            "axisAnchors": [{"axis": "t", "value": 600}, {"axis": "c", "value": 0}],
+            "label": {"label": "Vm (late)"},
+        },
     ]
     created = await create_array_dataset("Paired", [1000, 2], axes=TC, anchors=anchors)
     dataset = await models.ArrayDataset.objects.aget(pk=created["id"])
     return await seed.create_lens(authenticated_context, dataset)
 
 
-async def test_within_narrows_a_lens_to_one_channel_and_a_time_window(aexecute, create_array_dataset, authenticated_context):
+async def test_within_narrows_a_lens_to_one_channel_and_a_time_window(
+    aexecute, create_array_dataset, authenticated_context
+):
     """What a trace row's card asks: the anchors on this channel, in the samples on screen -- not every anchor of the recording."""
     lens = await _channel_and_time_anchors(create_array_dataset, authenticated_context)
 
-    read = await aexecute(WITHIN, {"id": str(lens.pk), "within": [{"axis": "c", "min": 0, "max": 0}, {"axis": "t", "min": 0, "max": 500}]})
+    read = await aexecute(
+        WITHIN,
+        {
+            "id": str(lens.pk),
+            "within": [
+                {"axis": "c", "min": 0, "max": 0},
+                {"axis": "t", "min": 0, "max": 500},
+            ],
+        },
+    )
     assert not read.errors, read.errors
-    coordinates = [anchor["coordinates"] for anchor in read.data["lens"]["activeAnchors"]]
+    coordinates = [
+        anchor["coordinates"] for anchor in read.data["lens"]["activeAnchors"]
+    ]
 
-    assert coordinates == [{}, {"c": 0}, {"t": 100, "c": 0}], "global anchors are inside any window; channel 1 and the late anchor are out"
+    assert coordinates == [{}, {"c": 0}, {"t": 100, "c": 0}], (
+        "global anchors are inside any window; channel 1 and the late anchor are out"
+    )
 
 
-async def test_active_anchors_page_oldest_first(aexecute, create_array_dataset, authenticated_context):
+async def test_active_anchors_page_oldest_first(
+    aexecute, create_array_dataset, authenticated_context
+):
     lens = await _channel_and_time_anchors(create_array_dataset, authenticated_context)
 
     pages = []
     for offset in (0, 2, 4):
-        read = await aexecute(WITHIN, {"id": str(lens.pk), "pagination": {"offset": offset, "limit": 2}})
+        read = await aexecute(
+            WITHIN, {"id": str(lens.pk), "pagination": {"offset": offset, "limit": 2}}
+        )
         assert not read.errors, read.errors
-        pages.append([anchor["coordinates"] for anchor in read.data["lens"]["activeAnchors"]])
+        pages.append(
+            [anchor["coordinates"] for anchor in read.data["lens"]["activeAnchors"]]
+        )
 
     assert [len(page) for page in pages] == [2, 2, 1]
     assert pages[0][0] == {}, "the oldest anchor, the dataset-wide one, comes first"

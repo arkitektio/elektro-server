@@ -22,36 +22,81 @@ mutation ($input: CreateSeriesLayerInput!) {
 """
 
 WHEEL = [
-    {"name": "t", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "TIME", "unit": "second"},
-    {"name": "speed", "dtype": "DOUBLE", "role": "ATTRIBUTE", "unit": "centimeter / second"},
+    {
+        "name": "t",
+        "dtype": "DOUBLE",
+        "role": "COORDINATE",
+        "axisType": "TIME",
+        "unit": "second",
+    },
+    {
+        "name": "speed",
+        "dtype": "DOUBLE",
+        "role": "ATTRIBUTE",
+        "unit": "centimeter / second",
+    },
     {"name": "wheel", "dtype": "VARCHAR", "role": "GROUP_ID"},
 ]
 
 TTL = [
-    {"name": "t", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "TIME", "unit": "second"},
+    {
+        "name": "t",
+        "dtype": "DOUBLE",
+        "role": "COORDINATE",
+        "axisType": "TIME",
+        "unit": "second",
+    },
     {"name": "stop", "dtype": "DOUBLE", "role": "ATTRIBUTE", "unit": "second"},
     {"name": "line", "dtype": "VARCHAR", "role": "LABEL"},
 ]
 
 
 async def _placed(aexecute, ctx, name: str, columns: list[dict], clock) -> dict:  # noqa: ANN001
-    created = await aexecute(CREATE_TABLE, {"input": await seed.table_input(ctx, name, columns)})
+    created = await aexecute(
+        CREATE_TABLE, {"input": await seed.table_input(ctx, name, columns)}
+    )
     assert not created.errors, created.errors
     table = created.data["createTableDataset"]
-    space = await models.CoordinateSystem.objects.aget(pk=table["coordinateSystem"]["id"])
+    space = await models.CoordinateSystem.objects.aget(
+        pk=table["coordinateSystem"]["id"]
+    )
     await seed.offset_onto(ctx, space, clock, "0 s")
     return table
 
 
-async def test_a_wheel_table_is_drawn_as_a_line_over_time(aexecute, authenticated_context):
+async def test_a_wheel_table_is_drawn_as_a_line_over_time(
+    aexecute, authenticated_context
+):
     clock = await seed.create_clock(authenticated_context, "session")
     wheel = await _placed(aexecute, authenticated_context, "wheel", WHEEL, clock)
-    experiment = await models.Experiment.objects.acreate(name="E", world=clock, creator=authenticated_context.request.user, organization=authenticated_context.request.organization)
+    experiment = await models.Experiment.objects.acreate(
+        name="E",
+        world=clock,
+        creator=authenticated_context.request.user,
+        organization=authenticated_context.request.organization,
+    )
 
-    res = await aexecute(CREATE_SERIES, {"input": {"experiment": str(experiment.pk), "tableDataset": wheel["id"], "interpolation": "STEP", "laneColumn": "wheel"}})
+    res = await aexecute(
+        CREATE_SERIES,
+        {
+            "input": {
+                "experiment": str(experiment.pk),
+                "tableDataset": wheel["id"],
+                "interpolation": "STEP",
+                "laneColumn": "wheel",
+            }
+        },
+    )
     assert not res.errors, res.errors
     layer = res.data["createSeriesLayer"]
-    assert (layer["kind"], layer["timeColumn"], layer["valueColumn"], layer["interpolation"], layer["laneColumn"], layer["placement"]) == (
+    assert (
+        layer["kind"],
+        layer["timeColumn"],
+        layer["valueColumn"],
+        layer["interpolation"],
+        layer["laneColumn"],
+        layer["placement"],
+    ) == (
         "SERIES",
         "t",
         "speed",
@@ -63,26 +108,58 @@ async def test_a_wheel_table_is_drawn_as_a_line_over_time(aexecute, authenticate
 
 @pytest.mark.parametrize(
     ("value", "refusal"),
-    [("t", "the table's TIME column"), ("wheel", "whose type is VARCHAR"), ("nope", "declares")],
+    [
+        ("t", "the table's TIME column"),
+        ("wheel", "whose type is VARCHAR"),
+        ("nope", "declares"),
+    ],
     ids=["time", "text", "missing"],
 )
-async def test_the_value_is_a_numeric_column_that_is_not_the_time(aexecute, authenticated_context, value, refusal):
+async def test_the_value_is_a_numeric_column_that_is_not_the_time(
+    aexecute, authenticated_context, value, refusal
+):
     clock = await seed.create_clock(authenticated_context, "session")
     wheel = await _placed(aexecute, authenticated_context, "wheel", WHEEL, clock)
-    experiment = await models.Experiment.objects.acreate(name="E", world=clock, creator=authenticated_context.request.user, organization=authenticated_context.request.organization)
-    res = await aexecute(CREATE_SERIES, {"input": {"experiment": str(experiment.pk), "tableDataset": wheel["id"], "valueColumn": value}})
+    experiment = await models.Experiment.objects.acreate(
+        name="E",
+        world=clock,
+        creator=authenticated_context.request.user,
+        organization=authenticated_context.request.organization,
+    )
+    res = await aexecute(
+        CREATE_SERIES,
+        {
+            "input": {
+                "experiment": str(experiment.pk),
+                "tableDataset": wheel["id"],
+                "valueColumn": value,
+            }
+        },
+    )
     assert res.errors and refusal in str(res.errors[0]), res.errors
 
 
-async def test_a_table_with_no_single_value_needs_it_named(aexecute, authenticated_context):
+async def test_a_table_with_no_single_value_needs_it_named(
+    aexecute, authenticated_context
+):
     clock = await seed.create_clock(authenticated_context, "session")
     ttl = await _placed(aexecute, authenticated_context, "TTL", TTL, clock)
-    experiment = await models.Experiment.objects.acreate(name="E", world=clock, creator=authenticated_context.request.user, organization=authenticated_context.request.organization)
-    res = await aexecute(CREATE_SERIES, {"input": {"experiment": str(experiment.pk), "tableDataset": ttl["id"]}})
+    experiment = await models.Experiment.objects.acreate(
+        name="E",
+        world=clock,
+        creator=authenticated_context.request.user,
+        organization=authenticated_context.request.organization,
+    )
+    res = await aexecute(
+        CREATE_SERIES,
+        {"input": {"experiment": str(experiment.pk), "tableDataset": ttl["id"]}},
+    )
     assert res.errors and "name the `valueColumn`" in str(res.errors[0])
 
 
-async def test_the_bootstrap_tells_a_series_from_a_list_of_events(aexecute, authenticated_context):
+async def test_the_bootstrap_tells_a_series_from_a_list_of_events(
+    aexecute, authenticated_context
+):
     clock = await seed.create_clock(authenticated_context, "session")
     await _placed(aexecute, authenticated_context, "wheel", WHEEL, clock)
     await _placed(aexecute, authenticated_context, "TTL", TTL, clock)

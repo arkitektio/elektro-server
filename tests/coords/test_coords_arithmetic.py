@@ -39,7 +39,9 @@ PYRAMID_SHAPES = [
 
 
 def _level_transform(level: int) -> tuple[list[float], list[float]]:
-    return coords.pyramid_transform(PYRAMID_SHAPES[0], PYRAMID_SHAPES[level], _AXIS_SPECS)
+    return coords.pyramid_transform(
+        PYRAMID_SHAPES[0], PYRAMID_SHAPES[level], _AXIS_SPECS
+    )
 
 
 # --- 1. the assertion that matters ----------------------------------------
@@ -57,7 +59,11 @@ def test_extent_preserved():
     for level in range(len(PYRAMID_SHAPES)):
         scale, _ = _level_transform(level)
         for i in range(len(_AXIS_SPECS)):
-            assert scale[i] * PYRAMID_SHAPES[level][i] == approx(PYRAMID_SHAPES[0][i]), f"level {level} axis '{_AXIS_SPECS[i].name}' does not cover the same extent as level 0"
+            assert scale[i] * PYRAMID_SHAPES[level][i] == approx(
+                PYRAMID_SHAPES[0][i]
+            ), (
+                f"level {level} axis '{_AXIS_SPECS[i].name}' does not cover the same extent as level 0"
+            )
 
 
 def test_z_factor_is_not_a_power_of_two():
@@ -75,7 +81,9 @@ def test_z_factor_is_not_a_power_of_two():
         assert scale[z] == approx(want), f"level {level} z scale"
 
     nominal = [float(2**level) for level in range(6)]
-    assert expected[3:] != nominal[3:], "the fixture must actually exercise a non-power-of-two axis, or this proves nothing"
+    assert expected[3:] != nominal[3:], (
+        "the fixture must actually exercise a non-power-of-two axis, or this proves nothing"
+    )
 
 
 def test_half_voxel_offset_is_recorded():
@@ -86,13 +94,17 @@ def test_half_voxel_offset_is_recorded():
     faint shimmer when the renderer crossed a level boundary.
     """
     _, translation = _level_transform(0)
-    assert translation == [0.0] * len(_AXIS_SPECS), "level 0 is not downsampled and must not be offset"
+    assert translation == [0.0] * len(_AXIS_SPECS), (
+        "level 0 is not downsampled and must not be offset"
+    )
 
     for level in range(1, len(PYRAMID_SHAPES)):
         _, translation = _level_transform(level)
         for i, spec in enumerate(_AXIS_SPECS):
             factor = PYRAMID_SHAPES[0][i] / PYRAMID_SHAPES[level][i]
-            assert translation[i] == approx((factor - 1) / 2), f"level {level} axis '{spec.name}' half-voxel offset"
+            assert translation[i] == approx((factor - 1) / 2), (
+                f"level {level} axis '{spec.name}' half-voxel offset"
+            )
 
 
 def test_categorical_axes_are_never_downsampled():
@@ -110,7 +122,9 @@ def test_continuous_axes_may_be_downsampled():
     axes (channel and friends) are protected.
     """
     strided_time = [5, 2, 18, 512, 512]  # t 10 -> 5, spatial halved too
-    scale, translation = coords.pyramid_transform(PYRAMID_SHAPES[0], strided_time, _AXIS_SPECS)
+    scale, translation = coords.pyramid_transform(
+        PYRAMID_SHAPES[0], strided_time, _AXIS_SPECS
+    )
     assert scale[0] == approx(2.0)
     assert translation[0] == approx(0.5)
 
@@ -119,9 +133,13 @@ def test_continuous_axes_may_be_downsampled():
         coords.AxisSpec(name="t", type=enums.AxisTypeChoices.TIME.value),
         coords.AxisSpec(name="c", type=enums.AxisTypeChoices.CHANNEL.value),
     ]
-    scale, translation = coords.pyramid_transform([30000, 384], [7500, 384], dataset_axes)
+    scale, translation = coords.pyramid_transform(
+        [30000, 384], [7500, 384], dataset_axes
+    )
     assert scale == [approx(4.0), approx(1.0)]
-    assert translation == [approx(1.5), approx(0.0)], "sample 0 of the decimated dataset sits at the centre of raw samples 0..3"
+    assert translation == [approx(1.5), approx(0.0)], (
+        "sample 0 of the decimated dataset sits at the centre of raw samples 0..3"
+    )
 
 
 def test_a_frequency_axis_is_continuous():
@@ -143,19 +161,27 @@ def test_a_frequency_axis_is_continuous():
 def test_a_frequency_axis_carries_an_inverse_time_unit():
     """A frequency is one over a time. A frequency axis calibrated in seconds is not a
     slightly-off calibration, it is a lie the arithmetic would happily propagate."""
-    coords.assert_unit_matches_type("f", enums.AxisTypeChoices.FREQUENCY.value, "kilohertz")
+    coords.assert_unit_matches_type(
+        "f", enums.AxisTypeChoices.FREQUENCY.value, "kilohertz"
+    )
     coords.assert_unit_matches_type("f", enums.AxisTypeChoices.FREQUENCY.value, "1/ms")
 
     with pytest.raises(coords.AxisUnitError, match=r"must measure 1 / \[time\]"):
-        coords.assert_unit_matches_type("f", enums.AxisTypeChoices.FREQUENCY.value, "millisecond")
+        coords.assert_unit_matches_type(
+            "f", enums.AxisTypeChoices.FREQUENCY.value, "millisecond"
+        )
 
 
 def test_a_time_axis_refuses_a_value_unit():
     """The unit of a dataset's *values* (mV, pA) is never an axis unit: an axis says where a sample is, not what it measured."""
-    coords.assert_unit_matches_type("t", enums.AxisTypeChoices.TIME.value, "millisecond")
+    coords.assert_unit_matches_type(
+        "t", enums.AxisTypeChoices.TIME.value, "millisecond"
+    )
 
     with pytest.raises(coords.AxisUnitError, match=r"must measure \[time\]"):
-        coords.assert_unit_matches_type("t", enums.AxisTypeChoices.TIME.value, "millivolt")
+        coords.assert_unit_matches_type(
+            "t", enums.AxisTypeChoices.TIME.value, "millivolt"
+        )
 
 
 def test_half_voxel_convention():
@@ -243,7 +269,9 @@ def test_stepped_lens_rescales_as_well_as_offsets():
         def __init__(self, axis, start=None, stop=None, step=None):
             self.axis, self.start, self.stop, self.step = axis, start, stop, step
 
-    kind, params = coords.lens_to_parent(["z", "y", "x"], [_Slice("x", start=10, step=2)])
+    kind, params = coords.lens_to_parent(
+        ["z", "y", "x"], [_Slice("x", start=10, step=2)]
+    )
 
     assert kind == enums.TransformKindChoices.SEQUENCE.value
     assert params["scale"] == [1.0, 1.0, 2.0]
@@ -258,7 +286,9 @@ def test_lens_roundtrip():
             self.axis, self.start, self.stop, self.step = axis, start, stop, step
 
     dims = ["z", "y", "x"]
-    kind, params = coords.lens_to_parent(dims, [_Slice("z", start=4), _Slice("x", start=7)])
+    kind, params = coords.lens_to_parent(
+        dims, [_Slice("z", start=4), _Slice("x", start=7)]
+    )
 
     forward = coords.compose([(kind, params)], 3)
     point = [3.0, 5.0, 2.0]
@@ -282,10 +312,12 @@ def test_lens_shape_follows_python_slice_semantics():
         def __init__(self, axis, start=None, stop=None, step=None):
             self.axis, self.start, self.stop, self.step = axis, start, stop, step
 
-    shape = coords.lens_shape([36, 1024, 1024], ["z", "y", "x"], [_Slice("z", start=4, stop=32), _Slice("x", step=2)])
+    shape = coords.lens_shape(
+        [36, 1024, 1024],
+        ["z", "y", "x"],
+        [_Slice("z", start=4, stop=32), _Slice("x", step=2)],
+    )
     assert shape == [28, 1024, 512]
-
-
 
 
 # --- 8. inverting a step, and condensing a path -------------------------------
@@ -304,7 +336,11 @@ def _flat(matrix) -> list[float]:
 
 def _apply_forms(forms: dict[str, coords.AxedForm], axes, point) -> dict[str, float]:
     """Push a point through composed functionals, one output axis at a time."""
-    return {axis: sum(factor * value for factor, value in zip(form.coefficients, point)) + form.constant for axis, form in forms.items()}
+    return {
+        axis: sum(factor * value for factor, value in zip(form.coefficients, point))
+        + form.constant
+        for axis, form in forms.items()
+    }
 
 
 def test_invert_matrix_is_the_inverse():
@@ -353,31 +389,63 @@ def test_singularity_is_judged_relative_to_the_matrix_own_scale():
     of the first matrix here is 1e-14, which no fixed threshold can tell from a collapse.
     """
     tiny = [[1e-7, 0.0], [0.0, 1e-7]]
-    assert not coords.is_singular(tiny), "a genuinely invertible map with small entries is not singular"
+    assert not coords.is_singular(tiny), (
+        "a genuinely invertible map with small entries is not singular"
+    )
 
     huge_and_collapsed = [[1e7, 1e7], [1e7, 1e7]]
-    assert coords.is_singular(huge_and_collapsed), "a collapsed map is singular however large its entries"
+    assert coords.is_singular(huge_and_collapsed), (
+        "a collapsed map is singular however large its entries"
+    )
 
     # And the case a determinant gets exactly backwards: determinant 1.0, and still not a map
     # anything can invert -- fourteen orders of magnitude between the axes leaves float64 no
     # digits to answer with. Refusing it is the honest answer, not a conservative one.
     unusable = [[1e7, 0.0], [0.0, 1e-7]]
-    assert coords.is_singular(unusable), "a determinant of 1.0 does not make a matrix usable"
+    assert coords.is_singular(unusable), (
+        "a determinant of 1.0 does not make a matrix usable"
+    )
 
 
 @pytest.mark.parametrize(
     "step",
     [
-        coords.AxedStep(kind=enums.TransformKindChoices.IDENTITY.value, params={}, input_axes=("y", "x"), output_axes=("y", "x")),
-        coords.AxedStep(kind=enums.TransformKindChoices.TRANSLATION.value, params={"translation": [10.0, -4.0]}, input_axes=("y", "x"), output_axes=("y", "x")),
-        coords.AxedStep(kind=enums.TransformKindChoices.SCALE.value, params={"scale": [0.5, 4.0]}, input_axes=("y", "x"), output_axes=("y", "x")),
-        coords.AxedStep(kind=enums.TransformKindChoices.AFFINE.value, params={"affine": [[0.0, 1.0, 5.0], [1.0, 0.0, -2.0]]}, input_axes=("y", "x"), output_axes=("y", "x")),
+        coords.AxedStep(
+            kind=enums.TransformKindChoices.IDENTITY.value,
+            params={},
+            input_axes=("y", "x"),
+            output_axes=("y", "x"),
+        ),
+        coords.AxedStep(
+            kind=enums.TransformKindChoices.TRANSLATION.value,
+            params={"translation": [10.0, -4.0]},
+            input_axes=("y", "x"),
+            output_axes=("y", "x"),
+        ),
+        coords.AxedStep(
+            kind=enums.TransformKindChoices.SCALE.value,
+            params={"scale": [0.5, 4.0]},
+            input_axes=("y", "x"),
+            output_axes=("y", "x"),
+        ),
+        coords.AxedStep(
+            kind=enums.TransformKindChoices.AFFINE.value,
+            params={"affine": [[0.0, 1.0, 5.0], [1.0, 0.0, -2.0]]},
+            input_axes=("y", "x"),
+            output_axes=("y", "x"),
+        ),
         coords.AxedStep(
             kind=enums.TransformKindChoices.SEQUENCE.value,
             params={},
             input_axes=("y", "x"),
             output_axes=("y", "x"),
-            children=((enums.TransformKindChoices.SCALE.value, {"scale": [2.0, 2.0]}), (enums.TransformKindChoices.TRANSLATION.value, {"translation": [0.5, 0.5]})),
+            children=(
+                (enums.TransformKindChoices.SCALE.value, {"scale": [2.0, 2.0]}),
+                (
+                    enums.TransformKindChoices.TRANSLATION.value,
+                    {"translation": [0.5, 0.5]},
+                ),
+            ),
         ),
         coords.AxedStep(
             kind=enums.TransformKindChoices.MAP_AXIS.value,
@@ -408,7 +476,16 @@ def test_singularity_is_judged_relative_to_the_matrix_own_scale():
             acts_on_output=("y", "x"),
         ),
     ],
-    ids=["identity", "translation", "scale", "affine", "sequence", "map_axis", "by_dimension", "by_dimension_affine"],
+    ids=[
+        "identity",
+        "translation",
+        "scale",
+        "affine",
+        "sequence",
+        "map_axis",
+        "by_dimension",
+        "by_dimension_affine",
+    ],
 )
 def test_inverting_a_step_undoes_it(step: coords.AxedStep):
     """Every invertible kind: forward then back is the identity on a point, not merely on paper.
@@ -423,15 +500,25 @@ def test_inverting_a_step_undoes_it(step: coords.AxedStep):
 
     inverse = coords.invert_step(step)
     back = coords.compose_forms([inverse], list(inverse.input_axes))
-    returned = _apply_forms(back, inverse.input_axes, [moved[axis] for axis in inverse.input_axes])
+    returned = _apply_forms(
+        back, inverse.input_axes, [moved[axis] for axis in inverse.input_axes]
+    )
 
     assert [returned[axis] for axis in step.input_axes] == approx(point, abs=1e-9)
 
 
-@pytest.mark.parametrize("kind", [enums.TransformKindChoices.FIELD.value, enums.TransformKindChoices.UNMAPPABLE.value])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        enums.TransformKindChoices.FIELD.value,
+        enums.TransformKindChoices.UNMAPPABLE.value,
+    ],
+)
 def test_the_kinds_with_no_inverse_refuse_to_be_inverted(kind: str):
     """Unreachable through the walk -- `is_reverse_traversable` excludes both -- and guarded anyway."""
-    step = coords.AxedStep(kind=kind, params={}, input_axes=("y", "x"), output_axes=("y", "x"))
+    step = coords.AxedStep(
+        kind=kind, params={}, input_axes=("y", "x"), output_axes=("y", "x")
+    )
     with pytest.raises(coords.NonAffineTransformError):
         coords.invert_step(step)
 
@@ -450,10 +537,15 @@ def test_a_sequence_composes_its_children_rather_than_its_own_empty_params():
         params={},
         input_axes=("y", "x"),
         output_axes=("y", "x"),
-        children=((enums.TransformKindChoices.SCALE.value, {"scale": [2.0, 2.0]}), (enums.TransformKindChoices.TRANSLATION.value, {"translation": [0.5, 0.5]})),
+        children=(
+            (enums.TransformKindChoices.SCALE.value, {"scale": [2.0, 2.0]}),
+            (enums.TransformKindChoices.TRANSLATION.value, {"translation": [0.5, 0.5]}),
+        ),
     )
     forms = coords.compose_forms([step], ["y", "x"])
-    assert _apply_forms(forms, ("y", "x"), [10.0, 20.0]) == approx({"y": 20.5, "x": 40.5})
+    assert _apply_forms(forms, ("y", "x"), [10.0, 20.0]) == approx(
+        {"y": 20.5, "x": 40.5}
+    )
 
 
 def test_a_rank_changing_affine_composes_from_its_own_rows():
@@ -473,8 +565,12 @@ def test_a_rank_changing_affine_composes_from_its_own_rows():
         output_axes=("z", "y", "x"),
     )
     forms = coords.compose_forms([step], ["y", "x"])
-    assert sorted(forms) == ["x", "y", "z"], "every output axis the matrix has a row for is constrained"
-    assert _apply_forms(forms, ("y", "x"), [8.0, 5.0]) == approx({"z": 5.0, "y": 8.0, "x": 5.0})
+    assert sorted(forms) == ["x", "y", "z"], (
+        "every output axis the matrix has a row for is constrained"
+    )
+    assert _apply_forms(forms, ("y", "x"), [8.0, 5.0]) == approx(
+        {"z": 5.0, "y": 8.0, "x": 5.0}
+    )
 
 
 def test_forms_to_matrix_gives_no_row_to_an_axis_the_path_says_nothing_about():
@@ -495,12 +591,11 @@ def test_forms_to_matrix_gives_no_row_to_an_axis_the_path_says_nothing_about():
     forms = coords.compose_forms([step], ["c", "y", "x"])
     matrix, rows = coords.forms_to_matrix(forms, ["t", "z", "y", "x"])
 
-    assert rows == ["y", "x"], "the world's t and z are untouched by this registration, so they get no row"
+    assert rows == ["y", "x"], (
+        "the world's t and z are untouched by this registration, so they get no row"
+    )
     # Columns are the source axes (c, y, x), plus the translation column.
     assert _flat(matrix) == approx(_flat([[0.0, 2.0, 0.0, 0.0], [0.0, 0.0, 2.0, 0.0]]))
-
-
-
 
 
 def test_an_identity_between_two_units_is_not_a_claim_that_they_are_equal():
@@ -529,7 +624,12 @@ def test_the_same_unit_on_both_sides_changes_nothing():
     """The whole safety argument for shipping the conversion: where the units agree -- or
     where either side has none, which is every stored edge in the deployment today -- the
     factor is exactly 1.0 and the answer is the one composed before there were units here."""
-    for units in (("micrometer", "micrometer"), (None, "micrometer"), ("micrometer", None), (None, None)):
+    for units in (
+        ("micrometer", "micrometer"),
+        (None, "micrometer"),
+        ("micrometer", None),
+        (None, None),
+    ):
         step = coords.AxedStep(
             kind=enums.TransformKindChoices.IDENTITY.value,
             params={},
@@ -561,8 +661,12 @@ def test_a_by_dimension_converts_the_axes_it_passes_through_and_not_the_ones_it_
         acts_on_output=("y", "x"),
     )
     forms = coords.step_forms(step)
-    assert forms["z"].coefficients == approx((0.001, 0.0, 0.0)), "the unnamed axis converts"
-    assert forms["y"].coefficients == approx((0.0, 2.0, 0.0)), "the named axis keeps the author's number"
+    assert forms["z"].coefficients == approx((0.001, 0.0, 0.0)), (
+        "the unnamed axis converts"
+    )
+    assert forms["y"].coefficients == approx((0.0, 2.0, 0.0)), (
+        "the named axis keeps the author's number"
+    )
 
 
 def test_two_units_with_no_conversion_between_them_leave_the_axis_unplaced():
@@ -594,17 +698,20 @@ def test_an_inverted_step_converts_the_other_way():
         input_units=("nanometer",),
         output_units=("micrometer",),
     )
-    assert coords.step_forms(coords.invert_step(step))["x"].coefficients == approx((1000.0,))
+    assert coords.step_forms(coords.invert_step(step))["x"].coefficients == approx(
+        (1000.0,)
+    )
 
 
 def test_an_arbitrary_unit_declines_the_claim_rather_than_conflicting_with_it():
-    """"a.u." means *no* calibration claim, and `assert_unit_matches_type` already reads it that
+    """ "a.u." means *no* calibration claim, and `assert_unit_matches_type` already reads it that
     way -- it short-circuits and checks nothing. Reading it as an incompatible dimension here
     would make one function treat the same string as "no claim" and the next as "these axes
     cannot be related", and would leave merely-uncalibrated data unplaced.
 
     `dimensionless` is deliberately on the other side of that line: a real pint unit and a real
     claim, with genuinely no conversion to a micrometre."""
+
     def factor(source, target):
         step = coords.AxedStep(
             kind=enums.TransformKindChoices.IDENTITY.value,
@@ -618,4 +725,6 @@ def test_an_arbitrary_unit_declines_the_claim_rather_than_conflicting_with_it():
 
     assert factor("a.u.", "micrometer").coefficients == approx((1.0,))
     assert factor("micrometer", "a.u.").coefficients == approx((1.0,))
-    assert factor("dimensionless", "micrometer") is None, "a real unit with no conversion stays absent"
+    assert factor("dimensionless", "micrometer") is None, (
+        "a real unit with no conversion stays absent"
+    )

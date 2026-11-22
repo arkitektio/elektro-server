@@ -6,12 +6,11 @@ so we keep it deliberately simple here.
 """
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Self
 
 import strawberry
-from strawberry.experimental import pydantic
 from pydantic import BaseModel, model_validator
-from typing_extensions import Self
+from strawberry.experimental import pydantic
 
 from core import scalars
 from core.units import dimensionality_of
@@ -33,28 +32,28 @@ _NUMERIC_KINDS = (ParameterKind.FLOAT, ParameterKind.INT)
 
 class ParameterModel(BaseModel):
     key: str
-    label: Optional[str] = None
+    label: str | None = None
     kind: ParameterKind = ParameterKind.FLOAT
-    description: Optional[str] = None
-    default: Optional[Any] = None
+    description: str | None = None
+    default: Any | None = None
     nullable: bool = False
     # Unit/Dimension validate a non-null value; None (the pre-units default) passes
     # straight through, so params persisted before units existed still hydrate.
-    reference_unit: Optional[pq.Unit] = None
-    proposed_units: Optional[list[pq.Unit]] = None
-    dimension: Optional[pq.Dimension] = None
+    reference_unit: pq.Unit | None = None
+    proposed_units: list[pq.Unit] | None = None
+    dimension: pq.Dimension | None = None
 
 
 class ParameterInputModel(BaseModel):
     key: str
-    label: Optional[str] = None
+    label: str | None = None
     kind: ParameterKind = ParameterKind.FLOAT
-    description: Optional[str] = None
-    default: Optional[Any] = None
+    description: str | None = None
+    default: Any | None = None
     nullable: bool = False
-    reference_unit: Optional[pq.Unit] = None
-    proposed_units: Optional[list[pq.Unit]] = None
-    dimension: Optional[pq.Dimension] = None
+    reference_unit: pq.Unit | None = None
+    proposed_units: list[pq.Unit] | None = None
+    dimension: pq.Dimension | None = None
 
     @model_validator(mode="after")
     def check_units(self) -> Self:
@@ -98,12 +97,12 @@ class ParameterInputModel(BaseModel):
 @pydantic.type(ParameterModel, description="A parameter port of a mechanism")
 class Parameter:
     key: str
-    label: Optional[str] = None
+    label: str | None = None
     kind: ParameterKind = ParameterKind.FLOAT
-    description: Optional[str] = None
-    default: Optional[scalars.Any] = None
+    description: str | None = None
+    default: scalars.Any | None = None
     nullable: bool = False
-    reference_unit: Optional[sq.Unit] = strawberry.field(
+    reference_unit: sq.Unit | None = strawberry.field(
         default=None,
         description=(
             "The canonical/reference unit of the parameter, e.g. 'mV' or 'S/cm2'. "
@@ -111,14 +110,14 @@ class Parameter:
             "still allowed."
         ),
     )
-    proposed_units: Optional[list[sq.Unit]] = strawberry.field(
+    proposed_units: list[sq.Unit] | None = strawberry.field(
         default=None,
         description=(
             "Units offered as a dropdown in the UI, e.g. ['S/cm2', 'mS/cm2']. "
             "Proposals only — any unit of the same dimension remains valid."
         ),
     )
-    dimension: Optional[sq.Dimension] = strawberry.field(
+    dimension: sq.Dimension | None = strawberry.field(
         default=None,
         description=(
             "The canonical pint dimensionality of the parameter's unit, e.g. "
@@ -130,12 +129,12 @@ class Parameter:
 @pydantic.input(ParameterInputModel, description="A parameter port of a mechanism")
 class ParameterInput:
     key: str
-    label: Optional[str] = None
+    label: str | None = None
     kind: ParameterKind = ParameterKind.FLOAT
-    description: Optional[str] = None
-    default: Optional[scalars.Any] = None
+    description: str | None = None
+    default: scalars.Any | None = None
     nullable: bool = False
-    reference_unit: Optional[sq.Unit] = strawberry.field(
+    reference_unit: sq.Unit | None = strawberry.field(
         default=None,
         description=(
             "The canonical/reference unit of the parameter, e.g. 'mV' or 'S/cm2'. "
@@ -143,14 +142,14 @@ class ParameterInput:
             "still allowed. Only valid for FLOAT and INT parameters."
         ),
     )
-    proposed_units: Optional[list[sq.Unit]] = strawberry.field(
+    proposed_units: list[sq.Unit] | None = strawberry.field(
         default=None,
         description=(
             "Units offered as a dropdown in the UI. Proposals only — each must "
             "share the reference_unit's dimension."
         ),
     )
-    dimension: Optional[sq.Dimension] = strawberry.field(
+    dimension: sq.Dimension | None = strawberry.field(
         default=None,
         description=(
             "The canonical pint dimensionality. Derived from reference_unit if "

@@ -7,8 +7,8 @@ per-kind ones refuse a layer of another kind, and nothing a layer draws goes wit
 """
 
 import pytest
-from django.db import IntegrityError
 from asgiref.sync import sync_to_async
+from django.db import IntegrityError
 
 from core import models
 from tests import seed
@@ -39,25 +39,69 @@ async def _staged(ctx):  # noqa: ANN001, ANN202
     await seed.time_on(ctx, vm.coordinate_system, session, rate="30 kHz")
     raster = await seed.create_sparse_dataset(ctx, "spikes")
     await seed.time_on(ctx, raster.coordinate_system, session, rate="30 kHz")
-    experiment = await models.Experiment.objects.acreate(name="E", world=session, creator=ctx.request.user, organization=ctx.request.organization)
+    experiment = await models.Experiment.objects.acreate(
+        name="E",
+        world=session,
+        creator=ctx.request.user,
+        organization=ctx.request.organization,
+    )
     lens = await seed.create_lens(ctx, vm)
     return experiment, vm, lens, raster
 
 
-async def test_the_generic_create_adds_a_layer_of_any_kind(aexecute, authenticated_context):
+async def test_the_generic_create_adds_a_layer_of_any_kind(
+    aexecute, authenticated_context
+):
     experiment, _, lens, raster = await _staged(authenticated_context)
-    trace = await aexecute(CREATE_LAYER, {"input": {"experiment": str(experiment.pk), "kind": "TRACE", "lens": str(lens.pk)}})
+    trace = await aexecute(
+        CREATE_LAYER,
+        {
+            "input": {
+                "experiment": str(experiment.pk),
+                "kind": "TRACE",
+                "lens": str(lens.pk),
+            }
+        },
+    )
     assert not trace.errors, trace.errors
-    spikes = await aexecute(CREATE_LAYER, {"input": {"experiment": str(experiment.pk), "kind": "SPIKES", "sparseDataset": str(raster.pk), "opacity": 0.5}})
+    spikes = await aexecute(
+        CREATE_LAYER,
+        {
+            "input": {
+                "experiment": str(experiment.pk),
+                "kind": "SPIKES",
+                "sparseDataset": str(raster.pk),
+                "opacity": 0.5,
+            }
+        },
+    )
     assert not spikes.errors, spikes.errors
 
-    assert trace.data["createLayer"] == {"id": trace.data["createLayer"]["id"], "kind": "TRACE", "name": "Vm", "order": 0, "blending": "NORMAL", "opacity": 1.0, "visible": True}
-    assert (spikes.data["createLayer"]["order"], spikes.data["createLayer"]["opacity"]) == (1, 0.5), "appended, top to bottom"
+    assert trace.data["createLayer"] == {
+        "id": trace.data["createLayer"]["id"],
+        "kind": "TRACE",
+        "name": "Vm",
+        "order": 0,
+        "blending": "NORMAL",
+        "opacity": 1.0,
+        "visible": True,
+    }
+    assert (
+        spikes.data["createLayer"]["order"],
+        spikes.data["createLayer"]["opacity"],
+    ) == (1, 0.5), "appended, top to bottom"
 
-    listed = await aexecute(LAYERS, {"id": str(experiment.pk), "filters": {"kind": "SPIKES"}})
+    listed = await aexecute(
+        LAYERS, {"id": str(experiment.pk), "filters": {"kind": "SPIKES"}}
+    )
     assert not listed.errors, listed.errors
     assert [layer["kind"] for layer in listed.data["layers"]] == ["SPIKES"]
-    assert [(layer["__typename"], layer["order"]) for layer in listed.data["experiment"]["layers"]] == [("TraceLayer", 0), ("SpikesLayer", 1)], "resolved to the concrete type by kind"
+    assert [
+        (layer["__typename"], layer["order"])
+        for layer in listed.data["experiment"]["layers"]
+    ] == [("TraceLayer", 0), ("SpikesLayer", 1)], (
+        "resolved to the concrete type by kind"
+    )
 
 
 @pytest.mark.parametrize(
@@ -67,53 +111,135 @@ async def test_the_generic_create_adds_a_layer_of_any_kind(aexecute, authenticat
         ("SPIKES", "lens", "names exactly one source, its `sparse_dataset`"),
     ],
 )
-async def test_a_kind_names_the_one_source_it_draws(aexecute, authenticated_context, kind, source, refusal):
+async def test_a_kind_names_the_one_source_it_draws(
+    aexecute, authenticated_context, kind, source, refusal
+):
     experiment, _, lens, raster = await _staged(authenticated_context)
     ids = {"lens": str(lens.pk), "sparseDataset": str(raster.pk)}
-    res = await aexecute(CREATE_LAYER, {"input": {"experiment": str(experiment.pk), "kind": kind, source: ids[source]}})
+    res = await aexecute(
+        CREATE_LAYER,
+        {
+            "input": {
+                "experiment": str(experiment.pk),
+                "kind": kind,
+                source: ids[source],
+            }
+        },
+    )
     assert res.errors and refusal in str(res.errors[0])
 
 
-async def test_the_database_refuses_a_layer_with_the_wrong_source(authenticated_context):
+async def test_the_database_refuses_a_layer_with_the_wrong_source(
+    authenticated_context,
+):
     """The mutations check it first, to say it in a sentence; the constraint is what holds for a write that goes around them."""
     experiment, _, lens, raster = await _staged(authenticated_context)
     with pytest.raises(IntegrityError):
-        await sync_to_async(models.ExperimentLayer.objects.create)(experiment=experiment, kind="spikes", lens=lens)
+        await sync_to_async(models.ExperimentLayer.objects.create)(
+            experiment=experiment, kind="spikes", lens=lens
+        )
     with pytest.raises(IntegrityError):
-        await sync_to_async(models.ExperimentLayer.objects.create)(experiment=experiment, kind="trace", lens=lens, sparse_dataset=raster)
+        await sync_to_async(models.ExperimentLayer.objects.create)(
+            experiment=experiment, kind="trace", lens=lens, sparse_dataset=raster
+        )
 
 
-async def test_a_raster_with_no_time_axis_is_not_drawn_as_spikes(aexecute, authenticated_context):
+async def test_a_raster_with_no_time_axis_is_not_drawn_as_spikes(
+    aexecute, authenticated_context
+):
     experiment, *_ = await _staged(authenticated_context)
-    matrix = await seed.create_sparse_dataset(authenticated_context, "genes", axes=[seed.axis("cell", seed.enums.AxisType.INDEX), seed.axis("gene", seed.enums.AxisType.INDEX)])
-    res = await aexecute(CREATE_LAYER, {"input": {"experiment": str(experiment.pk), "kind": "SPIKES", "sparseDataset": str(matrix.pk)}})
+    matrix = await seed.create_sparse_dataset(
+        authenticated_context,
+        "genes",
+        axes=[
+            seed.axis("cell", seed.enums.AxisType.INDEX),
+            seed.axis("gene", seed.enums.AxisType.INDEX),
+        ],
+    )
+    res = await aexecute(
+        CREATE_LAYER,
+        {
+            "input": {
+                "experiment": str(experiment.pk),
+                "kind": "SPIKES",
+                "sparseDataset": str(matrix.pk),
+            }
+        },
+    )
     assert res.errors and "is not a spike raster" in str(res.errors[0])
 
 
-async def test_the_generic_update_restyles_compositing_only(aexecute, authenticated_context):
+async def test_the_generic_update_restyles_compositing_only(
+    aexecute, authenticated_context
+):
     experiment, _, lens, _ = await _staged(authenticated_context)
     layer = await add_layer(authenticated_context, experiment, lens)
-    res = await aexecute(UPDATE_LAYER, {"input": {"id": str(layer.pk), "name": "membrane", "blending": "ADDITIVE", "opacity": 0.25, "visible": False, "order": 3}})
+    res = await aexecute(
+        UPDATE_LAYER,
+        {
+            "input": {
+                "id": str(layer.pk),
+                "name": "membrane",
+                "blending": "ADDITIVE",
+                "opacity": 0.25,
+                "visible": False,
+                "order": 3,
+            }
+        },
+    )
     assert not res.errors, res.errors
-    assert res.data["updateLayer"] == {"id": str(layer.pk), "name": "membrane", "order": 3, "blending": "ADDITIVE", "opacity": 0.25, "visible": False}
+    assert res.data["updateLayer"] == {
+        "id": str(layer.pk),
+        "name": "membrane",
+        "order": 3,
+        "blending": "ADDITIVE",
+        "opacity": 0.25,
+        "visible": False,
+    }
 
     bad = await aexecute(UPDATE_LAYER, {"input": {"id": str(layer.pk), "opacity": 2.0}})
     assert bad.errors, "opacity is 0 to 1"
 
 
-async def test_a_per_kind_update_refuses_a_layer_of_another_kind(aexecute, authenticated_context):
+async def test_a_per_kind_update_refuses_a_layer_of_another_kind(
+    aexecute, authenticated_context
+):
     experiment, _, lens, _ = await _staged(authenticated_context)
     layer = await add_layer(authenticated_context, experiment, lens)
-    res = await aexecute(UPDATE_SPIKES, {"input": {"id": str(layer.pk), "tickHeight": 0.5}})
+    res = await aexecute(
+        UPDATE_SPIKES, {"input": {"id": str(layer.pk), "tickHeight": 0.5}}
+    )
     assert res.errors and "is a trace layer, not a spikes one" in str(res.errors[0])
 
 
-async def test_a_trace_layer_is_restyled_and_checked_against_its_lens(aexecute, authenticated_context):
+async def test_a_trace_layer_is_restyled_and_checked_against_its_lens(
+    aexecute, authenticated_context
+):
     experiment, _, lens, _ = await _staged(authenticated_context)
     layer = await add_layer(authenticated_context, experiment, lens)
-    res = await aexecute(UPDATE_TRACE, {"input": {"id": str(layer.pk), "channelIndex": 1, "color": [255, 0, 0, 255], "lineWidth": 1.5, "climMin": -80, "climMax": 40}})
+    res = await aexecute(
+        UPDATE_TRACE,
+        {
+            "input": {
+                "id": str(layer.pk),
+                "channelIndex": 1,
+                "color": [255, 0, 0, 255],
+                "lineWidth": 1.5,
+                "climMin": -80,
+                "climMax": 40,
+            }
+        },
+    )
     assert not res.errors, res.errors
-    assert res.data["updateTraceLayer"] == {"id": str(layer.pk), "channelIndex": 1, "color": [255, 0, 0, 255], "lineWidth": 1.5, "climMin": -80.0, "climMax": 40.0, "lens": {"id": str(lens.pk)}}
+    assert res.data["updateTraceLayer"] == {
+        "id": str(layer.pk),
+        "channelIndex": 1,
+        "color": [255, 0, 0, 255],
+        "lineWidth": 1.5,
+        "climMin": -80.0,
+        "climMax": 40.0,
+        "lens": {"id": str(lens.pk)},
+    }
 
     for update, refusal in (
         ({"channelIndex": 2}, "selects 2 channel(s)"),
@@ -124,51 +250,108 @@ async def test_a_trace_layer_is_restyled_and_checked_against_its_lens(aexecute, 
         assert bad.errors and refusal in str(bad.errors[0]), (update, bad.errors)
 
 
-async def test_rebinding_a_layer_is_gated_like_creating_one(aexecute, authenticated_context):
+async def test_rebinding_a_layer_is_gated_like_creating_one(
+    aexecute, authenticated_context
+):
     """A rebind is a create of the same layer over another source: a raster no route reaches is refused."""
     experiment, _, lens, raster = await _staged(authenticated_context)
-    layer = await sync_to_async(models.ExperimentLayer.objects.create)(experiment=experiment, kind="spikes", sparse_dataset=raster)
+    layer = await sync_to_async(models.ExperimentLayer.objects.create)(
+        experiment=experiment, kind="spikes", sparse_dataset=raster
+    )
     floating = await seed.create_sparse_dataset(authenticated_context, "floating")
-    res = await aexecute(UPDATE_SPIKES, {"input": {"id": str(layer.pk), "sparseDataset": str(floating.pk)}})
+    res = await aexecute(
+        UPDATE_SPIKES,
+        {"input": {"id": str(layer.pk), "sparseDataset": str(floating.pk)}},
+    )
     assert res.errors and "Nothing relates" in str(res.errors[0])
 
-    moved = await aexecute(UPDATE_SPIKES, {"input": {"id": str(layer.pk), "valueMode": "AMPLITUDE"}})
+    moved = await aexecute(
+        UPDATE_SPIKES, {"input": {"id": str(layer.pk), "valueMode": "AMPLITUDE"}}
+    )
     assert not moved.errors, moved.errors
-    assert moved.data["updateSpikesLayer"] == {"id": str(layer.pk), "tickHeight": None, "valueMode": "AMPLITUDE", "sparseDataset": {"name": "spikes"}}
+    assert moved.data["updateSpikesLayer"] == {
+        "id": str(layer.pk),
+        "tickHeight": None,
+        "valueMode": "AMPLITUDE",
+        "sparseDataset": {"name": "spikes"},
+    }
 
 
-async def test_one_annotation_layer_per_collection_per_experiment(aexecute, authenticated_context):
+async def test_one_annotation_layer_per_collection_per_experiment(
+    aexecute, authenticated_context
+):
     """Drawing on an experiment mints its collection and its one layer; a second layer of it is refused."""
     experiment, *_ = await _staged(authenticated_context)
     drawn = await aexecute(
         "mutation ($input: CreateAnnotationInput!) { createAnnotation(input: $input) { collection { id } } }",
-        {"input": {"experiment": str(experiment.pk), "kind": "EVENT", "name": "stim", "vectors": [[0.5]]}},
+        {
+            "input": {
+                "experiment": str(experiment.pk),
+                "kind": "EVENT",
+                "name": "stim",
+                "vectors": [[0.5]],
+            }
+        },
     )
     assert not drawn.errors, drawn.errors
     collection = drawn.data["createAnnotation"]["collection"]["id"]
-    assert await models.ExperimentLayer.objects.filter(annotation_collection_id=collection, kind="annotation").acount() == 1
+    assert (
+        await models.ExperimentLayer.objects.filter(
+            annotation_collection_id=collection, kind="annotation"
+        ).acount()
+        == 1
+    )
 
-    second = await aexecute(CREATE_ANNOTATION_LAYER, {"input": {"experiment": str(experiment.pk), "annotationCollection": collection}})
+    second = await aexecute(
+        CREATE_ANNOTATION_LAYER,
+        {
+            "input": {
+                "experiment": str(experiment.pk),
+                "annotationCollection": collection,
+            }
+        },
+    )
     assert second.errors and "already drawn" in str(second.errors[0])
 
 
-async def test_deleting_a_layer_deletes_nothing_it_drew(aexecute, authenticated_context):
+async def test_deleting_a_layer_deletes_nothing_it_drew(
+    aexecute, authenticated_context
+):
     experiment, vm, lens, raster = await _staged(authenticated_context)
     trace = await add_layer(authenticated_context, experiment, lens)
-    spikes = await sync_to_async(models.ExperimentLayer.objects.create)(experiment=experiment, kind="spikes", sparse_dataset=raster, order=1)
+    spikes = await sync_to_async(models.ExperimentLayer.objects.create)(
+        experiment=experiment, kind="spikes", sparse_dataset=raster, order=1
+    )
     for layer in (trace, spikes):
         res = await aexecute(DELETE_LAYER, {"input": {"id": str(layer.pk)}})
         assert not res.errors, res.errors
     assert not await models.ExperimentLayer.objects.aexists()
-    assert await models.Lens.objects.filter(pk=lens.pk).aexists() and await models.SparseDataset.objects.filter(pk=raster.pk).aexists()
+    assert (
+        await models.Lens.objects.filter(pk=lens.pk).aexists()
+        and await models.SparseDataset.objects.filter(pk=raster.pk).aexists()
+    )
 
 
-async def test_a_raster_a_picker_names_cannot_be_deleted(aexecute, authenticated_context):
+async def test_a_raster_a_picker_names_cannot_be_deleted(
+    aexecute, authenticated_context
+):
     """The PROTECT half for JSON: a picker entry naming a matrix by id has no foreign key to cascade. Written through the ORM, the way only a future SPARSE colouring could."""
     experiment, _, lens, raster = await _staged(authenticated_context)
-    await sync_to_async(models.ExperimentLayer.objects.create)(experiment=experiment, kind="trace", lens=lens, table_color_bys=[{"kind": "SPARSE", "dataset": str(raster.pk)}])
-    res = await aexecute("mutation ($input: DeleteSparseDatasetInput!) { deleteSparseDataset(input: $input) }", {"input": {"id": str(raster.pk)}})
-    assert res.errors and "colour by a slice of it" in str(res.errors[0]) and "experiment 'E'" in str(res.errors[0])
+    await sync_to_async(models.ExperimentLayer.objects.create)(
+        experiment=experiment,
+        kind="trace",
+        lens=lens,
+        table_color_bys=[{"kind": "SPARSE", "dataset": str(raster.pk)}],
+    )
+    res = await aexecute(
+        "mutation ($input: DeleteSparseDatasetInput!) { deleteSparseDataset(input: $input) }",
+        {"input": {"id": str(raster.pk)}},
+    )
+    assert (
+        res.errors
+        and "colour by a slice of it" in str(res.errors[0])
+        and "experiment 'E'" in str(res.errors[0])
+    )
     assert await models.SparseDataset.objects.filter(pk=raster.pk).aexists()
 
 
@@ -176,21 +359,33 @@ TRACE_COLORING = "mutation ($input: UpdateTraceLayerInput!) { updateTraceLayer(i
 READ_COLORING = "query ($id: ID!) { experiment(id: $id) { layers { ... on TraceLayer { id channelColoring } } } }"
 
 
-async def test_a_trace_layers_channel_coloring_survives_a_reload(aexecute, authenticated_context):
+async def test_a_trace_layers_channel_coloring_survives_a_reload(
+    aexecute, authenticated_context
+):
     """It was applied optimistically and never sent, so it was lost on reload. Now it is stored."""
     experiment, _, lens, _ = await _staged(authenticated_context)
     layer = await add_layer(authenticated_context, experiment, lens)
 
     fresh = await aexecute(READ_COLORING, {"id": str(experiment.pk)})
     assert not fresh.errors, fresh.errors
-    assert fresh.data["experiment"]["layers"] == [{"id": str(layer.pk), "channelColoring": "OVERLAY"}], "a new layer colours channels only where they share a plot"
+    assert fresh.data["experiment"]["layers"] == [
+        {"id": str(layer.pk), "channelColoring": "OVERLAY"}
+    ], "a new layer colours channels only where they share a plot"
 
-    res = await aexecute(TRACE_COLORING, {"input": {"id": str(layer.pk), "channelColoring": "ALWAYS"}})
+    res = await aexecute(
+        TRACE_COLORING, {"input": {"id": str(layer.pk), "channelColoring": "ALWAYS"}}
+    )
     assert not res.errors, res.errors
     assert res.data["updateTraceLayer"]["channelColoring"] == "ALWAYS"
 
     reloaded = await aexecute(READ_COLORING, {"id": str(experiment.pk)})
-    assert reloaded.data["experiment"]["layers"] == [{"id": str(layer.pk), "channelColoring": "ALWAYS"}]
+    assert reloaded.data["experiment"]["layers"] == [
+        {"id": str(layer.pk), "channelColoring": "ALWAYS"}
+    ]
 
-    untouched = await aexecute(TRACE_COLORING, {"input": {"id": str(layer.pk), "lineWidth": 2}})
-    assert untouched.data["updateTraceLayer"]["channelColoring"] == "ALWAYS", "an update that leaves it out leaves it alone"
+    untouched = await aexecute(
+        TRACE_COLORING, {"input": {"id": str(layer.pk), "lineWidth": 2}}
+    )
+    assert untouched.data["updateTraceLayer"]["channelColoring"] == "ALWAYS", (
+        "an update that leaves it out leaves it alone"
+    )

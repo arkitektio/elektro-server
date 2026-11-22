@@ -9,9 +9,9 @@ grant / finish / get_zarr_metadata chain.
 """
 
 import pytest
+from arkitekt_datalayer.models import ZarrStore
 
 from core.models import DataArray, Folder
-from arkitekt_datalayer.models import ZarrStore
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -61,7 +61,9 @@ async def test_zarr_upload_to_array_dataset_flow(
     aexecute, authenticated_context, upload_zarr_to_grant, read_zarr_from_grant
 ):
     # 1. Request an upload grant -> server creates the ZarrStore + returns S3 creds.
-    grant_res = await aexecute(REQUEST_ZARR_UPLOAD, {"input": {"shape": [4, 4], "chunks": [4, 4]}})
+    grant_res = await aexecute(
+        REQUEST_ZARR_UPLOAD, {"input": {"shape": [4, 4], "chunks": [4, 4]}}
+    )
     assert not grant_res.errors, grant_res.errors
     grant = grant_res.data["requestZarrUpload"]
     assert grant["bucket"] == "zarr"
@@ -88,13 +90,31 @@ async def test_zarr_upload_to_array_dataset_flow(
     res = await aexecute(
         CREATE_ARRAY_DATASET,
         # Nothing in the bytes says (t, c) rather than (sweep, t), so the axes are always declared.
-        {"input": {"data": grant["store"], "scales": [], "name": "uploaded", "folder": str(ds.id), "axes": [{"name": "t", "type": "TIME"}, {"name": "c", "type": "CHANNEL"}]}},
+        {
+            "input": {
+                "data": grant["store"],
+                "scales": [],
+                "name": "uploaded",
+                "folder": str(ds.id),
+                "axes": [
+                    {"name": "t", "type": "TIME"},
+                    {"name": "c", "type": "CHANNEL"},
+                ],
+            }
+        },
     )
     assert not res.errors, res.errors
-    assert res.data["createArrayDataset"] == {"id": res.data["createArrayDataset"]["id"], "name": "uploaded", "shape": [4, 4], "folder": {"name": "ds"}}
+    assert res.data["createArrayDataset"] == {
+        "id": res.data["createArrayDataset"]["id"],
+        "name": "uploaded",
+        "shape": [4, 4],
+        "folder": {"name": "ds"},
+    }
 
     level_0 = await DataArray.objects.aget(dataset__name="uploaded", level=0)
-    assert str(level_0.store_id) == grant["store"], "the store belongs to the level, not to the dataset"
+    assert str(level_0.store_id) == grant["store"], (
+        "the store belongs to the level, not to the dataset"
+    )
 
     # 5. Request read access for the level's store and pull the array back from S3.
     import numpy as np
@@ -135,7 +155,9 @@ async def test_request_general_zarr_access(aexecute):
 
 async def test_finish_zarr_upload_before_upload(aexecute):
     # Finish without ever uploading -> no zarr.json -> get_zarr_metadata raises.
-    grant_res = await aexecute(REQUEST_ZARR_UPLOAD, {"input": {"shape": [4, 4], "chunks": [4, 4]}})
+    grant_res = await aexecute(
+        REQUEST_ZARR_UPLOAD, {"input": {"shape": [4, 4], "chunks": [4, 4]}}
+    )
     assert not grant_res.errors, grant_res.errors
     grant = grant_res.data["requestZarrUpload"]
 

@@ -14,11 +14,10 @@ class CoreConfig(AppConfig):
         columns agree; ``migrate`` runs the database-tagged one at every boot, so a mismatch
         stops the service before it serves a wrong search.
         """
-        import embeddings.checks  # noqa: F401
-
-        # The hub's rekuest: actions and model signals, connected in every process.
-        import elektro_server.service  # noqa: F401
-
         # The receivers that restore a dataset's descriptors when its value unit or a derivation
         # edge is written: connected in every process, not only once the schema is loaded.
         import core.signals  # noqa: F401
+
+        # The hub's rekuest: actions and model signals, connected in every process.
+        import elektro_server.service  # noqa: F401
+        import embeddings.checks  # noqa: F401

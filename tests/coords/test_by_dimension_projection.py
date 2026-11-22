@@ -41,7 +41,12 @@ LATTICE = [
 
 async def _systems(ctx) -> tuple[models.CoordinateSystem, models.CoordinateSystem]:  # noqa: ANN001
     """Two datasets' sample grids: a (row, col) lattice and a (c, y, x) slide."""
-    lattice = await seed.create_dataset(ctx, "Lattice", [axis("row", enums.AxisType.SPACE), axis("col", enums.AxisType.SPACE)], [412, 400])
+    lattice = await seed.create_dataset(
+        ctx,
+        "Lattice",
+        [axis("row", enums.AxisType.SPACE), axis("col", enums.AxisType.SPACE)],
+        [412, 400],
+    )
     slide = await seed.create_dataset(ctx, "Slide", seed.SIMPLE_AXES, [3, 21943, 23618])
     return (
         await sync_to_async(lambda: lattice.coordinate_system)(),
@@ -79,7 +84,9 @@ async def test_an_affine_reaches_a_client_as_a_child(authenticated_context):
     assert edge.params["affine"] == LATTICE
 
 
-async def test_the_projection_does_not_change_what_the_server_composes(authenticated_context):
+async def test_the_projection_does_not_change_what_the_server_composes(
+    authenticated_context,
+):
     """A projected edge and a childless one compose to the same matrix.
 
     The whole safety argument: if these two ever disagree, the projection has become a second
@@ -97,7 +104,9 @@ async def test_the_projection_does_not_change_what_the_server_composes(authentic
             output_axes=["y", "x"],
             acts_on_input=["row", "col"],
             acts_on_output=["y", "x"],
-            children=tuple((child.kind, child.params) for child in edge.children.order_by("order")),
+            children=tuple(
+                (child.kind, child.params) for child in edge.children.order_by("order")
+            ),
         )
         childless = coords_logic.AxedStep(**{**step.__dict__, "children": ()})
         return coords_logic._sub_matrix(step), coords_logic._sub_matrix(childless)
@@ -109,12 +118,16 @@ async def test_the_projection_does_not_change_what_the_server_composes(authentic
     assert projected[1][:3] == approx(LATTICE[1])
 
 
-async def test_scale_and_translation_project_in_the_order_they_apply(authenticated_context):
+async def test_scale_and_translation_project_in_the_order_they_apply(
+    authenticated_context,
+):
     """`_params_matrix` applies scale then translation, so the children say so in that order."""
     ctx = seed._creation(authenticated_context)
     lattice, slide = await _systems(authenticated_context)
 
-    edge = await sync_to_async(_edge)(ctx, lattice, slide, scale=[2.0, 3.0], translation=[5.0, 7.0])
+    edge = await sync_to_async(_edge)(
+        ctx, lattice, slide, scale=[2.0, 3.0], translation=[5.0, 7.0]
+    )
 
     assert await sync_to_async(_children)(edge) == [
         (enums.TransformKind.SCALE.value, {"scale": [2.0, 3.0]}),
@@ -130,9 +143,13 @@ async def test_an_affine_wins_over_scale_and_translation(authenticated_context):
     ctx = seed._creation(authenticated_context)
     lattice, slide = await _systems(authenticated_context)
 
-    edge = await sync_to_async(_edge)(ctx, lattice, slide, affine=LATTICE, scale=[2.0, 3.0])
+    edge = await sync_to_async(_edge)(
+        ctx, lattice, slide, affine=LATTICE, scale=[2.0, 3.0]
+    )
 
-    assert await sync_to_async(_children)(edge) == [(enums.TransformKind.AFFINE.value, {"affine": LATTICE})]
+    assert await sync_to_async(_children)(edge) == [
+        (enums.TransformKind.AFFINE.value, {"affine": LATTICE})
+    ]
 
 
 async def test_a_wrapper_with_no_map_of_its_own_is_left_alone(authenticated_context):
@@ -155,7 +172,14 @@ async def test_a_wrapper_with_no_map_of_its_own_is_left_alone(authenticated_cont
             creator=ctx.user,
             organization=ctx.organization,
         )
-        models.Transformation.objects.create(kind=enums.TransformKind.IDENTITY.value, parent=edge, order=0, params={}, creator=ctx.user, organization=ctx.organization)
+        models.Transformation.objects.create(
+            kind=enums.TransformKind.IDENTITY.value,
+            parent=edge,
+            order=0,
+            params={},
+            creator=ctx.user,
+            organization=ctx.organization,
+        )
         graph_logic._project_by_dimension_children(edge, ctx)
         return _children(edge)
 
@@ -189,7 +213,11 @@ async def test_a_sampling_law_is_readable_by_a_client(aexecute, make_simulation_
     laws = result.data["coordinateSystem"]["registrations"]
     assert len(laws) == 2 and laws[0] == laws[1]
     law = laws[0]
-    assert (law["kind"], law["inputAxes"], law["outputAxes"]) == ("BY_DIMENSION", ["t"], ["t"])
+    assert (law["kind"], law["inputAxes"], law["outputAxes"]) == (
+        "BY_DIMENSION",
+        ["t"],
+        ["t"],
+    )
     (child,) = law["transformations"]
     assert child["kind"] == "AFFINE"
     assert child["affine"][0] == approx([0.1, 0.0])

@@ -10,11 +10,14 @@ when an action runs (a schedule, a trigger, by hand) is the organization's own a
 Nothing here loops or waits: each run is one pass rekuest started.
 """
 
-from core import models
-from embeddings.healer import reembed_all
 from arkitekt_service.hook import HookAgent
 
-agent = HookAgent("elektro", description="elektro's housekeeping: work on its own data.")
+from core import models
+from embeddings.healer import reembed_all
+
+agent = HookAgent(
+    "elektro", description="elektro's housekeeping: work on its own data."
+)
 
 # The models whose name + description are embedded (see ``embeddings.healer``).
 _EMBEDDED_MODELS = (models.ArrayDataset, models.TableDataset, models.SparseDataset)
@@ -27,4 +30,8 @@ _EMBEDDED_MODELS = (models.ArrayDataset, models.TableDataset, models.SparseDatas
 )
 def reembed_stale(organization: str) -> dict:
     """One pass over the organization's embedded rows, in row-locked batches (N replicas may run it at once)."""
-    return {"reembedded": reembed_all(_EMBEDDED_MODELS, max_batches=50, organization=organization)}
+    return {
+        "reembedded": reembed_all(
+            _EMBEDDED_MODELS, max_batches=50, organization=organization
+        )
+    }

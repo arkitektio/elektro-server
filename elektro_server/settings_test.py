@@ -1,7 +1,8 @@
-import os
-from .settings import *  # noqa
-from .settings import DATABASES, AUTHENTIKATE
 import logging
+import os
+
+from .settings import *  # noqa
+from .settings import AUTHENTIKATE, DATABASES
 
 DATABASES["default"] = {
     "ENGINE": "django.db.backends.postgresql",
@@ -52,7 +53,6 @@ AUTHENTIKATE = {
 }
 
 
-
 # Disable migrations for faster tests
 class DisableMigrations:
     """Disable migrations during testing for faster test execution."""
@@ -84,7 +84,9 @@ DATALAYER = {
     "access_key": "mikro_access_key",
     "secret_key": "mikro_secret_key",
     "host": "localhost",
-    "port": int(os.environ.get("ELEKTRO_TEST_RUSTFS_PORT", "6890")),  # overwritten under pytest, like PORT above
+    "port": int(
+        os.environ.get("ELEKTRO_TEST_RUSTFS_PORT", "6890")
+    ),  # overwritten under pytest, like PORT above
     "protocol": "http",
     "region": "us-east-1",
     "zarr": {"bucket": "zarr"},
@@ -95,4 +97,3 @@ DATALAYER = {
     # quietly return the static key above. Tests exercising a grant care about its shape.
     "allow_unscoped_fallback": True,
 }
-

@@ -16,12 +16,11 @@ per-layer offset is how two views of one run once came to disagree about when it
 
 import datetime
 
+import kante
 import strawberry
 from django.db import transaction
 from kante.types import Info
 from pydantic import BaseModel
-
-import kante
 
 from core import models, types
 from core.creation import CreationContext
@@ -55,16 +54,30 @@ class CreateExperimentInput:
         default=None,
         description="(minted world only) The axes of the world to mint. Omit for one TIME axis in seconds -- every dataset here is a signal over time, so time is the one axis two recordings share",
     )
-    epoch: datetime.datetime | None = strawberry.field(default=None, description="(minted world only) The wall-clock instant the world's zero is. Omit for trial-aligned time, which has no wall clock")
+    epoch: datetime.datetime | None = strawberry.field(
+        default=None,
+        description="(minted world only) The wall-clock instant the world's zero is. Omit for trial-aligned time, which has no wall clock",
+    )
 
 
 def create_experiment(info: Info, input: CreateExperimentInput) -> types.Experiment:
     """Create an empty experiment over a world."""
     parsed = input.to_pydantic()
     ctx = CreationContext.from_info(info)
-    world = get_for_org(models.CoordinateSystem, info, id=parsed.coordinate_system) if parsed.coordinate_system else None
+    world = (
+        get_for_org(models.CoordinateSystem, info, id=parsed.coordinate_system)
+        if parsed.coordinate_system
+        else None
+    )
     with transaction.atomic():
-        return experiment_logic.create_experiment(name=parsed.name, description=parsed.description, world=world, axes=parsed.axes, epoch=parsed.epoch, ctx=ctx)
+        return experiment_logic.create_experiment(
+            name=parsed.name,
+            description=parsed.description,
+            world=world,
+            axes=parsed.axes,
+            epoch=parsed.epoch,
+            ctx=ctx,
+        )
 
 
 class ExperimentPolicyInputModel(BaseModel):
@@ -80,20 +93,52 @@ class ExperimentPolicyInputModel(BaseModel):
     skip_unplaceable: bool = False
 
 
-@kante.pydantic_input(ExperimentPolicyInputModel, description="What `createExperimentFromCoordinateSystem` stages. mikro's ScenePolicyInput, for time series")
+@kante.pydantic_input(
+    ExperimentPolicyInputModel,
+    description="What `createExperimentFromCoordinateSystem` stages. mikro's ScenePolicyInput, for time series",
+)
 class ExperimentPolicyInput:
     """What a bootstrap stages."""
 
-    nchildren: int = strawberry.field(default=32, description="The most layers to create. Sources are taken in layer order: arrays, rasters, tables, annotations, each oldest first")
-    include_traces: bool = strawberry.field(default=True, description="Draw every array dataset with a TIME axis as a TRACE over its whole-dataset lens. Times datasets (a lookup's map) are never drawn")
-    include_heatmaps: bool = strawberry.field(default=True, description="Draw every array dataset with a TIME and a FREQUENCY axis (a spectrogram) as a HEATMAP")
-    include_waveforms: bool = strawberry.field(default=True, description="Draw every array dataset with one INDEX and a TIME axis, derived from a spike raster (templates), as WAVEFORM")
-    include_spikes: bool = strawberry.field(default=True, description="Draw every sparse dataset with a TIME axis (a spike raster) as SPIKES")
-    include_events: bool = strawberry.field(default=True, description="Draw every table with a TIME coordinate column as EVENTS -- unless it is a series")
-    include_series: bool = strawberry.field(default=True, description="Draw every table with a TIME column and exactly one numeric, non-time attribute (and no label) as a SERIES")
-    include_points: bool = strawberry.field(default=True, description="Draw every table with two or more SPACE coordinate columns and no TIME column as POINT")
-    include_annotations: bool = strawberry.field(default=True, description="Draw every annotation collection as ANNOTATION")
-    skip_unplaceable: bool = strawberry.field(default=False, description="Leave out a source with no route to the world instead of refusing the whole experiment")
+    nchildren: int = strawberry.field(
+        default=32,
+        description="The most layers to create. Sources are taken in layer order: arrays, rasters, tables, annotations, each oldest first",
+    )
+    include_traces: bool = strawberry.field(
+        default=True,
+        description="Draw every array dataset with a TIME axis as a TRACE over its whole-dataset lens. Times datasets (a lookup's map) are never drawn",
+    )
+    include_heatmaps: bool = strawberry.field(
+        default=True,
+        description="Draw every array dataset with a TIME and a FREQUENCY axis (a spectrogram) as a HEATMAP",
+    )
+    include_waveforms: bool = strawberry.field(
+        default=True,
+        description="Draw every array dataset with one INDEX and a TIME axis, derived from a spike raster (templates), as WAVEFORM",
+    )
+    include_spikes: bool = strawberry.field(
+        default=True,
+        description="Draw every sparse dataset with a TIME axis (a spike raster) as SPIKES",
+    )
+    include_events: bool = strawberry.field(
+        default=True,
+        description="Draw every table with a TIME coordinate column as EVENTS -- unless it is a series",
+    )
+    include_series: bool = strawberry.field(
+        default=True,
+        description="Draw every table with a TIME column and exactly one numeric, non-time attribute (and no label) as a SERIES",
+    )
+    include_points: bool = strawberry.field(
+        default=True,
+        description="Draw every table with two or more SPACE coordinate columns and no TIME column as POINT",
+    )
+    include_annotations: bool = strawberry.field(
+        default=True, description="Draw every annotation collection as ANNOTATION"
+    )
+    skip_unplaceable: bool = strawberry.field(
+        default=False,
+        description="Leave out a source with no route to the world instead of refusing the whole experiment",
+    )
 
 
 class CreateExperimentFromCoordinateSystemInputModel(BaseModel):
@@ -113,18 +158,30 @@ class CreateExperimentFromCoordinateSystemInputModel(BaseModel):
 class CreateExperimentFromCoordinateSystemInput:
     """Input for bootstrapping an experiment over an existing space."""
 
-    coordinate_system: strawberry.ID = strawberry.field(description="The space to compose over and stage from: a session's clock, a run's clock, a world. Adopted, never owned")
-    name: str | None = strawberry.field(default=None, description="The experiment's name. Defaults to the space's")
-    policy: ExperimentPolicyInput | None = strawberry.field(default=None, description="What to stage. Omit for everything")
+    coordinate_system: strawberry.ID = strawberry.field(
+        description="The space to compose over and stage from: a session's clock, a run's clock, a world. Adopted, never owned"
+    )
+    name: str | None = strawberry.field(
+        default=None, description="The experiment's name. Defaults to the space's"
+    )
+    policy: ExperimentPolicyInput | None = strawberry.field(
+        default=None, description="What to stage. Omit for everything"
+    )
 
 
-def create_experiment_from_coordinate_system(info: Info, input: CreateExperimentFromCoordinateSystemInput) -> types.Experiment:
+def create_experiment_from_coordinate_system(
+    info: Info, input: CreateExperimentFromCoordinateSystemInput
+) -> types.Experiment:
     """Create an experiment over a space, with a layer for everything laid out on it."""
     parsed = input.to_pydantic()
     ctx = CreationContext.from_info(info)
     system = get_for_org(models.CoordinateSystem, info, id=parsed.coordinate_system)
-    policy = experiment_logic.Policy(**(parsed.policy or ExperimentPolicyInputModel()).model_dump())
-    return experiment_logic.bootstrap_experiment_from_system(system, name=parsed.name, policy=policy, ctx=ctx)
+    policy = experiment_logic.Policy(
+        **(parsed.policy or ExperimentPolicyInputModel()).model_dump()
+    )
+    return experiment_logic.bootstrap_experiment_from_system(
+        system, name=parsed.name, policy=policy, ctx=ctx
+    )
 
 
 class UpdateExperimentInputModel(BaseModel):
@@ -133,7 +190,10 @@ class UpdateExperimentInputModel(BaseModel):
     description: str | None = None
 
 
-@kante.pydantic_input(UpdateExperimentInputModel, description="Rename or redescribe an experiment. Its world is fixed: an experiment over another space is another experiment")
+@kante.pydantic_input(
+    UpdateExperimentInputModel,
+    description="Rename or redescribe an experiment. Its world is fixed: an experiment over another space is another experiment",
+)
 class UpdateExperimentInput:
     """Input for updating an experiment."""
 

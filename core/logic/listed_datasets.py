@@ -22,7 +22,9 @@ def unit_anchors() -> Prefetch:
     """The dataset-wide anchor with a :class:`ValueUnit`, as :data:`UNIT_ANCHORS`."""
     return Prefetch(
         "anchors",
-        queryset=models.CoordinateAnchor.objects.filter(coordinates={}, value_unit__isnull=False).select_related("value_unit"),
+        queryset=models.CoordinateAnchor.objects.filter(
+            coordinates={}, value_unit__isnull=False
+        ).select_related("value_unit"),
         to_attr=UNIT_ANCHORS,
     )
 
@@ -31,14 +33,20 @@ def simulation_anchors() -> Prefetch:
     """The dataset-wide anchor with a :class:`SimulationState`, as :data:`SIMULATION_ANCHORS`."""
     return Prefetch(
         "anchors",
-        queryset=models.CoordinateAnchor.objects.filter(coordinates={}, simulation__isnull=False).select_related("simulation__model"),
+        queryset=models.CoordinateAnchor.objects.filter(
+            coordinates={}, simulation__isnull=False
+        ).select_related("simulation__model"),
         to_attr=SIMULATION_ANCHORS,
     )
 
 
-def with_list_facts(datasets: QuerySet[models.ArrayDataset]) -> QuerySet[models.ArrayDataset]:
+def with_list_facts(
+    datasets: QuerySet[models.ArrayDataset],
+) -> QuerySet[models.ArrayDataset]:
     """``datasets`` with everything a list row reads loaded alongside."""
-    return datasets.select_related("coordinate_system").prefetch_related("data_arrays", "coordinate_system__axes", unit_anchors(), simulation_anchors())
+    return datasets.select_related("coordinate_system").prefetch_related(
+        "data_arrays", "coordinate_system__axes", unit_anchors(), simulation_anchors()
+    )
 
 
 def levels(dataset: models.ArrayDataset) -> list[models.DataArray]:
@@ -67,7 +75,15 @@ def value_unit(dataset: models.ArrayDataset) -> str | None:
 
 def simulation(dataset: models.ArrayDataset) -> models.SimulationState | None:
     """The simulation state anchored at ``{}``, with its model."""
-    anchors: list[models.CoordinateAnchor] | None = getattr(dataset, SIMULATION_ANCHORS, None)
+    anchors: list[models.CoordinateAnchor] | None = getattr(
+        dataset, SIMULATION_ANCHORS, None
+    )
     if anchors is None:
-        return models.SimulationState.objects.filter(anchor__dataset_id=dataset.pk, anchor__coordinates={}).select_related("model").first()
+        return (
+            models.SimulationState.objects.filter(
+                anchor__dataset_id=dataset.pk, anchor__coordinates={}
+            )
+            .select_related("model")
+            .first()
+        )
     return anchors[0].simulation if anchors else None

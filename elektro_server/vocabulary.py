@@ -22,12 +22,30 @@ KEY_BY_AXIS_TYPE = {
     "FREQUENCY": "@elektro/n_frequency_axes",
     "INDEX": "@elektro/n_index_axes",
 }
-EXTENT_KEYS = {"@elektro/n_channels": "CHANNEL", "@elektro/n_samples": "TIME", "@elektro/n_indices": "INDEX"}
+EXTENT_KEYS = {
+    "@elektro/n_channels": "CHANNEL",
+    "@elektro/n_samples": "TIME",
+    "@elektro/n_indices": "INDEX",
+}
 #: Every descriptor ``core.descriptors.array_descriptors`` produces — what elektro declares an
 #: array dataset and a lens carry.
 ARRAY_DESCRIPTORS = [
-    *(Descriptor(key=key, type="INT", description=f"How many of its axes are {axis_type} axes") for axis_type, key in KEY_BY_AXIS_TYPE.items()),
-    *(Descriptor(key=key, type="INT", description=f"Its total extent along its {axis_type} axes") for key, axis_type in EXTENT_KEYS.items()),
+    *(
+        Descriptor(
+            key=key,
+            type="INT",
+            description=f"How many of its axes are {axis_type} axes",
+        )
+        for axis_type, key in KEY_BY_AXIS_TYPE.items()
+    ),
+    *(
+        Descriptor(
+            key=key,
+            type="INT",
+            description=f"Its total extent along its {axis_type} axes",
+        )
+        for key, axis_type in EXTENT_KEYS.items()
+    ),
 ]
 #: Descriptors an array carries that this server does not compute. Declared so that a port may
 #: constrain on them at all -- rekuest refuses a key no service declares -- and absent from every
@@ -56,5 +74,9 @@ VALUE_DESCRIPTORS = [
         type="STRING",
         description="What its values measure, from its dataset-wide value unit: voltage, current, conductance, resistance, capacitance, charge, time, frequency, concentration, dimensionless, arbitrary (a.u.) or other; empty when no unit is stated",
     ),
-    Descriptor(key=VALUE_KIND, type="STRING", description="What its values mean: categorical (labels, from a derivation declared CATEGORIZED) or continuous"),
+    Descriptor(
+        key=VALUE_KIND,
+        type="STRING",
+        description="What its values mean: categorical (labels, from a derivation declared CATEGORIZED) or continuous",
+    ),
 ]

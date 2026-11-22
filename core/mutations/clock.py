@@ -17,18 +17,17 @@ They are what replaced ``createBlock``. A recording session is built CS-first:
 4. ``createExperimentFromCoordinateSystem`` over the session clock.
 """
 
+import kante
 import strawberry
 from django.db import transaction
 from kante.types import Info
 from pydantic import BaseModel
 
-import kante
-from kanne_server import scalars as quantities
-
 from core import enums, models, types
 from core.creation import CreationContext
 from core.logic import clocks
 from core.scoping import get_for_org
+from kanne_server import scalars as quantities
 
 
 class CreateSamplingLawInputModel(BaseModel):
@@ -50,15 +49,28 @@ class CreateSamplingLawInputModel(BaseModel):
 class CreateSamplingLawInput:
     """Input for a sampling law."""
 
-    source: strawberry.ID = strawberry.field(description="The coordinate system whose samples are timed: an array dataset's sample grid, or a sparse dataset's (unit, t) space. It needs one TIME axis")
-    clock: strawberry.ID = strawberry.field(description="The clock the samples are timed on: a coordinate system with one TIME axis carrying a time unit -- a session's, a segment's, a run's")
-    sampling_rate: quantities.Frequency = strawberry.field(description="The rate the samples were taken at, e.g. '30 kHz'")
-    t_start: quantities.Duration = strawberry.field(default=0, description="When sample 0 was taken, on the clock. Defaults to 0")
-    validity: enums.PlacementValidity | None = strawberry.field(default=None, description="How far the law may be trusted. INFERRED by default: it was read from acquisition metadata")
+    source: strawberry.ID = strawberry.field(
+        description="The coordinate system whose samples are timed: an array dataset's sample grid, or a sparse dataset's (unit, t) space. It needs one TIME axis"
+    )
+    clock: strawberry.ID = strawberry.field(
+        description="The clock the samples are timed on: a coordinate system with one TIME axis carrying a time unit -- a session's, a segment's, a run's"
+    )
+    sampling_rate: quantities.Frequency = strawberry.field(
+        description="The rate the samples were taken at, e.g. '30 kHz'"
+    )
+    t_start: quantities.Duration = strawberry.field(
+        default=0, description="When sample 0 was taken, on the clock. Defaults to 0"
+    )
+    validity: enums.PlacementValidity | None = strawberry.field(
+        default=None,
+        description="How far the law may be trusted. INFERRED by default: it was read from acquisition metadata",
+    )
     name: str | None = None
 
 
-def create_sampling_law(info: Info, input: CreateSamplingLawInput) -> types.Transformation:
+def create_sampling_law(
+    info: Info, input: CreateSamplingLawInput
+) -> types.Transformation:
     """Time a grid's samples on a clock with one sampling-law edge."""
     parsed = input.to_pydantic()
     ctx = CreationContext.from_info(info)
@@ -99,7 +111,9 @@ class CreateClockOffsetInput:
     """Input for a clock offset."""
 
     clock: strawberry.ID = strawberry.field(description="The clock being placed")
-    onto: strawberry.ID = strawberry.field(description="The clock (or world) it is placed on")
+    onto: strawberry.ID = strawberry.field(
+        description="The clock (or world) it is placed on"
+    )
     offset: quantities.Duration | None = strawberry.field(
         default=None,
         description=(
@@ -111,11 +125,16 @@ class CreateClockOffsetInput:
         default=0.0,
         description="How much faster `clock` ticks than `onto`, in parts per million (a crystal's drift, e.g. 12.5). Written as the factor of the one edge, never as a second edge",
     )
-    validity: enums.PlacementValidity | None = strawberry.field(default=None, description="How far the offset may be trusted. MANUAL by default: someone decided it")
+    validity: enums.PlacementValidity | None = strawberry.field(
+        default=None,
+        description="How far the offset may be trusted. MANUAL by default: someone decided it",
+    )
     name: str | None = None
 
 
-def create_clock_offset(info: Info, input: CreateClockOffsetInput) -> types.Transformation:
+def create_clock_offset(
+    info: Info, input: CreateClockOffsetInput
+) -> types.Transformation:
     """Place one clock on another with one offset edge, refusing a rival."""
     parsed = input.to_pydantic()
     ctx = CreationContext.from_info(info)
@@ -124,14 +143,25 @@ def create_clock_offset(info: Info, input: CreateClockOffsetInput) -> types.Tran
     _assert_clock(clock)
     _assert_clock(onto)
     if clock.pk == onto.pk:
-        raise ValueError(f"'{clock.name}' cannot be placed on itself: its zero is its zero.")
-    offset = parsed.offset if parsed.offset is not None else clocks.nominal_offset(clock, onto)
+        raise ValueError(
+            f"'{clock.name}' cannot be placed on itself: its zero is its zero."
+        )
+    offset = (
+        parsed.offset
+        if parsed.offset is not None
+        else clocks.nominal_offset(clock, onto)
+    )
     if offset is None:
         raise ValueError(
             f"State the `offset`: '{clock.name}' and '{onto.name}' are not both anchored to a wall-clock epoch, so nothing says where one's zero sits on the other."
         )
     existing = clocks.offset_of(clock, onto)
-    if existing is not None or models.Transformation.objects.filter(input=clock, output=onto, parent__isnull=True).exists():
+    if (
+        existing is not None
+        or models.Transformation.objects.filter(
+            input=clock, output=onto, parent__isnull=True
+        ).exists()
+    ):
         raise ValueError(
             f"'{clock.name}' already sits on '{onto.name}'{f' ({existing} ps in)' if existing is not None else ''}. That edge is shared by everything timed on it; "
             "refine it with `updateTransformation` rather than stating a second one, which would be a rival the path search picks between."
@@ -154,5 +184,5 @@ def _assert_clock(system: "models.CoordinateSystem") -> None:
     if axis is None or not axis.unit:
         raise ValueError(
             f"'{system.name}' is not a clock: a clock has one TIME axis carrying a time unit, so an instant on it means something. "
-            "A sample grid's TIME axis has no unit -- time it on a clock instead. Create one with `createCoordinateSystem(axes: [{name: \"t\", type: TIME, unit: \"second\"}])`."
+            'A sample grid\'s TIME axis has no unit -- time it on a clock instead. Create one with `createCoordinateSystem(axes: [{name: "t", type: TIME, unit: "second"}])`.'
         )

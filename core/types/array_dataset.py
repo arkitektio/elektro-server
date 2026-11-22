@@ -12,38 +12,42 @@ spokes are this service's (:mod:`rigkit` where mikro has ``optikit``). Every typ
 """
 
 import datetime
-from typing import TYPE_CHECKING, Annotated, List, Optional, cast
-
-import strawberry
-from strawberry.scalars import JSON
-from strawberry import auto
+from typing import TYPE_CHECKING, Annotated, Optional, cast
 
 import kante
+import strawberry
+from arkitekt_datalayer.types import ZarrStore
 from kante.types import Info
-from kanne_server import scalars as kanne_scalars
-from rigkit.models import RigStateModel
-from rigkit.types import RigStateGraph
+from strawberry import auto
+from strawberry.scalars import JSON
+from strawberry_django.pagination import OffsetPaginationInput
 
 from core import enums, filters, models, order, scalars, scoping
 from core.base_models import slices as base_models
 from core.inputs import AnchorWindowInput
-from strawberry_django.pagination import OffsetPaginationInput
 from core.logic import file_link as file_link_logic
 from core.logic import graph as graph_logic
 from core.logic import listed_datasets
-from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, apply_link_filters
+from core.types._shared import (
+    DESCRIPTORS_DESCRIPTION,
+    OrgScoped,
+    apply_link_filters,
+    resolve_descriptors,
+)
 from core.types.auth import ProvenanceEntry, Task, User
 from core.types.coords import CoordinateSystem, Resident, Transformation
-from arkitekt_datalayer.types import ZarrStore
+from kanne_server import scalars as kanne_scalars
+from rigkit.models import RigStateModel
+from rigkit.types import RigStateGraph
 
 if TYPE_CHECKING:
     # Only for the lazy annotations below: each of these modules imports this one back.
     from core.types import NeuronModel
-    from core.types.layers import ExperimentLayer
-    from core.types.experiment import Experiment
     from core.types.annotation import AnnotationCollection
+    from core.types.experiment import Experiment
     from core.types.file_link import FileLink
     from core.types.folder import Folder
+    from core.types.layers import ExperimentLayer
 
 
 @kante.django_type(
@@ -56,10 +60,16 @@ if TYPE_CHECKING:
 class ArrayDataset(OrgScoped):
     """A multi-dimensional array dataset with named dimensions, described by its intrinsic pixel-grid coordinate system."""
 
-    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, only=["stored_descriptors"], description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = kante.django_field(
+        resolver=resolve_descriptors,
+        only=["stored_descriptors"],
+        description=DESCRIPTORS_DESCRIPTION,
+    )
 
-    folder: Optional[Annotated["Folder", strawberry.lazy("core.types.folder")]] = kante.django_field(
-        description="The folder this dataset is filed in. Organisational only: it says where a user keeps this dataset, never where the data sits in space -- that is `intrinsicSystem` and the edges out of it"
+    folder: Annotated["Folder", strawberry.lazy("core.types.folder")] | None = (
+        kante.django_field(
+            description="The folder this dataset is filed in. Organisational only: it says where a user keeps this dataset, never where the data sits in space -- that is `intrinsicSystem` and the edges out of it"
+        )
     )
 
     @kante.django_field(
@@ -70,17 +80,29 @@ class ArrayDataset(OrgScoped):
         ),
         prefetch_related=["file_links__file"],
     )
-    def source_files(self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET) -> List[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
+    def source_files(
+        self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET
+    ) -> list[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
         """The links naming a file this dataset was produced from."""
-        return apply_link_filters(file_link_logic.links_for(self, enums.FileLinkDirectionChoices.SOURCE), filters, info)
+        return apply_link_filters(
+            file_link_logic.links_for(self, enums.FileLinkDirectionChoices.SOURCE),
+            filters,
+            info,
+        )
 
     @kante.django_field(
         description="The files written out of this dataset: an NWB export, a CSV of samples. The mirror of `sourceFiles`",
         prefetch_related=["file_links__file"],
     )
-    def exports(self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET) -> List[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
+    def exports(
+        self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET
+    ) -> list[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
         """The links naming a file written out of this dataset."""
-        return apply_link_filters(file_link_logic.links_for(self, enums.FileLinkDirectionChoices.RENDITION), filters, info)
+        return apply_link_filters(
+            file_link_logic.links_for(self, enums.FileLinkDirectionChoices.RENDITION),
+            filters,
+            info,
+        )
 
     id: auto
     name: auto
@@ -88,18 +110,30 @@ class ArrayDataset(OrgScoped):
     # `name` and `description` are the only two fields `updateArrayDataset` can reach, which is
     # exactly why the audit trail is worth reading: a rename is the one thing about a dataset
     # that can change, so who changed it is the one history there is to keep.
-    provenance_entries: List["ProvenanceEntry"] = kante.django_field(
+    provenance_entries: list["ProvenanceEntry"] = kante.django_field(
         description="Every change made to this dataset: who created it, and every subsequent rename or redescription, attributed to the client, user and task it happened under. Only `name` and `description` can change -- the arrays, the axes and the coordinate systems built from them are fixed at creation"
     )
     creator: User | None = kante.django_field(description="Who created this dataset")
     created_at: datetime.datetime
-    created_through: Task | None = kante.django_field(description="The task this dataset was created through, if any")
-    created_through_by: User | None = kante.django_field(description="The assigner of the creating task, if any")
-    data_arrays: List["DataArray"] = kante.django_field(description="The multiscale data arrays belonging to this dataset")
-    lenses: List["Lens"] = kante.django_field(description="The lenses over this dataset: its sweeps, epoch windows and channel selections")
-    anchors: List["CoordinateAnchor"] = kante.django_field(description="The coordinate anchors of this dataset, each pinning metadata spokes -- a value unit, a channel label, the rig state -- to some of its coordinates")
+    created_through: Task | None = kante.django_field(
+        description="The task this dataset was created through, if any"
+    )
+    created_through_by: User | None = kante.django_field(
+        description="The assigner of the creating task, if any"
+    )
+    data_arrays: list["DataArray"] = kante.django_field(
+        description="The multiscale data arrays belonging to this dataset"
+    )
+    lenses: list["Lens"] = kante.django_field(
+        description="The lenses over this dataset: its sweeps, epoch windows and channel selections"
+    )
+    anchors: list["CoordinateAnchor"] = kante.django_field(
+        description="The coordinate anchors of this dataset, each pinning metadata spokes -- a value unit, a channel label, the rig state -- to some of its coordinates"
+    )
 
-    @kante.django_field(description="The dataset's INTRINSIC coordinate system: its level-0 sample grid, the space every pyramid level and lens maps into, and the one a sampling law or a time lookup leaves from. Structural and unit-independent")
+    @kante.django_field(
+        description="The dataset's INTRINSIC coordinate system: its level-0 sample grid, the space every pyramid level and lens maps into, and the one a sampling law or a time lookup leaves from. Structural and unit-independent"
+    )
     def intrinsic_system(self, info: Info) -> CoordinateSystem | None:
         """The dataset's INTRINSIC coordinate system."""
         return self.intrinsic_coordinate_system
@@ -107,14 +141,14 @@ class ArrayDataset(OrgScoped):
     @kante.django_field(
         description="The edges from this dataset's pixel grid back into the lenses it was computed from, when it is a derived dataset: one for a deconvolution or a resample, several for a fusion of channels or tiles. Empty for a dataset that was acquired rather than derived. The order is the priority its creator declared: the first edge is the primary parent, the one that places the dataset. They are edges, not labels: each carries the map itself, so a client can compose it -- and they are why a derived dataset inherits its sources' placements instead of needing its own registration"
     )
-    def derived_from(self, info: Info) -> List[Transformation]:
+    def derived_from(self, info: Info) -> list[Transformation]:
         """The stored derivation edges, primary parent first, if this dataset was computed from others."""
         return graph_logic.derivation_edges(self)
 
     @kante.django_field(
         description="The datasets computed from this one -- the other end of `derivedFrom`, and the way to ask what a source produced: the deconvolutions, segmentations and projections that named a space of this dataset as their parent. Derived from the same edges, never a stored back-reference that could disagree with them. Every child, not just those this dataset places: a fusion that named this source second is listed here, and so is a child whose derivation is UNMAPPABLE -- it came from here even though its geometry did not survive. The maps themselves are on each child's own `derivedFrom`"
     )
-    def derived_datasets(self, info: Info) -> List["ArrayDataset"]:
+    def derived_datasets(self, info: Info) -> list["ArrayDataset"]:
         """The datasets whose derivation edges land in one of this dataset's spaces."""
         return graph_logic.derived_datasets(self)
 
@@ -125,11 +159,14 @@ class ArrayDataset(OrgScoped):
             "*datasets*. Same edges, same kind-blindness: an UNMAPPABLE child came from here even though its geometry did not survive"
         )
     )
-    def derived_residents(self, info: Info) -> List[Resident]:
+    def derived_residents(self, info: Info) -> list[Resident]:
         """Every container whose derivation edges land in one of this dataset's spaces."""
         return graph_logic.derived_containers(self)
 
-    @kante.django_field(prefetch_related=["data_arrays"], description="Whether this dataset carries a resolution pyramid. Derived: true when it has more than one level")
+    @kante.django_field(
+        prefetch_related=["data_arrays"],
+        description="Whether this dataset carries a resolution pyramid. Derived: true when it has more than one level",
+    )
     def multiscale(self, info: Info) -> bool:
         """Whether the dataset has more than one pyramid level."""
         return listed_datasets.multiscale(cast(models.ArrayDataset, self))
@@ -139,7 +176,7 @@ class ArrayDataset(OrgScoped):
         prefetch_related=["coordinate_system__axes"],
         description="The dataset's axis names, in array order. Derived from the axes of its intrinsic coordinate system",
     )
-    def axis_names(self, info: Info) -> List[str]:
+    def axis_names(self, info: Info) -> list[str]:
         """The dataset's axis names."""
         return self.axis_names
 
@@ -155,7 +192,9 @@ class ArrayDataset(OrgScoped):
     )
     def pyramid_is_label_compliant(self, info: Info) -> bool | None:
         """Whether every downsampled level was built by picking rather than averaging."""
-        methods = [array.scale_method for array in self.data_arrays.all() if array.level != 0]
+        methods = [
+            array.scale_method for array in self.data_arrays.all() if array.level != 0
+        ]
         if not methods:
             return True
         if all(method is None for method in methods):
@@ -165,12 +204,15 @@ class ArrayDataset(OrgScoped):
     @kante.django_field(
         description="What this dataset structurally is, materialized at creation from the axes of its intrinsic coordinate system and its level-0 shape: the one spatial spec its SPACE axes denote, then a modifier per acquisition axis. An axis counts only when it has more than one position. A (t, c) recording is [SCALAR, TIMESERIES, MULTICHANNEL]. A one-channel CHANNEL axis does not make it MULTICHANNEL; `hasAxisTypes` is the filter for whether an axis is declared at all. Empty while the intrinsic system does not exist yet"
     )
-    def spec(self, info: Info) -> List[enums.ArrayDatasetSpec]:
+    def spec(self, info: Info) -> list[enums.ArrayDatasetSpec]:
         """Every spec the dataset's axes satisfy."""
         return self.spec
 
-    @kante.django_field(prefetch_related=["data_arrays"], description="The dataset's shape: that of its level-0 array")
-    def shape(self, info: Info) -> List[int]:
+    @kante.django_field(
+        prefetch_related=["data_arrays"],
+        description="The dataset's shape: that of its level-0 array",
+    )
+    def shape(self, info: Info) -> list[int]:
         """The dataset's shape."""
         return listed_datasets.shape(cast(models.ArrayDataset, self))
 
@@ -185,7 +227,9 @@ class ArrayDataset(OrgScoped):
         """The dataset-wide value unit."""
         return listed_datasets.value_unit(cast(models.ArrayDataset, self))
 
-    @kante.django_field(description="The physical dimension of this dataset's values, derived from `valueUnit` ('[time]' for a times dataset, a voltage or a current for a recording). Null when the unit is unstated or arbitrary")
+    @kante.django_field(
+        description="The physical dimension of this dataset's values, derived from `valueUnit` ('[time]' for a times dataset, a voltage or a current for a recording). Null when the unit is unstated or arbitrary"
+    )
     def value_dimension(self, info: Info) -> kanne_scalars.Dimension | None:
         """The dimensionality of the value unit."""
         unit = self.value_unit
@@ -200,21 +244,46 @@ class ArrayDataset(OrgScoped):
             "apply to it too, and are asked of the clock: `intrinsicSystem { annotations }`"
         )
     )
-    def annotation_collections(self, info: Info) -> List[Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")]]:
+    def annotation_collections(
+        self, info: Info
+    ) -> list[
+        Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")]
+    ]:
         """The collections whose derivation edge lands in this dataset's spaces."""
-        return list(scoping.for_org(models.AnnotationCollection, info).filter(coordinate_system__in=filters._systems_drawn_over_dataset(self.pk)))
+        return list(
+            scoping.for_org(models.AnnotationCollection, info).filter(
+                coordinate_system__in=filters._systems_drawn_over_dataset(self.pk)
+            )
+        )
 
     # What interprets this dataset. Elektro's counterpart of mikro's `ArrayDataset.scenes`: a
     # dataset says nothing about what it means, so this is the way to ask who does.
-    @kante.django_field(description="The experiments drawing this dataset, through any layer over any of its lenses: each once, oldest first. `experimentLayers` lists the layers themselves")
-    def experiments(self, info: Info) -> List[Annotated["Experiment", strawberry.lazy("core.types.experiment")]]:
+    @kante.django_field(
+        description="The experiments drawing this dataset, through any layer over any of its lenses: each once, oldest first. `experimentLayers` lists the layers themselves"
+    )
+    def experiments(
+        self, info: Info
+    ) -> list[Annotated["Experiment", strawberry.lazy("core.types.experiment")]]:
         """The experiments with a layer whose lens selects over this dataset."""
-        return list(scoping.for_org(models.Experiment, info).filter(layers__lens__dataset_id=self.pk).distinct().order_by("pk"))
+        return list(
+            scoping.for_org(models.Experiment, info)
+            .filter(layers__lens__dataset_id=self.pk)
+            .distinct()
+            .order_by("pk")
+        )
 
-    @kante.django_field(description="The experiment layers drawing this dataset, through any of its lenses")
-    def experiment_layers(self, info: Info) -> List[Annotated["ExperimentLayer", strawberry.lazy("core.types.layers")]]:
+    @kante.django_field(
+        description="The experiment layers drawing this dataset, through any of its lenses"
+    )
+    def experiment_layers(
+        self, info: Info
+    ) -> list[Annotated["ExperimentLayer", strawberry.lazy("core.types.layers")]]:
         """The layers whose lens selects over this dataset."""
-        return list(scoping.for_org(models.ExperimentLayer, info).filter(lens__dataset_id=self.pk).order_by("experiment_id", "order", "pk"))
+        return list(
+            scoping.for_org(models.ExperimentLayer, info)
+            .filter(lens__dataset_id=self.pk)
+            .order_by("experiment_id", "order", "pk")
+        )
 
     @kante.django_field(
         prefetch_related=[listed_datasets.simulation_anchors()],
@@ -272,7 +341,9 @@ class RigState(OrgScoped):
 
     id: auto
 
-    @kante.django_field(description="The recorded rig state, reconstructed into its typed form: clamp mode, holding level, access and membrane measurements as quantities, everything else as per-device named settings")
+    @kante.django_field(
+        description="The recorded rig state, reconstructed into its typed form: clamp mode, holding level, access and membrane measurements as quantities, everything else as per-device named settings"
+    )
     def state(self, info: Info) -> RigStateGraph:
         """The recorded rig state."""
         return RigStateModel(**self.state)
@@ -319,9 +390,13 @@ class ValueUnit(OrgScoped):
     """The value truth: what the array's values measure, pinned to a coordinate anchor"""
 
     id: auto
-    unit: kanne_scalars.Unit = kante.django_field(description="The unit of the values, e.g. 'millivolt'. 'a.u.' for arbitrary units")
+    unit: kanne_scalars.Unit = kante.django_field(
+        description="The unit of the values, e.g. 'millivolt'. 'a.u.' for arbitrary units"
+    )
 
-    @kante.django_field(description="The physical dimension of the unit. Null for arbitrary units")
+    @kante.django_field(
+        description="The physical dimension of the unit. Null for arbitrary units"
+    )
     def dimension(self, info: Info) -> kanne_scalars.Dimension | None:
         """The dimensionality of the unit."""
         if kanne_scalars.is_arbitrary_unit(self.unit):
@@ -356,12 +431,22 @@ class RecordingSite(OrgScoped):
 
     id: auto
     kind: enums.RecordingKind
-    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(description="The neuron model this site is part of")
-    cell: str | None = kante.django_field(description="The id of the cell, one of the cells the model declares")
-    location: str | None = kante.django_field(description="The id of the section, one of the sections of that cell of the model")
-    position: float | None = kante.django_field(description="The normalized position along the section, 0 to 1")
+    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(
+        description="The neuron model this site is part of"
+    )
+    cell: str | None = kante.django_field(
+        description="The id of the cell, one of the cells the model declares"
+    )
+    location: str | None = kante.django_field(
+        description="The id of the section, one of the sections of that cell of the model"
+    )
+    position: float | None = kante.django_field(
+        description="The normalized position along the section, 0 to 1"
+    )
 
-    @kante.django_field(description="The stated label, or the site spelled out as 'cell: location(position)'")
+    @kante.django_field(
+        description="The stated label, or the site spelled out as 'cell: location(position)'"
+    )
     def label(self, info: Info) -> str:
         return self.display_label
 
@@ -376,12 +461,22 @@ class StimulusSite(OrgScoped):
 
     id: auto
     kind: enums.StimulusKind
-    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(description="The neuron model this site is part of")
-    cell: str | None = kante.django_field(description="The id of the cell, one of the cells the model declares")
-    location: str | None = kante.django_field(description="The id of the section, one of the sections of that cell of the model")
-    position: float | None = kante.django_field(description="The normalized position along the section, 0 to 1")
+    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(
+        description="The neuron model this site is part of"
+    )
+    cell: str | None = kante.django_field(
+        description="The id of the cell, one of the cells the model declares"
+    )
+    location: str | None = kante.django_field(
+        description="The id of the section, one of the sections of that cell of the model"
+    )
+    position: float | None = kante.django_field(
+        description="The normalized position along the section, 0 to 1"
+    )
 
-    @kante.django_field(description="The stated label, or the site spelled out as 'cell: location(position)'")
+    @kante.django_field(
+        description="The stated label, or the site spelled out as 'cell: location(position)'"
+    )
     def label(self, info: Info) -> str:
         return self.display_label
 
@@ -398,9 +493,15 @@ class SimulationState(OrgScoped):
     """What computed the anchored values."""
 
     id: auto
-    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(description="The neuron model that was integrated")
-    duration: kanne_scalars.Duration = kante.django_field(description="How long the model was run for (NEURON's tstop)")
-    dt: kanne_scalars.Duration | None = kante.django_field(description="The integration time step (NEURON's dt). Not the sampling period: a run can record more coarsely than it integrates. Null when unstated")
+    model: Annotated["NeuronModel", strawberry.lazy("core.types")] = kante.django_field(
+        description="The neuron model that was integrated"
+    )
+    duration: kanne_scalars.Duration = kante.django_field(
+        description="How long the model was run for (NEURON's tstop)"
+    )
+    dt: kanne_scalars.Duration | None = kante.django_field(
+        description="The integration time step (NEURON's dt). Not the sampling period: a run can record more coarsely than it integrates. Null when unstated"
+    )
 
 
 @kante.django_type(
@@ -416,18 +517,36 @@ class CoordinateAnchor(OrgScoped):
     """The axis-agnostic hub that pins metadata spokes to specific coordinates of an array, table or sparse dataset"""
 
     id: auto
-    dataset: Optional[ArrayDataset] = kante.django_field(description="The array dataset this anchor pins into, or null otherwise")
-    table: Optional[Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")]] = kante.django_field(description="The table dataset this anchor pins into, or null otherwise")
-    sparse: Optional[Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")]] = kante.django_field(description="The sparse dataset this anchor pins into, or null otherwise")
+    dataset: ArrayDataset | None = kante.django_field(
+        description="The array dataset this anchor pins into, or null otherwise"
+    )
+    table: (
+        Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")] | None
+    ) = kante.django_field(
+        description="The table dataset this anchor pins into, or null otherwise"
+    )
+    sparse: (
+        Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")] | None
+    ) = kante.django_field(
+        description="The sparse dataset this anchor pins into, or null otherwise"
+    )
     # The reverse accessor from RigState.anchor is `rig`, not `rig_state`.
-    rig: RigState | None = kante.django_field(description="The rig state recorded at this coordinate")
+    rig: RigState | None = kante.django_field(
+        description="The rig state recorded at this coordinate"
+    )
     value_histogram: ValueHistogram | None
     channel_label: ChannelLabel | None
     value_unit: ValueUnit | None
     acquisition_metadata: AcquisitionMetadata | None
-    recording_site: Optional["RecordingSite"] = kante.django_field(description="(simulation) Where on the model the values at this coordinate were recorded")
-    stimulus_site: Optional["StimulusSite"] = kante.django_field(description="(simulation) Where on the model the values at this coordinate were injected")
-    simulation: Optional[SimulationState] = kante.django_field(description="(simulation) The model and integrator parameters that computed the values at this coordinate")
+    recording_site: Optional["RecordingSite"] = kante.django_field(
+        description="(simulation) Where on the model the values at this coordinate were recorded"
+    )
+    stimulus_site: Optional["StimulusSite"] = kante.django_field(
+        description="(simulation) Where on the model the values at this coordinate were injected"
+    )
+    simulation: SimulationState | None = kante.django_field(
+        description="(simulation) The model and integrator parameters that computed the values at this coordinate"
+    )
 
     @kante.django_field(
         description=(
@@ -440,7 +559,10 @@ class CoordinateAnchor(OrgScoped):
         return self.coordinates
 
 
-@kante.pydantic_type(base_models.SliceModel, description="A slice along a named axis, with optional start, stop and step")
+@kante.pydantic_type(
+    base_models.SliceModel,
+    description="A slice along a named axis, with optional start, stop and step",
+)
 class Slice:
     """A slice along a named axis, with optional start, stop and step."""
 
@@ -460,7 +582,11 @@ class Slice:
 class Lens(OrgScoped):
     """A selection over a dataset. Its shape and axes are derived from the dataset and the slices."""
 
-    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, only=["stored_descriptors"], description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = kante.django_field(
+        resolver=resolve_descriptors,
+        only=["stored_descriptors"],
+        description=DESCRIPTORS_DESCRIPTION,
+    )
 
     id: auto
     dataset: ArrayDataset
@@ -473,13 +599,17 @@ class Lens(OrgScoped):
         """The system the lens' selection is expressed in: its own, or intrinsic when unsliced."""
         return self.space
 
-    @kante.django_field(description="The lens' axis names, in array order. A selection never drops or reorders an axis")
-    def axis_names(self, info: Info) -> List[str]:
+    @kante.django_field(
+        description="The lens' axis names, in array order. A selection never drops or reorders an axis"
+    )
+    def axis_names(self, info: Info) -> list[str]:
         """The lens' axis names."""
         return self.axis_names
 
-    @kante.django_field(description="The shape this lens' slices cut out of its dataset")
-    def shape(self, info: Info) -> List[int]:
+    @kante.django_field(
+        description="The shape this lens' slices cut out of its dataset"
+    )
+    def shape(self, info: Info) -> list[int]:
         """The lens' shape."""
         return self.shape_list
 
@@ -493,21 +623,25 @@ class Lens(OrgScoped):
     @kante.django_field(
         description="The datasets computed from this lens' selection: the direct other end of `derivedFrom`, which names a *lens* as a parent rather than a dataset. An unsliced lens reports what was derived from the whole intrinsic grid -- its space is that grid, so it can say nothing narrower. Like the forward field this reports every child, whether or not this lens is its primary parent and whether or not its geometry survived"
     )
-    def derived_datasets(self, info: Info) -> List[ArrayDataset]:
+    def derived_datasets(self, info: Info) -> list[ArrayDataset]:
         """The datasets whose derivation edges land in this lens' space."""
         return graph_logic.lens_derived_datasets(self)
 
-    @kante.django_field(description="The slices this lens makes, one per axis it restricts. Empty for a lens that selects everything")
-    def slices(self, info: Info) -> List[Slice]:
+    @kante.django_field(
+        description="The slices this lens makes, one per axis it restricts. Empty for a lens that selects everything"
+    )
+    def slices(self, info: Info) -> list[Slice]:
         """The lens' slices."""
         return self.slices_list
 
-    @kante.django_field(description="The dataset's coordinate anchors that fall inside this lens: an anchor pinned along an axis is in when its position is within the slice, and an anchor global along it always is. How a view of channels 2 to 5 learns what those four channels are called. `within` narrows to a channel and a time window, oldest anchor first")
+    @kante.django_field(
+        description="The dataset's coordinate anchors that fall inside this lens: an anchor pinned along an axis is in when its position is within the slice, and an anchor global along it always is. How a view of channels 2 to 5 learns what those four channels are called. `within` narrows to a channel and a time window, oldest anchor first"
+    )
     def active_anchors(
         self,
         info: Info,
         within: Annotated[
-            Optional[List[AnchorWindowInput]],
+            list[AnchorWindowInput] | None,
             strawberry.argument(
                 description=(
                     "Narrow further to the anchors inside every one of these windows, in the dataset's own anchor coordinates (sample indices): "
@@ -515,12 +649,18 @@ class Lens(OrgScoped):
                 )
             ),
         ] = None,
-        pagination: Optional[OffsetPaginationInput] = None,
-    ) -> List[CoordinateAnchor]:
+        pagination: OffsetPaginationInput | None = None,
+    ) -> list[CoordinateAnchor]:
         """The anchors the lens' slices do not exclude, optionally narrowed and paged, oldest first."""
         lens = cast(models.Lens, self)
-        anchors = lens.anchors_within([(window.axis, window.min, window.max) for window in within or []]).order_by("pk")
+        anchors = lens.anchors_within(
+            [(window.axis, window.min, window.max) for window in within or []]
+        ).order_by("pk")
         if pagination is not None:
             offset = pagination.offset or 0
-            anchors = anchors[offset:] if pagination.limit is None or pagination.limit < 0 else anchors[offset : offset + pagination.limit]
+            anchors = (
+                anchors[offset:]
+                if pagination.limit is None or pagination.limit < 0
+                else anchors[offset : offset + pagination.limit]
+            )
         return list(anchors)

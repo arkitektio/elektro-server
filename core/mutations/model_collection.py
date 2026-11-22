@@ -1,9 +1,9 @@
-from kante.types import Info
-import strawberry
 import kante
+import strawberry
+from kante.types import Info
 from pydantic import BaseModel
-from core import types, models, scalars, enums
-from core.base_models.input.graphql.biophysics import BiophysicsInput
+
+from core import models, types
 from core.scoping import for_org
 
 
@@ -51,9 +51,13 @@ def create_model_collection(
 
     # Scoped, and strict: an id from another organization is an error, not a silently shorter collection.
     members = list(for_org(models.NeuronModel, info).filter(id__in=parsed.models))
-    missing = sorted(set(map(str, parsed.models)) - {str(member.pk) for member in members})
+    missing = sorted(
+        set(map(str, parsed.models)) - {str(member.pk) for member in members}
+    )
     if missing:
-        raise ValueError(f"No neuron model{'' if len(missing) == 1 else 's'} with id {', '.join(missing)} in this organization.")
+        raise ValueError(
+            f"No neuron model{'' if len(missing) == 1 else 's'} with id {', '.join(missing)} in this organization."
+        )
     exp.models.set(members)
 
     return exp

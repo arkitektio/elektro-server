@@ -35,8 +35,18 @@ async def _sequence(ctx) -> tuple[models.CoordinateSystem, models.CoordinateSyst
 
     def build() -> None:
         owned = {"creator": ctx.request.user, "organization": ctx.request.organization}
-        sequence = models.Transformation.objects.create(kind="SEQUENCE", params={}, input=source, output=target, **owned)
-        models.Transformation.objects.create(kind="SCALE", params={"scale": [1.0, 2.0, 3.0]}, input=source, output=target, parent=sequence, order=0, **owned)
+        sequence = models.Transformation.objects.create(
+            kind="SEQUENCE", params={}, input=source, output=target, **owned
+        )
+        models.Transformation.objects.create(
+            kind="SCALE",
+            params={"scale": [1.0, 2.0, 3.0]},
+            input=source,
+            output=target,
+            parent=sequence,
+            order=0,
+            **owned,
+        )
 
     await sync_to_async(build)()
     return source, target
@@ -49,8 +59,12 @@ def _edges(data: dict) -> list[dict]:
     return children or listed
 
 
-@pytest.mark.parametrize("query", [TOP_LEVEL, CHILDREN], ids=["edge", "child of a sequence"])
-async def test_an_edge_reads_its_endpoints_and_their_axis_order_together(aexecute, authenticated_context, query: str):
+@pytest.mark.parametrize(
+    "query", [TOP_LEVEL, CHILDREN], ids=["edge", "child of a sequence"]
+)
+async def test_an_edge_reads_its_endpoints_and_their_axis_order_together(
+    aexecute, authenticated_context, query: str
+):
     source, target = await _sequence(authenticated_context)
 
     result = await aexecute(query)

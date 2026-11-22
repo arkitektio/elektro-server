@@ -10,13 +10,12 @@ it was converted out of.
 """
 
 import datetime
-from typing import TYPE_CHECKING, Annotated, List, Optional, Union
-
-import strawberry
-from strawberry import auto
+from typing import TYPE_CHECKING, Annotated
 
 import kante
+import strawberry
 from kante.types import Info
+from strawberry import auto
 
 from core import enums, filters, models, order
 from core.types._shared import OrgScoped
@@ -36,13 +35,14 @@ if TYPE_CHECKING:
 #: ``Resident``: a lens is a selection over a dataset rather than a thing with its own bytes,
 #: and a coordinate system is a space, which no file encodes.
 FileLinkContainer = Annotated[
-    Union[
-        Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")],
-        Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")],
-        Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")],
-        Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
-    ],
-    strawberry.union("FileLinkContainer", description="The data side of a file link: a container whose contents a file encodes"),
+    Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]
+    | Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")]
+    | Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")]
+    | Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
+    strawberry.union(
+        "FileLinkContainer",
+        description="The data side of a file link: a container whose contents a file encodes",
+    ),
 ]
 
 
@@ -60,7 +60,9 @@ class FileLink(OrgScoped):
     """A file and a container holding the same data."""
 
     id: auto
-    file: Annotated["File", strawberry.lazy("core.types.folder")] = kante.django_field(description="The file side of the link")
+    file: Annotated["File", strawberry.lazy("core.types.folder")] = kante.django_field(
+        description="The file side of the link"
+    )
     direction: enums.FileLinkDirection = kante.django_field(
         description="Which side was made from the other: SOURCE when the container was produced from the file (an ingest), RENDITION when the file was written from the container (an export)"
     )
@@ -70,26 +72,48 @@ class FileLink(OrgScoped):
     value_relation: enums.ValueRelation | None = kante.django_field(
         description="What the conversion did to the values: IDENTICAL for a lossless transcode, TRANSFORMED for a filtered or resampled export. Null when unstated"
     )
-    provenance_entries: List[ProvenanceEntry] = kante.django_field(description="Provenance entries for this link")
+    provenance_entries: list[ProvenanceEntry] = kante.django_field(
+        description="Provenance entries for this link"
+    )
     created_at: datetime.datetime
     # Nullable: the creator FK is SET_NULL, so a link outlives the user who made it.
-    creator: Optional[User] = kante.django_field(description="The user who recorded this link")
-    created_through: Optional[Task] = kante.django_field(description="The task this link was created through, if any")
-    created_through_by: Optional[User] = kante.django_field(description="The assigner of the creating task, if any")
-    organization: Organization = kante.django_field(description="The organization this link belongs to")
+    creator: User | None = kante.django_field(
+        description="The user who recorded this link"
+    )
+    created_through: Task | None = kante.django_field(
+        description="The task this link was created through, if any"
+    )
+    created_through_by: User | None = kante.django_field(
+        description="The assigner of the creating task, if any"
+    )
+    organization: Organization = kante.django_field(
+        description="The organization this link belongs to"
+    )
 
     @kante.django_field(
         description="The data side of the link. Exactly one container is set on a link, and this is it",
-        select_related=["dataset", "table_dataset", "annotation_collection", "sparse_dataset"],
+        select_related=[
+            "dataset",
+            "table_dataset",
+            "annotation_collection",
+            "sparse_dataset",
+        ],
     )
     def container(self, info: Info) -> FileLinkContainer:
         """Whichever of the two container FKs is set."""
-        container = self.dataset or self.table_dataset or self.annotation_collection or self.sparse_dataset
+        container = (
+            self.dataset
+            or self.table_dataset
+            or self.annotation_collection
+            or self.sparse_dataset
+        )
         if container is None:
             # Unreachable through the writer, which refuses a link naming no container. Loud
             # rather than a null, because a link with no data side is a corrupt row, not an
             # absent value -- the field is non-null in the SDL precisely to say so.
-            raise ValueError(f"File link {self.pk} names no container. Exactly one of dataset, table dataset, annotation collection or sparse dataset must be set.")
+            raise ValueError(
+                f"File link {self.pk} names no container. Exactly one of dataset, table dataset, annotation collection or sparse dataset must be set."
+            )
         # Returned as the Django model, exactly as `CoordinateSystem.residents` returns its
         # union members: strawberry_django maps model to type through its own registry, and a
         # `strawberry.cast` here stops it doing so.

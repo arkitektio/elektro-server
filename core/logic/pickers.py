@@ -63,11 +63,17 @@ def layers_naming_table(table) -> "QuerySet[models.ExperimentLayer]":  # noqa: A
     organization would let a delete break something it could not see, and looking too widely
     only refuses a delete, which is recoverable.
     """
-    return models.ExperimentLayer.objects.filter(_names_table(str(table.pk))).select_related("experiment").order_by("pk")
+    return (
+        models.ExperimentLayer.objects.filter(_names_table(str(table.pk)))
+        .select_related("experiment")
+        .order_by("pk")
+    )
 
 
 def _refuse(what: str, layers: list, total: int, verb: str) -> None:
-    described = ", ".join(f"layer {layer.pk} in experiment '{layer.experiment.name}'" for layer in layers)
+    described = ", ".join(
+        f"layer {layer.pk} in experiment '{layer.experiment.name}'" for layer in layers
+    )
     more = f" (and {total - len(layers)} more)" if total > len(layers) else ""
     raise ValueError(
         f"{what} cannot be deleted: {total} layer(s) {verb} -- {described}{more}. "
@@ -80,7 +86,12 @@ def assert_table_not_in_a_picker(table) -> None:  # noqa: ANN001 - a TableDatase
     """Refuse to delete a table some layer still colours or filters by."""
     layers = list(layers_naming_table(table)[:5])
     if layers:
-        _refuse(f"Table dataset '{table.name}' ({table.pk})", layers, layers_naming_table(table).count(), "colour or filter by a column of it")
+        _refuse(
+            f"Table dataset '{table.name}' ({table.pk})",
+            layers,
+            layers_naming_table(table).count(),
+            "colour or filter by a column of it",
+        )
 
 
 def _names_sparse_dataset(dataset_id: str) -> Q:
@@ -93,7 +104,11 @@ def _names_sparse_dataset(dataset_id: str) -> Q:
 
 def layers_naming_sparse_dataset(dataset) -> "QuerySet[models.ExperimentLayer]":  # noqa: ANN001 - a SparseDataset
     """Every layer whose pickers name this sparse dataset."""
-    return models.ExperimentLayer.objects.filter(_names_sparse_dataset(str(dataset.pk))).select_related("experiment").order_by("pk")
+    return (
+        models.ExperimentLayer.objects.filter(_names_sparse_dataset(str(dataset.pk)))
+        .select_related("experiment")
+        .order_by("pk")
+    )
 
 
 def assert_sparse_dataset_not_in_a_picker(dataset) -> None:  # noqa: ANN001 - a SparseDataset
@@ -104,4 +119,9 @@ def assert_sparse_dataset_not_in_a_picker(dataset) -> None:  # noqa: ANN001 - a 
     """
     layers = list(layers_naming_sparse_dataset(dataset)[:5])
     if layers:
-        _refuse(f"Sparse dataset '{dataset.name}' ({dataset.pk})", layers, layers_naming_sparse_dataset(dataset).count(), "colour by a slice of it")
+        _refuse(
+            f"Sparse dataset '{dataset.name}' ({dataset.pk})",
+            layers,
+            layers_naming_sparse_dataset(dataset).count(),
+            "colour by a slice of it",
+        )

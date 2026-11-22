@@ -25,13 +25,12 @@ Read "scene" as "experiment" below; what differs from mikro is that ``scene`` is
 
 import uuid
 
-from django.db import models
+from authentikate.models import Organization
 from django.contrib.auth import get_user_model
 from django.contrib.postgres.indexes import GinIndex, GistIndex
-
-from authentikate.models import Organization
-from koherent.fields import ProvenanceField
+from django.db import models
 from django_choices_field import TextChoicesField
+from koherent.fields import ProvenanceField
 
 from core import enums
 from core.fields import CubeField
@@ -58,8 +57,14 @@ class AnnotationCollection(models.Model):
     its own layer for A's collection.
     """
 
-    name = models.CharField(max_length=255, help_text="The name of this annotation collection")
-    description = models.TextField(null=True, blank=True, help_text="A free-form description of this annotation collection")
+    name = models.CharField(
+        max_length=255, help_text="The name of this annotation collection"
+    )
+    description = models.TextField(
+        null=True,
+        blank=True,
+        help_text="A free-form description of this annotation collection",
+    )
 
     # Filing, not placement -- see the note on `ArrayDataset.folder`. Distinct from `experiment`
     # below, which is also bookkeeping but answers a different question: `experiment` says which
@@ -128,7 +133,9 @@ class AnnotationCollection(models.Model):
         """
         return self.bbox_system or self.coordinate_system_or_none
 
-    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this annotation collection was created")
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="The time this annotation collection was created"
+    )
     creator = models.ForeignKey(
         get_user_model(),
         on_delete=models.SET_NULL,
@@ -137,7 +144,12 @@ class AnnotationCollection(models.Model):
         related_name="annotation_collections",
         help_text="The user that created this annotation collection",
     )
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="annotation_collections", help_text="The organization this annotation collection belongs to")
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="annotation_collections",
+        help_text="The organization this annotation collection belongs to",
+    )
     created_through = models.ForeignKey(
         "koherent.Task",
         on_delete=models.SET_NULL,
@@ -211,7 +223,10 @@ class Annotation(models.Model):
         help_text="The discrete coordinates this annotation is pinned to, keyed by coordinate name, e.g. {'c': 3} for an event on channel 3, or {'sweep': 12}. A coordinate the annotation does not pin is one it spans",
         default=dict,
     )
-    vectors = models.JSONField(help_text="A list of the annotation's vectors (specific for each kind), in the collection's coordinate system's own units", default=list)
+    vectors = models.JSONField(
+        help_text="A list of the annotation's vectors (specific for each kind), in the collection's coordinate system's own units",
+        default=list,
+    )
     intrinsic_bbox = models.JSONField(
         null=True,
         blank=True,
@@ -234,10 +249,25 @@ class Annotation(models.Model):
 
     # Per-shape styling lives here, not on the layer: the layer is one per
     # collection, and shapes within one collection may differ visually.
-    stroke_color = models.JSONField(default=None, null=True, blank=True, help_text="The stroke (outline) color of the geometry (RGBA)")
-    fill_color = models.JSONField(default=None, null=True, blank=True, help_text="The fill color of the geometry (RGBA), or null for no fill")
-    stroke_width = models.FloatField(default=1.0, help_text="The stroke width of the geometry, in the drawing space's units. One number for every direction, so it is a well-defined length only where that space's axes share a scale (RFC-8)")
-    filled = models.BooleanField(default=False, help_text="Whether the geometry is filled with fill_color")
+    stroke_color = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="The stroke (outline) color of the geometry (RGBA)",
+    )
+    fill_color = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="The fill color of the geometry (RGBA), or null for no fill",
+    )
+    stroke_width = models.FloatField(
+        default=1.0,
+        help_text="The stroke width of the geometry, in the drawing space's units. One number for every direction, so it is a well-defined length only where that space's axes share a scale (RFC-8)",
+    )
+    filled = models.BooleanField(
+        default=False, help_text="Whether the geometry is filled with fill_color"
+    )
 
     creator = models.ForeignKey(
         get_user_model(),

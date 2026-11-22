@@ -70,7 +70,9 @@ def test_dimension_rejects_bogus():
 # --- arbitrary units (a.u.) opt-out ------------------------------------------
 
 
-@pytest.mark.parametrize("spelling", ["a.u.", "A.U.", "arbitrary units", "arbitrary_unit", "arb"])
+@pytest.mark.parametrize(
+    "spelling", ["a.u.", "A.U.", "arbitrary units", "arbitrary_unit", "arb"]
+)
 def test_unit_accepts_arbitrary(spelling):
     assert UModel(u=spelling).u == "a.u."  # canonicalized
 

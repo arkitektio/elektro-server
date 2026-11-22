@@ -1,9 +1,12 @@
-from itertools import chain
-import strawberry
-from typing import Optional, List, Any
+from typing import Any
+
 
 # Factor out pagination logic into a separate function
-def paginate_querysets(*querysets: Any, offset: int = 0, limit: int = 100,):
+def paginate_querysets(
+    *querysets: Any,
+    offset: int = 0,
+    limit: int = 100,
+):
 
     items = []
     remaining_limit = limit  # How many more items we need to fetch
@@ -19,8 +22,10 @@ def paginate_querysets(*querysets: Any, offset: int = 0, limit: int = 100,):
             continue
 
         # Calculate how many items to fetch from this queryset
-        qs_items = qs[current_offset:current_offset + remaining_limit]
-        current_offset = 0  # After processing the first queryset, reset offset for the next one
+        qs_items = qs[current_offset : current_offset + remaining_limit]
+        current_offset = (
+            0  # After processing the first queryset, reset offset for the next one
+        )
 
         # Append the fetched items to the results
         items.extend(qs_items)

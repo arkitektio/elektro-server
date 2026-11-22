@@ -25,8 +25,12 @@ query ($filters: ExperimentFilter) {
 @sync_to_async
 def _make_experiment(ctx, *, name, creator):
     # An experiment carries its own organization and composes over a world it adopts.
-    world = models.CoordinateSystem.objects.create(name=f"{name}/world", creator=creator, organization=ctx.request.organization)
-    return models.Experiment.objects.create(name=name, creator=creator, organization=ctx.request.organization, world=world)
+    world = models.CoordinateSystem.objects.create(
+        name=f"{name}/world", creator=creator, organization=ctx.request.organization
+    )
+    return models.Experiment.objects.create(
+        name=name, creator=creator, organization=ctx.request.organization, world=world
+    )
 
 
 @sync_to_async
@@ -79,11 +83,15 @@ async def test_mine_and_created_by(aexecute, authenticated_context):
 
 async def test_provenance_root_task(aexecute, authenticated_context):
     me = authenticated_context.request.user
-    with_task = await _make_experiment(authenticated_context, name="from-run", creator=me)
+    with_task = await _make_experiment(
+        authenticated_context, name="from-run", creator=me
+    )
     await _make_experiment(authenticated_context, name="manual", creator=me)
     task = await _attach_task(with_task)
 
-    res = await aexecute(EXPERIMENTS, {"filters": {"provenanceRootTask": task.root_task_id}})
+    res = await aexecute(
+        EXPERIMENTS, {"filters": {"provenanceRootTask": task.root_task_id}}
+    )
     assert not res.errors, res.errors
     assert [e["name"] for e in res.data["experiments"]] == ["from-run"]
 

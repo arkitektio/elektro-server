@@ -42,17 +42,113 @@ def test_provenance_filter_fields_exposed():
 #: names off it with `graphql.build_schema(sdl, assume_valid_sdl=True).type_map[name].fields`,
 #: and paste them here. Any difference beyond `_DIVERGENCES` is a vendoring bug.
 _MIKRO_FIELDS = {
-    "Column": ["axisType", "description", "dtype", "id", "longName", "name", "nodeReferences", "order", "references", "role", "table", "unit"],
-    "ColumnInput": ["axisType", "description", "dtype", "identifiedBy", "longName", "name", "role", "unit"],
-    "CreateSparseDatasetInput": ["anchors", "axes", "derivedFrom", "description", "folder", "name", "sourceFiles", "store"],
-    "CreateTableDatasetInput": ["anchors", "columns", "data", "derivedFrom", "description", "folder", "name", "sourceFiles"],
-    "IdentificationInput": ["dataset", "kind", "meshCollection", "name", "networkCollection", "table", "validity"],
+    "Column": [
+        "axisType",
+        "description",
+        "dtype",
+        "id",
+        "longName",
+        "name",
+        "nodeReferences",
+        "order",
+        "references",
+        "role",
+        "table",
+        "unit",
+    ],
+    "ColumnInput": [
+        "axisType",
+        "description",
+        "dtype",
+        "identifiedBy",
+        "longName",
+        "name",
+        "role",
+        "unit",
+    ],
+    "CreateSparseDatasetInput": [
+        "anchors",
+        "axes",
+        "derivedFrom",
+        "description",
+        "folder",
+        "name",
+        "sourceFiles",
+        "store",
+    ],
+    "CreateTableDatasetInput": [
+        "anchors",
+        "columns",
+        "data",
+        "derivedFrom",
+        "description",
+        "folder",
+        "name",
+        "sourceFiles",
+    ],
+    "IdentificationInput": [
+        "dataset",
+        "kind",
+        "meshCollection",
+        "name",
+        "networkCollection",
+        "table",
+        "validity",
+    ],
     "SparseArray": ["id", "indexedAxis", "indexedAxisName", "path", "store"],
     "SparseAxisInput": ["description", "identifiedBy", "longName", "name"],
     "SparseAxisReference": ["axis", "id", "references"],
-    "SparseDataset": ["anchors", "arrays", "axisNames", "axisReferences", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "descriptors", "folder", "id", "indexableAxes", "name", "provenanceEntries", "provenanceMetadata", "shape", "sourceFiles"],
-    "SparseLayout": ["chunks", "dtype", "encoding", "encodingVersion", "indexOrder", "indexedAxis", "nnz", "path", "rangeReadable"],
-    "TableDataset": ["anchors", "axisNames", "columns", "coordinateSystem", "createdThrough", "createdThroughBy", "derivedFrom", "description", "descriptors", "exports", "folder", "id", "name", "provenanceEntries", "provenanceMetadata", "referencedBy", "sourceFiles", "store"],
+    "SparseDataset": [
+        "anchors",
+        "arrays",
+        "axisNames",
+        "axisReferences",
+        "coordinateSystem",
+        "createdThrough",
+        "createdThroughBy",
+        "derivedFrom",
+        "description",
+        "descriptors",
+        "folder",
+        "id",
+        "indexableAxes",
+        "name",
+        "provenanceEntries",
+        "provenanceMetadata",
+        "shape",
+        "sourceFiles",
+    ],
+    "SparseLayout": [
+        "chunks",
+        "dtype",
+        "encoding",
+        "encodingVersion",
+        "indexOrder",
+        "indexedAxis",
+        "nnz",
+        "path",
+        "rangeReadable",
+    ],
+    "TableDataset": [
+        "anchors",
+        "axisNames",
+        "columns",
+        "coordinateSystem",
+        "createdThrough",
+        "createdThroughBy",
+        "derivedFrom",
+        "description",
+        "descriptors",
+        "exports",
+        "folder",
+        "id",
+        "name",
+        "provenanceEntries",
+        "provenanceMetadata",
+        "referencedBy",
+        "sourceFiles",
+        "store",
+    ],
 }
 
 #: Every place the vendored types differ from mikro's, and why -- `core/DESIGN.md` lists the same.
@@ -73,10 +169,14 @@ def test_the_vendored_table_and_sparse_types_are_mikros():
     for name, fields in _MIKRO_FIELDS.items():
         removed, added = _DIVERGENCES.get(name, (set(), set()))
         expected = (set(fields) - removed) | added
-        assert set(built.type_map[name].fields) == expected, f"{name} drifted from mikro's beyond the recorded divergences"
+        assert set(built.type_map[name].fields) == expected, (
+            f"{name} drifted from mikro's beyond the recorded divergences"
+        )
 
     kinds = set(built.type_map["IdentificationKind"].values)
-    assert kinds == {"DATASET", "TABLE"}, "mikro's MESH_COLLECTION / NETWORK_COLLECTION / NETWORK_COLLECTION_NODES have nothing to name here"
+    assert kinds == {"DATASET", "TABLE"}, (
+        "mikro's MESH_COLLECTION / NETWORK_COLLECTION / NETWORK_COLLECTION_NODES have nothing to name here"
+    )
 
 
 def test_embedding_columns_stay_out_of_the_schema():

@@ -6,37 +6,51 @@ dataset, a table dataset, an annotation collection and a file as there, and a sp
 clock and the datasets placed on it -- so it is filed by filing those.
 """
 
-from kante.types import Info
+from collections.abc import Callable
+from typing import cast
+
 import kante
 import strawberry
+from django.db.models import Model
+from kante.types import Info
 from pydantic import BaseModel, Field
-from core import types, models, inputs
-from typing import Callable, cast
+
+from core import inputs, models, types
 from core.creation import CreationContext
-from core.scoping import get_for_org
 from core.logic import folder as folder_logic
 from core.mutations._generic import make_delete, make_pin
-from django.db.models import Model
+from core.scoping import get_for_org
 
 
 class CreateFolderInputModel(BaseModel):
     name: str = Field(description="The name of the folder")
-    parent: str | None = Field(default=None, description="The ID of the parent folder to nest this folder under")
+    parent: str | None = Field(
+        default=None,
+        description="The ID of the parent folder to nest this folder under",
+    )
 
 
-@kante.pydantic_input(CreateFolderInputModel, description="Input for creating a new folder to organize array datasets, recording sessions and files")
+@kante.pydantic_input(
+    CreateFolderInputModel,
+    description="Input for creating a new folder to organize array datasets, recording sessions and files",
+)
 class CreateFolderInput:
     """Input for creating a new folder to organize array datasets, recording sessions and files"""
 
     name: str = strawberry.field(description="The name of the folder")
-    parent: strawberry.ID | None = strawberry.field(default=None, description="The ID of the parent folder to nest this folder under")
+    parent: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="The ID of the parent folder to nest this folder under",
+    )
 
 
 class DeleteFolderInputModel(BaseModel):
     id: str = Field(description="The ID of the folder to delete")
 
 
-@kante.pydantic_input(DeleteFolderInputModel, description="Input for deleting a folder by ID")
+@kante.pydantic_input(
+    DeleteFolderInputModel, description="Input for deleting a folder by ID"
+)
 class DeleteFolderInput:
     """Input for deleting a folder by ID"""
 
@@ -48,11 +62,16 @@ class PinFolderInputModel(BaseModel):
     pin: bool = Field(description="True to pin, false to unpin")
 
 
-@kante.pydantic_input(PinFolderInputModel, description="Input for pinning or unpinning a folder for quick access")
+@kante.pydantic_input(
+    PinFolderInputModel,
+    description="Input for pinning or unpinning a folder for quick access",
+)
 class PinFolderInput:
     """Input for pinning or unpinning a folder for quick access"""
 
-    id: strawberry.ID = strawberry.field(description="The ID of the folder to pin or unpin")
+    id: strawberry.ID = strawberry.field(
+        description="The ID of the folder to pin or unpin"
+    )
     pin: bool = strawberry.field(description="True to pin, false to unpin")
 
 
@@ -63,7 +82,10 @@ class ChangeFolderInputModel(CreateFolderInputModel):
     id: str = Field(description="The ID of the folder to change")
 
 
-@kante.pydantic_input(ChangeFolderInputModel, description="Input for changing an existing folder's name or parent")
+@kante.pydantic_input(
+    ChangeFolderInputModel,
+    description="Input for changing an existing folder's name or parent",
+)
 class ChangeFolderInput(CreateFolderInput):
     """Input for changing an existing folder's name or parent"""
 
@@ -72,15 +94,22 @@ class ChangeFolderInput(CreateFolderInput):
 
 class RevertInputModel(BaseModel):
     id: str = Field(description="The ID of the folder to revert")
-    history_id: str = Field(description="The ID of the provenance history entry to revert the folder to")
+    history_id: str = Field(
+        description="The ID of the provenance history entry to revert the folder to"
+    )
 
 
-@kante.pydantic_input(RevertInputModel, description="Input for reverting a folder to a previous history revision")
+@kante.pydantic_input(
+    RevertInputModel,
+    description="Input for reverting a folder to a previous history revision",
+)
 class RevertInput:
     """Input for reverting a folder to a previous history revision"""
 
     id: strawberry.ID = strawberry.field(description="The ID of the folder to revert")
-    history_id: strawberry.ID = strawberry.field(description="The ID of the provenance history entry to revert the folder to")
+    history_id: strawberry.ID = strawberry.field(
+        description="The ID of the provenance history entry to revert the folder to"
+    )
 
 
 def _scoped_parent(info: Info, parent: str | None) -> models.Folder | None:
@@ -135,7 +164,9 @@ def update_folder(
     input: ChangeFolderInput,
 ) -> types.Folder:
     parsed = input.to_pydantic()
-    view = get_for_org(models.Folder, info,
+    view = get_for_org(
+        models.Folder,
+        info,
         id=parsed.id,
     )
     view.name = parsed.name
@@ -152,7 +183,9 @@ def revert_folder(
     input: RevertInput,
 ) -> types.Folder:
     parsed = input.to_pydantic()
-    folder = get_for_org(models.Folder, info,
+    folder = get_for_org(
+        models.Folder,
+        info,
         id=parsed.id,
     )
     historic = folder.history.get(history_id=parsed.history_id)
@@ -165,12 +198,16 @@ def put_folders_in_folder(
     input: inputs.AssociateInput,
 ) -> types.Folder:
     parsed = input.to_pydantic()
-    parent = get_for_org(models.Folder, info,
+    parent = get_for_org(
+        models.Folder,
+        info,
         id=parsed.other,
     )
 
     for i in parsed.selfs:
-        folder = get_for_org(models.Folder, info,
+        folder = get_for_org(
+            models.Folder,
+            info,
             id=i,
         )
         folder.parent = parent
@@ -185,7 +222,9 @@ def release_folders_from_folder(
 ) -> types.Folder:
     parsed = input.to_pydantic()
     for i in parsed.selfs:
-        folder = get_for_org(models.Folder, info,
+        folder = get_for_org(
+            models.Folder,
+            info,
             id=i,
         )
         folder.parent = None
@@ -244,7 +283,9 @@ put_array_datasets_in_folder = _make_put_in_folder(models.ArrayDataset)
 release_array_datasets_from_folder = _make_release_from_folder(models.ArrayDataset)
 
 put_annotation_collections_in_folder = _make_put_in_folder(models.AnnotationCollection)
-release_annotation_collections_from_folder = _make_release_from_folder(models.AnnotationCollection)
+release_annotation_collections_from_folder = _make_release_from_folder(
+    models.AnnotationCollection
+)
 
 put_table_datasets_in_folder = _make_put_in_folder(models.TableDataset)
 release_table_datasets_from_folder = _make_release_from_folder(models.TableDataset)

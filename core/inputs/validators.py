@@ -23,12 +23,18 @@ def assert_rgba(color: list, *, field: str, maximum: float | None = None) -> Non
     "RGBA" says four components whatever scale they are on.
     """
     if len(color) != _RGBA_LENGTH:
-        raise ValueError(f"`{field}` is an RGBA colour, so it takes exactly {_RGBA_LENGTH} components (red, green, blue, alpha), but got {len(color)} ({color}).")
+        raise ValueError(
+            f"`{field}` is an RGBA colour, so it takes exactly {_RGBA_LENGTH} components (red, green, blue, alpha), but got {len(color)} ({color})."
+        )
 
     if maximum is not None:
-        out_of_range = [component for component in color if not 0 <= component <= maximum]
+        out_of_range = [
+            component for component in color if not 0 <= component <= maximum
+        ]
         if out_of_range:
-            raise ValueError(f"`{field}`'s components run from 0 to {maximum}, but got {out_of_range} in {color}.")
+            raise ValueError(
+                f"`{field}`'s components run from 0 to {maximum}, but got {out_of_range} in {color}."
+            )
 
 
 #: The fewest vertices each shape kind can be drawn from, where its encoding says so. A kind
@@ -76,10 +82,16 @@ def assert_shape_vectors(vectors: list, *, kind: str | None) -> None:
 
     widths = {len(vector) for vector in vectors}
     if len(widths) > 1:
-        raise ValueError(f"Every vertex of one shape has the same number of components, but `vectors` mixes widths {sorted(widths)}. The bounding box is taken at the width of the first vertex, so the others would be truncated or would overrun it.")
+        raise ValueError(
+            f"Every vertex of one shape has the same number of components, but `vectors` mixes widths {sorted(widths)}. The bounding box is taken at the width of the first vertex, so the others would be truncated or would overrun it."
+        )
     if widths == {0}:
-        raise ValueError("A vertex has at least one component -- the instant it marks -- but `vectors` holds empty vertices.")
+        raise ValueError(
+            "A vertex has at least one component -- the instant it marks -- but `vectors` holds empty vertices."
+        )
 
     minimum = _MINIMUM_VERTICES.get(kind or "", 1)
     if len(vectors) < minimum:
-        raise ValueError(f"A{'n' if (kind or '')[:1] in 'aeiou' else ''} {kind} is drawn from at least {minimum} vertices, but `vectors` has {len(vectors)}.")
+        raise ValueError(
+            f"A{'n' if (kind or '')[:1] in 'aeiou' else ''} {kind} is drawn from at least {minimum} vertices, but `vectors` has {len(vectors)}."
+        )

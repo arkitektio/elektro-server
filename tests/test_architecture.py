@@ -30,7 +30,9 @@ def test_the_models_and_the_migrations_agree() -> None:
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"models have changes with no migration:\n{result.stdout}\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"models have changes with no migration:\n{result.stdout}\n{result.stderr}"
+    )
 
 
 def _links_to_coordinate_systems() -> list[tuple[str, str, str]]:
@@ -47,7 +49,10 @@ def _links_to_coordinate_systems() -> list[tuple[str, str, str]]:
         for field in model._meta.get_fields()
         # A one-to-one is a link too (a simulation run's own clock); `concrete` keeps it to the
         # forward side, not a reverse accessor some other model declares.
-        if field.is_relation and field.concrete and (field.many_to_one or field.one_to_one) and field.related_model is CoordinateSystem
+        if field.is_relation
+        and field.concrete
+        and (field.many_to_one or field.one_to_one)
+        and field.related_model is CoordinateSystem
     ]
 
 
@@ -71,8 +76,16 @@ def test_every_link_to_a_coordinate_system_is_accounted_for() -> None:
     # Likewise the frame a collection's stored bounding boxes are denominated in: it *names* a
     # space, it neither lives in it nor is laid out over it (and `sweep_empty_systems` has its
     # own guard for it, because the FK is PROTECT).
-    structural = {("Axis", "coordinate_system"), ("Transformation", "input"), ("Transformation", "output"), ("Transformation", "field"), ("AnnotationCollection", "bbox_system")}
-    residents = {(container.model.__name__, "coordinate_system") for container in CONTAINERS}
+    structural = {
+        ("Axis", "coordinate_system"),
+        ("Transformation", "input"),
+        ("Transformation", "output"),
+        ("Transformation", "field"),
+        ("AnnotationCollection", "bbox_system"),
+    }
+    residents = {
+        (container.model.__name__, "coordinate_system") for container in CONTAINERS
+    }
 
     unaccounted = []
     for model, field, related_name in _links_to_coordinate_systems():
@@ -89,7 +102,9 @@ def test_every_link_to_a_coordinate_system_is_accounted_for() -> None:
 
     # And the converse: the registries name nothing that does not exist.
     accessors = {related_name for _, _, related_name in _links_to_coordinate_systems()}
-    assert set(WORLD_RELATIONS) <= accessors, f"`WORLD_RELATIONS` names reverse accessors no model defines: {sorted(set(WORLD_RELATIONS) - accessors)}"
+    assert set(WORLD_RELATIONS) <= accessors, (
+        f"`WORLD_RELATIONS` names reverse accessors no model defines: {sorted(set(WORLD_RELATIONS) - accessors)}"
+    )
     assert {container.related_name for container in CONTAINERS} <= accessors
 
 
@@ -106,8 +121,14 @@ def test_every_registered_container_is_a_member_of_the_resident_union() -> None:
     assert match, "the SDL declares no `Resident` union at all"
     members = {name.strip() for name in match.group(1).split("|")}
 
-    missing = sorted(container.model.__name__ for container in CONTAINERS if container.model.__name__ not in members)
-    assert not missing, f"{', '.join(missing)} are containers but not members of `Resident`: {sorted(members)}"
+    missing = sorted(
+        container.model.__name__
+        for container in CONTAINERS
+        if container.model.__name__ not in members
+    )
+    assert not missing, (
+        f"{', '.join(missing)} are containers but not members of `Resident`: {sorted(members)}"
+    )
 
 
 def test_every_vertex_count_rule_names_an_annotation_kind() -> None:
@@ -121,8 +142,12 @@ def test_every_vertex_count_rule_names_an_annotation_kind() -> None:
     from core.inputs.validators import _MINIMUM_VERTICES
 
     kinds = {choice.value for choice in enums.AnnotationKindChoices}
-    assert set(_MINIMUM_VERTICES) <= kinds, f"vertex rules for kinds that do not exist: {sorted(set(_MINIMUM_VERTICES) - kinds)}"
-    assert {kind.value for kind in enums.AnnotationKind} == kinds, "the GraphQL enum and its database twin must list the same kinds"
+    assert set(_MINIMUM_VERTICES) <= kinds, (
+        f"vertex rules for kinds that do not exist: {sorted(set(_MINIMUM_VERTICES) - kinds)}"
+    )
+    assert {kind.value for kind in enums.AnnotationKind} == kinds, (
+        "the GraphQL enum and its database twin must list the same kinds"
+    )
 
 
 def test_the_vendored_graph_names_no_model_this_service_does_not_have() -> None:
@@ -150,10 +175,12 @@ def test_the_vendored_graph_names_no_model_this_service_does_not_have() -> None:
         for name in sorted(set(re.findall(r"\bmodels\.([A-Z][A-Za-z]+)\b", code))):
             if not hasattr(models, name):
                 dangling.append(f"{relative}: models.{name}")
-    assert not dangling, f"vendored code names models this service does not have: {dangling}"
+    assert not dangling, (
+        f"vendored code names models this service does not have: {dangling}"
+    )
 
 
-_MIGRATE_IN_A_SCRATCH_DATABASE = '''
+_MIGRATE_IN_A_SCRATCH_DATABASE = """
 import django
 from django.conf import settings
 from elektro_server import settings_test  # noqa: F401 - the test stack's connection parameters
@@ -174,7 +201,7 @@ for table in (
 ):  # fmt: skip
     assert table in tables, f"{table} was not created by the migrations"
 print("migrated", len(tables), "tables")
-'''
+"""
 
 
 def test_the_migrations_actually_run(backend_stack) -> None:  # noqa: ANN001 - the dokker stack fixture
@@ -187,7 +214,14 @@ def test_the_migrations_actually_run(backend_stack) -> None:  # noqa: ANN001 - t
     """
     import psycopg
 
-    with psycopg.connect(dbname="testdb", user="test", password="test", host="localhost", port=backend_stack["db"], autocommit=True) as connection:
+    with psycopg.connect(
+        dbname="testdb",
+        user="test",
+        password="test",
+        host="localhost",
+        port=backend_stack["db"],
+        autocommit=True,
+    ) as connection:
         connection.execute("DROP DATABASE IF EXISTS migrate_check")
         connection.execute("CREATE DATABASE migrate_check")
     try:
@@ -196,14 +230,27 @@ def test_the_migrations_actually_run(backend_stack) -> None:  # noqa: ANN001 - t
             cwd=REPO,
             # The stack's host port is ephemeral (see conftest); the child process reads it from the
             # env var settings_test honours.
-            env={**os.environ, "DJANGO_SETTINGS_MODULE": "elektro_server.settings_test", "ELEKTRO_TEST_DB_PORT": str(backend_stack["db"])},
+            env={
+                **os.environ,
+                "DJANGO_SETTINGS_MODULE": "elektro_server.settings_test",
+                "ELEKTRO_TEST_DB_PORT": str(backend_stack["db"]),
+            },
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, f"`migrate` failed on an empty database:\n{result.stdout[-2000:]}\n{result.stderr[-4000:]}"
+        assert result.returncode == 0, (
+            f"`migrate` failed on an empty database:\n{result.stdout[-2000:]}\n{result.stderr[-4000:]}"
+        )
         assert "migrated" in result.stdout
     finally:
-        with psycopg.connect(dbname="testdb", user="test", password="test", host="localhost", port=backend_stack["db"], autocommit=True) as connection:
+        with psycopg.connect(
+            dbname="testdb",
+            user="test",
+            password="test",
+            host="localhost",
+            port=backend_stack["db"],
+            autocommit=True,
+        ) as connection:
             connection.execute("DROP DATABASE IF EXISTS migrate_check WITH (FORCE)")
 
 
@@ -224,11 +271,14 @@ def test_every_picker_column_is_guarded() -> None:
     stored = sorted(
         field.name
         for field in models.ExperimentLayer._meta.get_fields()
-        if isinstance(field, django_models.JSONField) and (field.name.endswith("_color_bys") or field.name.endswith("_filter_bys"))
+        if isinstance(field, django_models.JSONField)
+        and (field.name.endswith("_color_bys") or field.name.endswith("_filter_bys"))
         # `active_filter_bys` shares the suffix but stores indices into a picker, not entries.
         and field.name != "active_filter_bys"
     )
-    assert stored == sorted(_PICKER_COLUMNS), f"picker columns the delete guards do not look in: {sorted(set(stored) - set(_PICKER_COLUMNS))}"
+    assert stored == sorted(_PICKER_COLUMNS), (
+        f"picker columns the delete guards do not look in: {sorted(set(stored) - set(_PICKER_COLUMNS))}"
+    )
 
 
 def test_the_layer_kinds_and_their_sources_agree() -> None:
@@ -238,12 +288,25 @@ def test_the_layer_kinds_and_their_sources_agree() -> None:
 
     kinds = {choice.value for choice in enums.ExperimentLayerKindChoices}
     assert set(experiment_logic.SOURCE_FIELD) == kinds
-    assert {kind.value for kind in enums.ExperimentLayerKind} == kinds, "the GraphQL enum and its database twin list the same kinds"
+    assert {kind.value for kind in enums.ExperimentLayerKind} == kinds, (
+        "the GraphQL enum and its database twin list the same kinds"
+    )
     from elektro_server.schema import schema
 
     sdl = str(schema)
-    for concrete in ("TraceLayer", "SpikesLayer", "EventsLayer", "AnnotationLayer", "HeatmapLayer", "SeriesLayer", "WaveformLayer", "PointLayer"):
-        assert f"type {concrete} implements ExperimentLayer" in sdl, f"{concrete} is not registered in the schema's `types=`"
+    for concrete in (
+        "TraceLayer",
+        "SpikesLayer",
+        "EventsLayer",
+        "AnnotationLayer",
+        "HeatmapLayer",
+        "SeriesLayer",
+        "WaveformLayer",
+        "PointLayer",
+    ):
+        assert f"type {concrete} implements ExperimentLayer" in sdl, (
+            f"{concrete} is not registered in the schema's `types=`"
+        )
 
 
 def test_every_query_field_is_scoped_to_the_organization() -> None:
@@ -261,7 +324,12 @@ def test_every_query_field_is_scoped_to_the_organization() -> None:
     from elektro_server.schema import Query
 
     sentinel = 987654321
-    info = SimpleNamespace(variable_values={}, context=SimpleNamespace(request=SimpleNamespace(organization=Organization(pk=sentinel))))
+    info = SimpleNamespace(
+        variable_values={},
+        context=SimpleNamespace(
+            request=SimpleNamespace(organization=Organization(pk=sentinel))
+        ),
+    )
 
     checked, unscoped = 0, []
     for field in Query.__strawberry_definition__.fields:
@@ -273,11 +341,19 @@ def test_every_query_field_is_scoped_to_the_organization() -> None:
         checked += 1
         get_queryset = getattr(field.django_type, "get_queryset", None)
         if get_queryset is None:
-            unscoped.append(f"{field.python_name} ({field.django_type.__name__} has no get_queryset)")
+            unscoped.append(
+                f"{field.python_name} ({field.django_type.__name__} has no get_queryset)"
+            )
             continue
         sql = str(get_queryset(model.objects.all(), info).query)
         if organization_path(model) is None or str(sentinel) not in sql:
-            unscoped.append(f"{field.python_name} ({field.django_type.__name__}.get_queryset does not filter by organization)")
+            unscoped.append(
+                f"{field.python_name} ({field.django_type.__name__}.get_queryset does not filter by organization)"
+            )
 
-    assert checked, "found no Query fields to check -- the walk is broken, not the scoping fine"
-    assert not unscoped, "Query fields readable across organizations:\n  " + "\n  ".join(unscoped)
+    assert checked, (
+        "found no Query fields to check -- the walk is broken, not the scoping fine"
+    )
+    assert not unscoped, (
+        "Query fields readable across organizations:\n  " + "\n  ".join(unscoped)
+    )

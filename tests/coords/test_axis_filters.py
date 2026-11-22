@@ -55,27 +55,53 @@ async def test_array_datasets_split_on_a_time_axis(aexecute, authenticated_conte
 
     assert str(recording.pk) in timed and str(recording.pk) not in untimed
     assert str(image.pk) in untimed and str(image.pk) not in timed
-    assert {str(recording.pk), str(image.pk)} <= everything, "null leaves the list alone"
+    assert {str(recording.pk), str(image.pk)} <= everything, (
+        "null leaves the list alone"
+    )
 
 
 async def test_annotation_collections_split_on_a_time_axis(aexecute):
-    events = await aexecute(CREATE_ANNOTATION_COLLECTION, {"input": {"name": "Epochs", "axes": [{"name": "t", "type": "TIME"}]}})
-    shapes = await aexecute(CREATE_ANNOTATION_COLLECTION, {"input": {"name": "Sites", "axes": [{"name": "y", "type": "SPACE"}, {"name": "x", "type": "SPACE"}]}})
+    events = await aexecute(
+        CREATE_ANNOTATION_COLLECTION,
+        {"input": {"name": "Epochs", "axes": [{"name": "t", "type": "TIME"}]}},
+    )
+    shapes = await aexecute(
+        CREATE_ANNOTATION_COLLECTION,
+        {
+            "input": {
+                "name": "Sites",
+                "axes": [
+                    {"name": "y", "type": "SPACE"},
+                    {"name": "x", "type": "SPACE"},
+                ],
+            }
+        },
+    )
     assert not events.errors and not shapes.errors, (events.errors, shapes.errors)
     events_id = events.data["createAnnotationCollection"]["id"]
     shapes_id = shapes.data["createAnnotationCollection"]["id"]
 
-    assert await _ids(aexecute, COLLECTIONS, {"timed": True}, "annotationCollections") == {events_id}
-    assert await _ids(aexecute, COLLECTIONS, {"timed": False}, "annotationCollections") == {shapes_id}
+    assert await _ids(
+        aexecute, COLLECTIONS, {"timed": True}, "annotationCollections"
+    ) == {events_id}
+    assert await _ids(
+        aexecute, COLLECTIONS, {"timed": False}, "annotationCollections"
+    ) == {shapes_id}
 
 
-async def test_clocks_are_found_past_the_first_page_of_spaces(aexecute, authenticated_context):
+async def test_clocks_are_found_past_the_first_page_of_spaces(
+    aexecute, authenticated_context
+):
     """The ClockPicker's case: a page of spaces with no TIME axis must not hide the clock."""
     for index in range(5):
-        await seed.create_array_dataset(authenticated_context, f"Image {index}")  # untimed grids, made first
+        await seed.create_array_dataset(
+            authenticated_context, f"Image {index}"
+        )  # untimed grids, made first
     clock = await seed.create_clock(authenticated_context, "Session")
 
-    page = await _ids(aexecute, SYSTEMS, {"types": ["TIME"], "limit": 2}, "coordinateSystems")
+    page = await _ids(
+        aexecute, SYSTEMS, {"types": ["TIME"], "limit": 2}, "coordinateSystems"
+    )
 
     assert str(clock.pk) in page, "the filter runs before the page is cut"
 
@@ -84,7 +110,12 @@ async def test_has_axis_types_on_a_space_is_all_of(aexecute, authenticated_conte
     recording = await seed.create_dataset(authenticated_context, "Recording")  # t, c
     clock = await seed.create_clock(authenticated_context, "Session")  # t only
 
-    both = await _ids(aexecute, SYSTEMS, {"types": ["TIME", "CHANNEL"], "limit": None}, "coordinateSystems")
+    both = await _ids(
+        aexecute,
+        SYSTEMS,
+        {"types": ["TIME", "CHANNEL"], "limit": None},
+        "coordinateSystems",
+    )
 
     assert str(recording.coordinate_system_id) in both
     assert str(clock.pk) not in both, "a clock has TIME but no CHANNEL axis"

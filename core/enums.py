@@ -1,6 +1,7 @@
-from django.db.models import TextChoices
-import strawberry
 from enum import Enum, EnumMeta
+
+import strawberry
+from django.db.models import TextChoices
 
 
 def _describe(enum_cls: EnumMeta, **descriptions: str) -> None:
@@ -60,7 +61,9 @@ class ScaleMethodChoices(TextChoices):
 #: does not exist. MAX and MIN return a real id but not the *right* one -- they bias every
 #: boundary toward whichever object happens to sort higher -- so they are excluded too: a
 #: label downsample has to answer "which object is here", and only NEAREST and MODE do.
-LABEL_COMPLIANT_SCALE_METHODS = frozenset({ScaleMethodChoices.NEAREST.value, ScaleMethodChoices.MODE.value})
+LABEL_COMPLIANT_SCALE_METHODS = frozenset(
+    {ScaleMethodChoices.NEAREST.value, ScaleMethodChoices.MODE.value}
+)
 
 
 class FileLinkDirectionChoices(TextChoices):
@@ -119,7 +122,10 @@ class AxisTypeChoices(TextChoices):
     CHANNEL = "CHANNEL", "Channel"
     COORDINATE = "COORDINATE", "Coordinate"
     DISPLACEMENT = "DISPLACEMENT", "Displacement"
-    FREQUENCY = "FREQUENCY", "Frequency (a spectral bin: a spectrogram row, a PSD sample)"
+    FREQUENCY = (
+        "FREQUENCY",
+        "Frequency (a spectral bin: a spectrogram row, a PSD sample)",
+    )
     VALUE = "VALUE", "Value (what was measured: the y axis of a plotted trace)"
     INDEX = "INDEX", "Index (an enumeration with no metric: an object id, a row number)"
 
@@ -127,13 +133,17 @@ class AxisTypeChoices(TextChoices):
 class ColumnRoleChoices(TextChoices):
     """What a table dataset's column is for: a coordinate that places the row, or data hanging off it."""
 
-    COORDINATE = "COORDINATE", "Coordinate (a spatial/temporal column that becomes an axis of the table's space)"
+    COORDINATE = (
+        "COORDINATE",
+        "Coordinate (a spatial/temporal column that becomes an axis of the table's space)",
+    )
     ATTRIBUTE = "ATTRIBUTE", "Attribute (a measurement or property column; data only)"
     ID = "ID", "Id (a per-row identifier)"
     TRACK_ID = "TRACK_ID", "Track id (groups rows into a trajectory)"
     GROUP_ID = "GROUP_ID", "Group id (groups rows into one connected object)"
     LABEL = "LABEL", "Label (a per-row text label)"
     COLOR = "COLOR", "Color (a per-row color or value to color by)"
+
 
 class ColorMapChoices(TextChoices):
     VIRIDIS = "viridis"
@@ -166,6 +176,7 @@ class ColorMapChoices(TextChoices):
     PASTEL = "pastel"
     VIVID = "vivid"
 
+
 class BlendingChoices(TextChoices):
     ADDITIVE = "additive", "Additive"
     MULTIPLICATIVE = "multiplicative", "Multiplicative"
@@ -184,13 +195,34 @@ class ExperimentLayerKindChoices(TextChoices):
     """How a layer of an experiment draws its data. mikro's ``LayerKindChoices``, for time series."""
 
     TRACE = "trace", "Trace (a lens over an array dataset, drawn as a line per channel)"
-    SPIKES = "spikes", "Spikes (a sparse raster, drawn as a tick per nonzero, a row per unit)"
-    EVENTS = "events", "Events (a table with a TIME column, drawn as marks or intervals)"
-    ANNOTATION = "annotation", "Annotation (an annotation collection's hand-drawn marks)"
-    HEATMAP = "heatmap", "Heatmap (a lens over an array dataset, drawn as an image: time across, one other axis down)"
-    SERIES = "series", "Series (a numeric column of a table with a TIME column, drawn as a line)"
-    WAVEFORM = "waveform", "Waveform (a lens over per-unit templates, drawn in peri-spike time)"
-    POINT = "point", "Point (a table with SPACE coordinate columns, drawn as a point per row)"
+    SPIKES = (
+        "spikes",
+        "Spikes (a sparse raster, drawn as a tick per nonzero, a row per unit)",
+    )
+    EVENTS = (
+        "events",
+        "Events (a table with a TIME column, drawn as marks or intervals)",
+    )
+    ANNOTATION = (
+        "annotation",
+        "Annotation (an annotation collection's hand-drawn marks)",
+    )
+    HEATMAP = (
+        "heatmap",
+        "Heatmap (a lens over an array dataset, drawn as an image: time across, one other axis down)",
+    )
+    SERIES = (
+        "series",
+        "Series (a numeric column of a table with a TIME column, drawn as a line)",
+    )
+    WAVEFORM = (
+        "waveform",
+        "Waveform (a lens over per-unit templates, drawn in peri-spike time)",
+    )
+    POINT = (
+        "point",
+        "Point (a table with SPACE coordinate columns, drawn as a point per row)",
+    )
 
 
 class SeriesInterpolationChoices(TextChoices):
@@ -205,7 +237,10 @@ class SpikeValueModeChoices(TextChoices):
     """What a spikes layer reads from a raster's nonzero values."""
 
     PRESENCE = "presence", "Presence (every nonzero is one spike, whatever its value)"
-    AMPLITUDE = "amplitude", "Amplitude (the value is the spike's amplitude, drawn through the colormap)"
+    AMPLITUDE = (
+        "amplitude",
+        "Amplitude (the value is the spike's amplitude, drawn through the colormap)",
+    )
 
 
 class RecordingKindChoices(TextChoices):
@@ -215,13 +250,14 @@ class RecordingKindChoices(TextChoices):
     VOLTAGE = "VOLTAGE", "Voltage"
     CURRENT = "CURRENT", "Current"
     INA = "INA", "Sodium current (ina)"
-    
-    
+
+
 class StimulusKindChoices(TextChoices):
     """Variety expresses the Type of Representation we are dealing with"""
+
     CURRENT = "CURRENT", "Current (Value represent Intensity)"
     VOLTAGE = "VOLTAGE", "Voltage (Value represent Intensity)"
-    
+
 
 class ProvenanceAction(TextChoices):
     CREATE = "CREATE", "Create"
@@ -262,45 +298,89 @@ class AnnotationKindChoices(TextChoices):
 
 @strawberry.enum
 class DuckDBDataType(Enum):
-    BOOLEAN = strawberry.enum_value("BOOLEAN", description="Represents a True/False value")
-    TINYINT = strawberry.enum_value("TINYINT", description="Very small integer (-128 to 127)")
-    SMALLINT = strawberry.enum_value("SMALLINT", description="Small integer (-32,768 to 32,767)")
-    INTEGER = strawberry.enum_value("INTEGER", description="Standard integer (-2,147,483,648 to 2,147,483,647)")
-    BIGINT = strawberry.enum_value("BIGINT", description="Large integer for large numeric values")
-    HUGEINT = strawberry.enum_value("HUGEINT", description="Extremely large integer for very large numeric ranges")
-    FLOAT = strawberry.enum_value("FLOAT", description="Single-precision floating point number")
-    DOUBLE = strawberry.enum_value("DOUBLE", description="Double-precision floating point number")
-    VARCHAR = strawberry.enum_value("VARCHAR", description="Variable-length string (text)")
-    BLOB = strawberry.enum_value("BLOB", description="Binary large object for storing binary data")
-    TIMESTAMP = strawberry.enum_value("TIMESTAMP", description="Date and time with precision")
+    BOOLEAN = strawberry.enum_value(
+        "BOOLEAN", description="Represents a True/False value"
+    )
+    TINYINT = strawberry.enum_value(
+        "TINYINT", description="Very small integer (-128 to 127)"
+    )
+    SMALLINT = strawberry.enum_value(
+        "SMALLINT", description="Small integer (-32,768 to 32,767)"
+    )
+    INTEGER = strawberry.enum_value(
+        "INTEGER", description="Standard integer (-2,147,483,648 to 2,147,483,647)"
+    )
+    BIGINT = strawberry.enum_value(
+        "BIGINT", description="Large integer for large numeric values"
+    )
+    HUGEINT = strawberry.enum_value(
+        "HUGEINT", description="Extremely large integer for very large numeric ranges"
+    )
+    FLOAT = strawberry.enum_value(
+        "FLOAT", description="Single-precision floating point number"
+    )
+    DOUBLE = strawberry.enum_value(
+        "DOUBLE", description="Double-precision floating point number"
+    )
+    VARCHAR = strawberry.enum_value(
+        "VARCHAR", description="Variable-length string (text)"
+    )
+    BLOB = strawberry.enum_value(
+        "BLOB", description="Binary large object for storing binary data"
+    )
+    TIMESTAMP = strawberry.enum_value(
+        "TIMESTAMP", description="Date and time with precision"
+    )
     DATE = strawberry.enum_value("DATE", description="Specific date (year, month, day)")
-    TIME = strawberry.enum_value("TIME", description="Specific time of the day (hours, minutes, seconds)")
-    INTERVAL = strawberry.enum_value("INTERVAL", description="Span of time between two dates or times")
-    DECIMAL = strawberry.enum_value("DECIMAL", description="Exact decimal number with defined precision and scale")
-    UUID = strawberry.enum_value("UUID", description="Universally Unique Identifier used to uniquely identify objects")
-    LIST = strawberry.enum_value("LIST", description="A list of values of the same data type")
-    MAP = strawberry.enum_value("MAP", description="A collection of key-value pairs where each key is unique")
+    TIME = strawberry.enum_value(
+        "TIME", description="Specific time of the day (hours, minutes, seconds)"
+    )
+    INTERVAL = strawberry.enum_value(
+        "INTERVAL", description="Span of time between two dates or times"
+    )
+    DECIMAL = strawberry.enum_value(
+        "DECIMAL", description="Exact decimal number with defined precision and scale"
+    )
+    UUID = strawberry.enum_value(
+        "UUID",
+        description="Universally Unique Identifier used to uniquely identify objects",
+    )
+    LIST = strawberry.enum_value(
+        "LIST", description="A list of values of the same data type"
+    )
+    MAP = strawberry.enum_value(
+        "MAP", description="A collection of key-value pairs where each key is unique"
+    )
     ENUM = strawberry.enum_value("ENUM", description="Enumeration of predefined values")
-    STRUCT = strawberry.enum_value("STRUCT", description="Composite type grouping several fields with different data types")
-    JSON = strawberry.enum_value("JSON", description="JSON object, a structured text format used for representing data")
+    STRUCT = strawberry.enum_value(
+        "STRUCT",
+        description="Composite type grouping several fields with different data types",
+    )
+    JSON = strawberry.enum_value(
+        "JSON",
+        description="JSON object, a structured text format used for representing data",
+    )
 
 
 @strawberry.enum
 class SynapseKind(str, Enum):
     """Variety expresses the Type of Representation we are dealing with"""
+
     EXP2SYN = "exp2syn"
     GABAA = "gabaA"
-    
+
 
 @strawberry.enum
 class ConnectionKind(str, Enum):
     """Variety expresses the Type of Representation we are dealing with"""
+
     SYNAPSE = "synapse"
 
 
 @strawberry.enum
 class DistributionKind(str, Enum):
     """How a section parameter is distributed along a section (NEURON range variable)."""
+
     UNIFORM = "uniform"
     LINEAR = "linear"
     EXPRESSION = "expression"
@@ -309,10 +389,12 @@ class DistributionKind(str, Enum):
 @strawberry.enum
 class IonStyle(str, Enum):
     """How an ion's reversal potential and concentrations are treated (NEURON ion_style)."""
-    FIXED_REVERSAL = "fixed_reversal"   # e<ion> is a fixed parameter (set reversal_potential)
-    NERNST = "nernst"                   # e<ion> computed from fixed concentrations via Nernst
-    ACCUMULATED = "accumulated"         # concentrations are states (accumulation mechanism); e follows via Nernst
-      
+
+    FIXED_REVERSAL = (
+        "fixed_reversal"  # e<ion> is a fixed parameter (set reversal_potential)
+    )
+    NERNST = "nernst"  # e<ion> computed from fixed concentrations via Nernst
+    ACCUMULATED = "accumulated"  # concentrations are states (accumulation mechanism); e follows via Nernst
 
 
 @strawberry.enum
@@ -322,14 +404,18 @@ class RecordingKind(str, Enum):
     TIME = "TIME"
     INA = "INA"
     UNKNOWN = "UNKNOWN"
-    
+
+
 @strawberry.enum
 class StimulusKind(str, Enum):
     VOLTAGE = "VOLTAGE"
     CURRENT = "CURRENT"
     UNKNOWN = "UNKNOWN"
 
-@strawberry.enum(description="The shape an annotation on a trace is drawn as. The members name geometry only: which axes a shape spans is a property of the coordinate system it is drawn in, and what it *means* -- a spike, an artifact -- is its name, not its kind")
+
+@strawberry.enum(
+    description="The shape an annotation on a trace is drawn as. The members name geometry only: which axes a shape spans is a property of the coordinate system it is drawn in, and what it *means* -- a spike, an artifact -- is its name, not its kind"
+)
 class AnnotationKind(str, Enum):
     """The shape an annotation is drawn as."""
 
@@ -355,7 +441,9 @@ _describe(
 # --- The coordinate graph (vendored from mikro; see core/models/coords.py) ---
 
 
-@strawberry.enum(description="The semantic kind of an axis. Axes are declared in the order the data has them -- a trace's store dimension order -- and no ordering by type is required of them: the time and channel axes are found by type rather than by position.")
+@strawberry.enum(
+    description="The semantic kind of an axis. Axes are declared in the order the data has them -- a trace's store dimension order -- and no ordering by type is required of them: the time and channel axes are found by type rather than by position."
+)
 class AxisType(str, Enum):
     """The semantic kind of an axis, inspired by RFC-5."""
 
@@ -382,7 +470,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="The kind of a coordinate transformation, discriminating how its parameters are interpreted. Direction is always forward: input -> output.")
+@strawberry.enum(
+    description="The kind of a coordinate transformation, discriminating how its parameters are interpreted. Direction is always forward: input -> output."
+)
 class TransformKind(str, Enum):
     """The kind of a coordinate transformation, discriminating how its parameters are interpreted."""
 
@@ -413,7 +503,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="The kind of a transformation a client can author directly: the discriminator of `TransformInput`. SEQUENCE is absent on purpose -- it is a wrapper the ingest builds together with its children (pyramid levels, stepped lenses), never authored empty.")
+@strawberry.enum(
+    description="The kind of a transformation a client can author directly: the discriminator of `TransformInput`. SEQUENCE is absent on purpose -- it is a wrapper the ingest builds together with its children (pyramid levels, stepped lenses), never authored empty."
+)
 class CreatableTransformKind(str, Enum):
     """The directly-creatable subset of :class:`TransformKind`, used only by inputs."""
 
@@ -504,7 +596,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="How much a transformation edge's map is actually known: guessed, inferred from metadata, authored by someone, or validated against the data. A layer's validity is derived from it, never stored: the weakest edge on its path to world.")
+@strawberry.enum(
+    description="How much a transformation edge's map is actually known: guessed, inferred from metadata, authored by someone, or validated against the data. A layer's validity is derived from it, never stored: the weakest edge on its path to world."
+)
 class PlacementValidity(str, Enum):
     """How much a transformation edge's map is actually known."""
 
@@ -523,7 +617,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="What a derivation did to the values -- the axis the spatial kind says nothing about. A threshold is spatially IDENTITY with categorized values; a crop is value-identical. Stated on the derivation edge (one event, one row, two orthogonal statements); the algorithm and its parameters belong to task provenance, not here.")
+@strawberry.enum(
+    description="What a derivation did to the values -- the axis the spatial kind says nothing about. A threshold is spatially IDENTITY with categorized values; a crop is value-identical. Stated on the derivation edge (one event, one row, two orthogonal statements); the algorithm and its parameters belong to task provenance, not here."
+)
 class ValueRelation(str, Enum):
     """What a derivation did to the values, orthogonal to its spatial kind."""
 
@@ -552,7 +648,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="Which way a walk over the coordinate graph follows an edge")
+@strawberry.enum(
+    description="Which way a walk over the coordinate graph follows an edge"
+)
 class GraphDirection(str, Enum):
     """The direction a graph walk follows edges in."""
 
@@ -569,7 +667,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="When a multi-channel trace gives each channel its own colour, stepped round the wheel from the layer's colour")
+@strawberry.enum(
+    description="When a multi-channel trace gives each channel its own colour, stepped round the wheel from the layer's colour"
+)
 class ChannelColoring(str, Enum):
     """When a multi-channel trace colours its channels individually."""
 
@@ -586,7 +686,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="Whether a layer has a place in its scene's world, and if not, why not. Derived, never stored.")
+@strawberry.enum(
+    description="Whether a layer has a place in its scene's world, and if not, why not. Derived, never stored."
+)
 class PlacementState(str, Enum):
     """Whether a layer has a place in its scene's world, and if not, why not."""
 
@@ -605,7 +707,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="Whether the server can state where a source sits in a space, and if not, why not. Derived, never stored.")
+@strawberry.enum(
+    description="Whether the server can state where a source sits in a space, and if not, why not. Derived, never stored."
+)
 class ExtentState(str, Enum):
     """Whether a source's extent in a space is computable, and if not, why not.
 
@@ -631,7 +735,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="What a dataset structurally is, materialized from the axes of its intrinsic coordinate system at creation. Specs stack: a 3D timelapse is VOLUME, TIMESERIES and MULTICHANNEL at once. Exactly one spatial member (SCALAR/PROFILE/IMAGE/VOLUME/HYPERVOLUME) ever holds.")
+@strawberry.enum(
+    description="What a dataset structurally is, materialized from the axes of its intrinsic coordinate system at creation. Specs stack: a 3D timelapse is VOLUME, TIMESERIES and MULTICHANNEL at once. Exactly one spatial member (SCALAR/PROFILE/IMAGE/VOLUME/HYPERVOLUME) ever holds."
+)
 class ArrayDatasetSpec(str, Enum):
     """What a dataset structurally is, materialized from its axes at creation.
 
@@ -677,7 +783,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="How a pyramid level's voxels were computed from the level above it. Stated, never derived -- nothing about two arrays says whether one was averaged or picked out of the other -- and it matters because over an array of object ids only NEAREST and MODE are allowed: every other method returns numbers that were not in the input, and an invented id is an object that does not exist.")
+@strawberry.enum(
+    description="How a pyramid level's voxels were computed from the level above it. Stated, never derived -- nothing about two arrays says whether one was averaged or picked out of the other -- and it matters because over an array of object ids only NEAREST and MODE are allowed: every other method returns numbers that were not in the input, and an invented id is an object that does not exist."
+)
 class ScaleMethod(str, Enum):
     """How a pyramid level's voxels were computed from the level above it."""
 
@@ -730,7 +838,7 @@ _describe(
 
 @strawberry.enum(
     description=(
-        "A coarse bucket for what sort of thing a file holds, for a picker that wants \"just the recordings\". **Derived at query time from the file's extension, never stored** -- "
+        'A coarse bucket for what sort of thing a file holds, for a picker that wants "just the recordings". **Derived at query time from the file\'s extension, never stored** -- '
         "so it cannot drift from the file it describes, and it is a filter only. Classified by extension rather than by `contentType` on purpose: an ABF or a vendor recording is uploaded "
         "as `application/octet-stream`, so a content-type rule would file every one of them under OTHER, which is precisely the case worth finding. `contentType` is the "
         "fallback when the extension is unknown. It is a curated list, not an authority: filter on `name` or `contentType` directly when you need an exact answer"
@@ -758,7 +866,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="The colormap used to map intensity values of a channel to display colors.")
+@strawberry.enum(
+    description="The colormap used to map intensity values of a channel to display colors."
+)
 class ColorMap(str, Enum):
     """The colormap used to map intensity values of a channel to display colors."""
 
@@ -800,7 +910,9 @@ class ColorMap(str, Enum):
 #: differ only in saturation and value, and the names are the viewer's own
 #: (`orkestrator-next`'s `INSTANCE_COLORMAPS`), so a palette named here is a palette it already
 #: draws.
-QUALITATIVE_COLORMAPS = frozenset({ColorMap.HUES, ColorMap.DISTINCT, ColorMap.PASTEL, ColorMap.VIVID})
+QUALITATIVE_COLORMAPS = frozenset(
+    {ColorMap.HUES, ColorMap.DISTINCT, ColorMap.PASTEL, ColorMap.VIVID}
+)
 
 
 _describe(
@@ -834,8 +946,9 @@ _describe(
 )
 
 
-
-@strawberry.enum(description="The blending mode used to combine multiple channels or layers into a composite image.")
+@strawberry.enum(
+    description="The blending mode used to combine multiple channels or layers into a composite image."
+)
 class Blending(str, Enum):
     """The blending mode used to combine multiple channels or layers into a composite image."""
 
@@ -852,8 +965,9 @@ _describe(
 )
 
 
-
-@strawberry.enum(description="What a table dataset's column is for: a coordinate that places the row, or data hanging off it.")
+@strawberry.enum(
+    description="What a table dataset's column is for: a coordinate that places the row, or data hanging off it."
+)
 class ColumnRole(str, Enum):
     """What a table dataset's column is for."""
 
@@ -878,7 +992,6 @@ _describe(
 )
 
 
-
 @strawberry.enum(
     description=(
         "How one axis is identified -- the discriminator of `IdentificationInput`, and the same question whether the axis belongs to a sparse matrix or to a table. An axis of "
@@ -901,7 +1014,9 @@ _describe(
 )
 
 
-@strawberry.enum(description="How a layer of an experiment draws its data: what kind of source it has and what it renders. mikro's LayerKind, for time series")
+@strawberry.enum(
+    description="How a layer of an experiment draws its data: what kind of source it has and what it renders. mikro's LayerKind, for time series"
+)
 class ExperimentLayerKind(str, Enum):
     """How a layer of an experiment draws its data."""
 
@@ -929,10 +1044,22 @@ _describe(
 
 #: The kinds whose data a layer reaches through a lens: mikro's ``LENS_BACKED_KINDS``. Read by
 #: :func:`core.logic.graph.layer_source_system` rather than spelled again.
-LENS_BACKED_KINDS: frozenset[str] = frozenset({ExperimentLayerKind.TRACE.value, ExperimentLayerKind.HEATMAP.value, ExperimentLayerKind.WAVEFORM.value})
+LENS_BACKED_KINDS: frozenset[str] = frozenset(
+    {
+        ExperimentLayerKind.TRACE.value,
+        ExperimentLayerKind.HEATMAP.value,
+        ExperimentLayerKind.WAVEFORM.value,
+    }
+)
 
 #: The kinds whose data a layer reaches through a table dataset.
-TABLE_BACKED_KINDS: frozenset[str] = frozenset({ExperimentLayerKind.EVENTS.value, ExperimentLayerKind.SERIES.value, ExperimentLayerKind.POINT.value})
+TABLE_BACKED_KINDS: frozenset[str] = frozenset(
+    {
+        ExperimentLayerKind.EVENTS.value,
+        ExperimentLayerKind.SERIES.value,
+        ExperimentLayerKind.POINT.value,
+    }
+)
 
 
 @strawberry.enum(description="How a series layer joins its rows")

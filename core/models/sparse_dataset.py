@@ -46,12 +46,12 @@ resembles a ``MeshCollection``, which versions on purpose.
 
 from typing import TYPE_CHECKING
 
+from arkitekt_datalayer.models import SparseStore
+from authentikate.models import Organization
 from django.contrib.auth import get_user_model
 from django.db import models
-
-from authentikate.models import Organization
-from arkitekt_datalayer.models import SparseStore
 from koherent.fields import ProvenanceField
+
 from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 
 if TYPE_CHECKING:
@@ -61,8 +61,15 @@ if TYPE_CHECKING:
 class SparseDataset(EmbeddedDescriptionMixin, models.Model):
     """A sparse matrix over two enumerated axes, stored in one or both layouts."""
 
-    name = models.CharField(max_length=1000, help_text="The name of this sparse dataset")
-    description = models.CharField(max_length=1000, null=True, blank=True, help_text="The description of this sparse dataset")
+    name = models.CharField(
+        max_length=1000, help_text="The name of this sparse dataset"
+    )
+    description = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="The description of this sparse dataset",
+    )
 
     folder = models.ForeignKey(
         "Folder",
@@ -83,11 +90,26 @@ class SparseDataset(EmbeddedDescriptionMixin, models.Model):
         related_name="sparse_datasets",
         help_text="The coordinate system whose axes are this matrix's two enumerations. Owned by the dataset, and the space a FIELD edge lands in",
     )
-    provenance_metadata = models.JSONField(default=dict, help_text="How this matrix was produced (the run, its parameters and its inputs)")
+    provenance_metadata = models.JSONField(
+        default=dict,
+        help_text="How this matrix was produced (the run, its parameters and its inputs)",
+    )
 
-    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this sparse dataset was created")
-    creator = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, null=True, blank=True, help_text="The user that created this sparse dataset")
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, help_text="The organization this sparse dataset belongs to")
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="The time this sparse dataset was created"
+    )
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="The user that created this sparse dataset",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this sparse dataset belongs to",
+    )
     created_through = models.ForeignKey(
         "koherent.Task",
         on_delete=models.SET_NULL,
@@ -161,7 +183,9 @@ class SparseDataset(EmbeddedDescriptionMixin, models.Model):
         if axis not in names:
             return None
         wanted = names.index(axis)
-        return next((array for array in self.arrays.all() if array.indexed_axis == wanted), None)
+        return next(
+            (array for array in self.arrays.all() if array.indexed_axis == wanted), None
+        )
 
 
 class SparseArray(models.Model):
@@ -183,7 +207,9 @@ class SparseArray(models.Model):
     the pair, not the store, is what a reader is given.
     """
 
-    dataset = models.ForeignKey(SparseDataset, on_delete=models.CASCADE, related_name="arrays")
+    dataset = models.ForeignKey(
+        SparseDataset, on_delete=models.CASCADE, related_name="arrays"
+    )
     store = models.ForeignKey(
         SparseStore,
         on_delete=models.CASCADE,
@@ -212,7 +238,10 @@ class SparseArray(models.Model):
         # could say which of them a reader should use. The pair is the discriminator, exactly as
         # (dataset, level) is for a pyramid.
         constraints = [
-            models.UniqueConstraint(fields=["dataset", "indexed_axis"], name="one_sparse_array_per_indexed_axis"),
+            models.UniqueConstraint(
+                fields=["dataset", "indexed_axis"],
+                name="one_sparse_array_per_indexed_axis",
+            ),
         ]
         ordering = ["indexed_axis"]
 
@@ -234,8 +263,13 @@ class SparseAxisReference(models.Model):
     this and its table counterpart through one definition.
     """
 
-    dataset = models.ForeignKey(SparseDataset, on_delete=models.CASCADE, related_name="axis_references")
-    axis = models.CharField(max_length=32, help_text="The name of the axis being identified. One of the dataset's own")
+    dataset = models.ForeignKey(
+        SparseDataset, on_delete=models.CASCADE, related_name="axis_references"
+    )
+    axis = models.CharField(
+        max_length=32,
+        help_text="The name of the axis being identified. One of the dataset's own",
+    )
     references = models.ForeignKey(
         "TableDataset",
         on_delete=models.PROTECT,
@@ -247,7 +281,9 @@ class SparseAxisReference(models.Model):
         """Meta options for the sparse axis reference."""
 
         constraints = [
-            models.UniqueConstraint(fields=["dataset", "axis"], name="one_reference_per_sparse_axis"),
+            models.UniqueConstraint(
+                fields=["dataset", "axis"], name="one_reference_per_sparse_axis"
+            ),
         ]
 
     def __str__(self) -> str:

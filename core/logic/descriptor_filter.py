@@ -24,7 +24,9 @@ from django.db.models import Q, QuerySet
 from strawberry.scalars import JSON
 
 
-@strawberry.enum(description="How a descriptor constraint compares the object's value with the stated one. The operators a rekuest port's `requires` and `provides` are written in, with the same meaning.")
+@strawberry.enum(
+    description="How a descriptor constraint compares the object's value with the stated one. The operators a rekuest port's `requires` and `provides` are written in, with the same meaning."
+)
 class DescriptorOperator(str, Enum):
     """The comparison of one constraint."""
 
@@ -48,13 +50,27 @@ class DescriptorOperator(str, Enum):
 class DescriptorConstraintInput:
     """One ``{key, operator, value}`` constraint."""
 
-    key: str = strawberry.field(description="The descriptor key, e.g. `@elektro/n_space_axes`")
-    operator: DescriptorOperator = strawberry.field(description="How the object's value is compared with `value`. MATCHES is equality, as EQUALS is")
-    value: JSON | None = strawberry.field(default=None, description="The value compared against: a number for GTE and LTE, a list for IN and NOT_IN, true or false for EXISTS, the member looked for with CONTAINS")
+    key: str = strawberry.field(
+        description="The descriptor key, e.g. `@elektro/n_space_axes`"
+    )
+    operator: DescriptorOperator = strawberry.field(
+        description="How the object's value is compared with `value`. MATCHES is equality, as EQUALS is"
+    )
+    value: JSON | None = strawberry.field(
+        default=None,
+        description="The value compared against: a number for GTE and LTE, a list for IN and NOT_IN, true or false for EXISTS, the member looked for with CONTAINS",
+    )
 
 
-def requires(model: type, queryset: QuerySet, constraints: Sequence[DescriptorConstraintInput], prefix: str = "") -> tuple[QuerySet, Q]:
+def requires(
+    model: type,
+    queryset: QuerySet,
+    constraints: Sequence[DescriptorConstraintInput],
+    prefix: str = "",
+) -> tuple[QuerySet, Q]:
     """The rows of ``model`` satisfying every one of these constraints. No constraints ask nothing."""
-    from elektro_server.service import service  # it binds the models this module filters
+    from elektro_server.service import (
+        service,  # it binds the models this module filters
+    )
 
     return queryset, service.requires(model, constraints, prefix)

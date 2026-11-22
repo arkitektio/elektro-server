@@ -33,16 +33,25 @@ async def test_file_filter_by_folder(aexecute, authenticated_context):
     await create_file(authenticated_context, "Unfiled")
 
     assert await file_names(aexecute, {"folder": str(ds_a.id)}) == {"InA"}
-    assert await file_names(aexecute, {"folders": [str(ds_a.id), str(ds_b.id)]}) == {"InA", "InB"}
+    assert await file_names(aexecute, {"folders": [str(ds_a.id), str(ds_b.id)]}) == {
+        "InA",
+        "InB",
+    }
 
 
 async def test_file_filter_by_size_and_content_type(aexecute, authenticated_context):
     ds = await create_folder(authenticated_context, "DS")
-    await create_file(authenticated_context, "Small", ds, size=100, content_type="text/csv")
-    await create_file(authenticated_context, "Big", ds, size=10_000, content_type="application/x-hdf5")
+    await create_file(
+        authenticated_context, "Small", ds, size=100, content_type="text/csv"
+    )
+    await create_file(
+        authenticated_context, "Big", ds, size=10_000, content_type="application/x-hdf5"
+    )
 
     assert await file_names(aexecute, {"size": {"gte": 1000}}) == {"Big"}
-    assert await file_names(aexecute, {"contentType": {"exact": "text/csv"}}) == {"Small"}
+    assert await file_names(aexecute, {"contentType": {"exact": "text/csv"}}) == {
+        "Small"
+    }
 
 
 async def test_file_filter_by_not_derived(aexecute, authenticated_context):
@@ -57,7 +66,11 @@ async def test_file_filter_by_not_derived(aexecute, authenticated_context):
     await create_file(ctx, "Original", ds)
     exported = await create_file(ctx, "Derived", ds)
 
-    dataset = await ArrayDataset.objects.acreate(name="Source data", creator=ctx.request.user, organization=ctx.request.organization)
+    dataset = await ArrayDataset.objects.acreate(
+        name="Source data",
+        creator=ctx.request.user,
+        organization=ctx.request.organization,
+    )
     await FileLink.objects.acreate(
         file=exported,
         dataset=dataset,
@@ -103,15 +116,28 @@ async def test_an_explicit_null_is_no_constraint(aexecute, authenticated_context
     assert await file_names(aexecute, nothing_asked) == {"a.abf", "b.csv"}
     for field in nothing_asked:
         assert await file_names(aexecute, {field: None}) == {"a.abf", "b.csv"}, field
-    assert await file_names(aexecute, {"extension": "  "}) == {"a.abf", "b.csv"}, "a blank extension asks for nothing either"
+    assert await file_names(aexecute, {"extension": "  "}) == {"a.abf", "b.csv"}, (
+        "a blank extension asks for nothing either"
+    )
 
 
-async def test_files_are_listed_per_organization(aexecute, authenticated_context, other_org_context):
+async def test_files_are_listed_per_organization(
+    aexecute, authenticated_context, other_org_context
+):
     """Every list here is organization-scoped, whatever the filter says."""
     mine = await create_folder(authenticated_context, "Mine")
     await create_file(authenticated_context, "mine.abf", mine)
-    await create_file(other_org_context, "theirs.abf", await create_folder(other_org_context, "Theirs"))
+    await create_file(
+        other_org_context,
+        "theirs.abf",
+        await create_folder(other_org_context, "Theirs"),
+    )
 
     assert await file_names(aexecute, {}) == {"mine.abf"}
-    assert await file_names(aexecute, {"search": "abf"}, context=other_org_context) == {"theirs.abf"}
-    assert await file_names(aexecute, {"folder": str(mine.id)}, context=other_org_context) == set(), "naming another organization's folder finds nothing in it"
+    assert await file_names(aexecute, {"search": "abf"}, context=other_org_context) == {
+        "theirs.abf"
+    }
+    assert (
+        await file_names(aexecute, {"folder": str(mine.id)}, context=other_org_context)
+        == set()
+    ), "naming another organization's folder finds nothing in it"

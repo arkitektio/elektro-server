@@ -11,10 +11,10 @@ Models that already ship a named delete mutation with its own input type
 same guard and the same store straddle (:mod:`core.mutations._generic`).
 """
 
-import strawberry
 import kante
-from pydantic import BaseModel
+import strawberry
 from kante.types import Info
+from pydantic import BaseModel
 
 from core import models
 from core.guards import enforce_delete
@@ -25,7 +25,9 @@ class DeleteInputModel(BaseModel):
     id: str
 
 
-@kante.pydantic_input(DeleteInputModel, description="Input for deleting an object by its id")
+@kante.pydantic_input(
+    DeleteInputModel, description="Input for deleting an object by its id"
+)
 class DeleteInput:
     id: strawberry.ID = strawberry.field(description="The id of the object to delete")
 
@@ -40,9 +42,8 @@ def delete_flagging_stores(instance) -> None:  # noqa: ANN001 - any model row
     ``orphaned_at`` stamped. ``purge_orphaned_stores`` collects those after a grace period, and
     re-checks for referrers before it removes anything.
     """
-    from django.db import transaction
-
     from arkitekt_datalayer import storage
+    from django.db import transaction
 
     with transaction.atomic():
         orphaned = storage.stores_orphaned_by(instance)
@@ -72,6 +73,8 @@ delete_model_collection = _make_delete(models.ModelCollection)
 delete_model_workspace = _make_delete(models.ModelWorkspace)
 delete_workspace_mapping = _make_delete(models.WorkspaceMapping)
 delete_mod_environment = _make_delete(models.ModEnvironment)
+
+
 def delete_neuron_model(info: Info, input: DeleteInput) -> strawberry.ID:
     """Delete a neuron model, sweeping the space it owns.
 
@@ -96,5 +99,7 @@ def delete_neuron_model(info: Info, input: DeleteInput) -> strawberry.ID:
     delete_flagging_stores(item)
     spaces_logic.sweep_empty_systems(systems)
     return strawberry.ID(parsed.id)
+
+
 delete_experiment = _make_delete(models.Experiment)
 delete_layer = _make_delete(models.ExperimentLayer)

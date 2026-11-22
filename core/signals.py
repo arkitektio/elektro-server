@@ -12,7 +12,9 @@ from core import channels, models
 from core import descriptors as descriptors_logic
 
 
-def array_dataset_channels(organization_id: int, folder_id: int | None = None) -> list[str]:
+def array_dataset_channels(
+    organization_id: int, folder_id: int | None = None
+) -> list[str]:
     """The channels a dataset's events go out on: its organization's, and its folder's if it is filed in one."""
     names = [f"array_datasets_org_{organization_id}"]
     if folder_id is not None:
@@ -23,14 +25,23 @@ def array_dataset_channels(organization_id: int, folder_id: int | None = None) -
 @receiver(post_save, sender=models.ArrayDataset)
 def array_dataset_saved(sender, instance=None, created=None, **kwargs):  # noqa: ANN001, ANN201, ANN003 - a django signal receiver
     """Announce a created or updated dataset."""
-    signal = channels.ArrayDatasetSignal(create=instance.id) if created else channels.ArrayDatasetSignal(update=instance.id)
-    channels.array_dataset_channel.broadcast(signal, array_dataset_channels(instance.organization_id, instance.folder_id))
+    signal = (
+        channels.ArrayDatasetSignal(create=instance.id)
+        if created
+        else channels.ArrayDatasetSignal(update=instance.id)
+    )
+    channels.array_dataset_channel.broadcast(
+        signal, array_dataset_channels(instance.organization_id, instance.folder_id)
+    )
 
 
 @receiver(pre_delete, sender=models.ArrayDataset)
 def array_dataset_deleted(sender, instance=None, **kwargs):  # noqa: ANN001, ANN201, ANN003 - a django signal receiver
     """Announce a dataset that is about to be deleted."""
-    channels.array_dataset_channel.broadcast(channels.ArrayDatasetSignal(delete=instance.id), array_dataset_channels(instance.organization_id, instance.folder_id))
+    channels.array_dataset_channel.broadcast(
+        channels.ArrayDatasetSignal(delete=instance.id),
+        array_dataset_channels(instance.organization_id, instance.folder_id),
+    )
 
 
 # --- descriptors that follow other rows ----------------------------------------------
@@ -41,11 +52,29 @@ def array_dataset_deleted(sender, instance=None, **kwargs):  # noqa: ANN001, ANN
 
 @receiver(post_save, sender=models.ValueUnit)
 @receiver(post_delete, sender=models.ValueUnit)
-def value_unit_written_handler(sender: type[models.ValueUnit], instance: models.ValueUnit, **kwargs: object) -> None:
-    descriptors_logic.restore_datasets(list(models.CoordinateAnchor.objects.filter(pk=instance.anchor_id).exclude(dataset_id=None).values_list("dataset_id", flat=True)))
+def value_unit_written_handler(
+    sender: type[models.ValueUnit], instance: models.ValueUnit, **kwargs: object
+) -> None:
+    descriptors_logic.restore_datasets(
+        list(
+            models.CoordinateAnchor.objects.filter(pk=instance.anchor_id)
+            .exclude(dataset_id=None)
+            .values_list("dataset_id", flat=True)
+        )
+    )
 
 
 @receiver(post_save, sender=models.Transformation)
 @receiver(post_delete, sender=models.Transformation)
-def edge_written_handler(sender: type[models.Transformation], instance: models.Transformation, **kwargs: object) -> None:
-    descriptors_logic.restore_datasets(list(models.ArrayDataset.objects.filter(coordinate_system_id=instance.input_id).values_list("pk", flat=True)))
+def edge_written_handler(
+    sender: type[models.Transformation],
+    instance: models.Transformation,
+    **kwargs: object,
+) -> None:
+    descriptors_logic.restore_datasets(
+        list(
+            models.ArrayDataset.objects.filter(
+                coordinate_system_id=instance.input_id
+            ).values_list("pk", flat=True)
+        )
+    )

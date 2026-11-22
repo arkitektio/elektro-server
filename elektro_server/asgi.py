@@ -20,4 +20,6 @@ from .schema import schema  # noqa: E402
 
 # Nothing loops in here: stale embeddings are healed by the ``reembed_stale`` action the hub's
 # rekuest schedules (``elektro_server/service.py``, vendored ``rekuest_service``).
-application = telemetry.wrap(router(schema=schema, django_asgi_app=django_asgi_app, schema_path="schema"))
+application = telemetry.wrap(
+    router(schema=schema, django_asgi_app=django_asgi_app, schema_path="schema")
+)

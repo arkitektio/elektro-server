@@ -26,7 +26,7 @@ construction and false of a table -- a localization table's `x` axis is identifi
 and should be -- so it belongs to the caller that means it.
 """
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from kante.types import Info
 
@@ -63,11 +63,15 @@ def split_identifications(
         ``(name, identification)`` per edge-authoring source, in declaration order.
         An axis identified by two masks appears twice in ``keyed``, which is what fan-in is.
     """
-    references: dict[str, "models.TableDataset"] = {}
+    references: dict[str, models.TableDataset] = {}
     keyed: list[tuple[str, object]] = []
 
     for column_name, identifications in entries:
-        axis_type = axis_types.get(column_name) if axis_types is not None else enums.AxisType.INDEX
+        axis_type = (
+            axis_types.get(column_name)
+            if axis_types is not None
+            else enums.AxisType.INDEX
+        )
         for identification in identifications:
             if identification.AUTHORS_EDGE:
                 # A keying source's FIELD edge PRODUCES an axis of this space, so it can
@@ -111,12 +115,16 @@ def split_identifications(
                     "be ambiguous, not richer. Fan-in is only meaningful for the kinds that author an edge -- two masks may key one axis, because each edge stands on its own."
                 )
 
-            references[column_name] = resolve_reference_target(info, identification.source_id, f"Column '{column_name}'")
+            references[column_name] = resolve_reference_target(
+                info, identification.source_id, f"Column '{column_name}'"
+            )
 
     return references, keyed
 
 
-def resolve_reference_target(info: Info, target_id: str, label: str) -> "models.TableDataset":
+def resolve_reference_target(
+    info: Info, target_id: str, label: str
+) -> "models.TableDataset":
     """The table an identification names, checked to be one an id can be looked up in.
 
     Re-exported from :mod:`core.mutations.table_dataset`, where it lived while only that

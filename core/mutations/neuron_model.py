@@ -1,23 +1,19 @@
-from kante.types import Info
-import strawberry
+import hashlib
+import json
+
 import kante
+import strawberry
 from django.db import transaction
-from core import types, models, scalars, enums, units
+from kante.types import Info
+from pydantic import BaseModel
+
+from core import enums, models, types, units
+from core.base_models.input.graphql.model import ModelConfigInput
+from core.base_models.input.model import ModelConfigInputModel
 from core.creation import CreationContext
 from core.inputs.coords import AxisInputModel, DerivedFromInput, DerivedFromSpec
 from core.logic import coordinate_system as coordinate_system_logic
 from core.logic import graph as graph_logic
-from core.base_models.input.graphql.model import ModelConfigInput
-from core.base_models.input.model import ModelConfigInputModel
-from pydantic import BaseModel
-import hashlib
-import json
-from koherent.utils import get_or_create_task
-
-import hashlib
-import json
-import strawberry
-from operator import itemgetter
 from core.scoping import get_for_org
 
 
@@ -47,13 +43,23 @@ def get_model_hash(model_instance, float_precision: int = 5) -> str:
                 return sorted(normalized_list, key=lambda x: x.get("id", str(x)))
             except (AttributeError, TypeError):
                 # Fallback: Sort by the string dump of the item
-                return sorted(normalized_list, key=lambda x: json.dumps(x, sort_keys=True))
+                return sorted(
+                    normalized_list, key=lambda x: json.dumps(x, sort_keys=True)
+                )
 
         # 3. Handle Strawberry Inputs / Objects: Convert to dict and recurse
-        if hasattr(value, "__dict__") or isinstance(value, object) and hasattr(value, "__annotations__"):
+        if (
+            hasattr(value, "__dict__")
+            or isinstance(value, object)
+            and hasattr(value, "__annotations__")
+        ):
             # strawberry.asdict can be used, but vars() is often lighter for inputs
             # We filter out private attributes starting with _
-            d = {k: _normalize_value(v) for k, v in vars(value).items() if not k.startswith("_")}
+            d = {
+                k: _normalize_value(v)
+                for k, v in vars(value).items()
+                if not k.startswith("_")
+            }
             return d
 
         # 4. Handle Enum: Return value or name
@@ -131,7 +137,9 @@ def _lower_parent_sugar(parsed) -> list:  # noqa: ANN001 - the parsed input mode
     if parsed.parent is None:
         return derived_from
 
-    if any(entry.kind == enums.DerivationSourceKind.NEURON_MODEL for entry in derived_from):
+    if any(
+        entry.kind == enums.DerivationSourceKind.NEURON_MODEL for entry in derived_from
+    ):
         raise ValueError(
             "A model's parent was given both as `parent` and as a NEURON_MODEL entry in `derivedFrom`. "
             "`parent` is sugar for exactly that entry, so state it once -- use `derivedFrom` alone when the model has several sources."
@@ -139,7 +147,12 @@ def _lower_parent_sugar(parsed) -> list:  # noqa: ANN001 - the parsed input mode
 
     from core.inputs.coords import NeuronModelDerivedFromInputModel
 
-    return [NeuronModelDerivedFromInputModel(kind=enums.DerivationSourceKind.NEURON_MODEL, neuron_model=parsed.parent), *derived_from]
+    return [
+        NeuronModelDerivedFromInputModel(
+            kind=enums.DerivationSourceKind.NEURON_MODEL, neuron_model=parsed.parent
+        ),
+        *derived_from,
+    ]
 
 
 def _inherited_environment(info: Info, parsed, derived_from: list):  # noqa: ANN001, ANN201
@@ -153,13 +166,24 @@ def _inherited_environment(info: Info, parsed, derived_from: list):  # noqa: ANN
     if parsed.environment is not None:
         return get_for_org(models.ModEnvironment, info, id=parsed.environment)
 
-    first_model = next((entry for entry in derived_from if entry.kind == enums.DerivationSourceKind.NEURON_MODEL), None)
+    first_model = next(
+        (
+            entry
+            for entry in derived_from
+            if entry.kind == enums.DerivationSourceKind.NEURON_MODEL
+        ),
+        None,
+    )
     if first_model is None:
         # environment is NOT NULL at the database level; fail with a clear message
         # rather than letting the insert raise an opaque IntegrityError.
-        raise ValueError("An environment is required, either directly or inherited from a parent.")
+        raise ValueError(
+            "An environment is required, either directly or inherited from a parent."
+        )
 
-    return get_for_org(models.NeuronModel, info, id=first_model.neuron_model).environment
+    return get_for_org(
+        models.NeuronModel, info, id=first_model.neuron_model
+    ).environment
 
 
 def create_neuron_model(
@@ -196,12 +220,16 @@ def create_neuron_model(
 
     def check_mechanism(mech: str) -> None:
         if mech not in env_mechs and mech not in BUILT_IN_MECHANISMS:
-            raise ValueError(f"Mechanism with name {mech} not found in environment {environment.name}. And not a built-in mechanism.")
+            raise ValueError(
+                f"Mechanism with name {mech} not found in environment {environment.name}. And not a built-in mechanism."
+            )
 
     def check_param(mech: str, param: str, where: str) -> None:
         # Only catalog mechanisms can be validated; built-ins are accepted as-is.
         if mech in env_mechs and param not in env_mechs[mech]:
-            raise ValueError(f"Parameter {param!r} for mechanism {mech!r} in {where} is not among the mechanism's declared parameters ({sorted(env_mechs[mech])}).")
+            raise ValueError(
+                f"Parameter {param!r} for mechanism {mech!r} in {where} is not among the mechanism's declared parameters ({sorted(env_mechs[mech])})."
+            )
 
     def check_value_dimension(mech: str, param: str, value, where: str) -> None:
         # The value is a GenericQuantity in-memory string (or None). Enforce that
@@ -279,7 +307,13 @@ def create_neuron_model(
             graph_logic.create_pixel_axes(system, _MODEL_AXES)
             model.coordinate_system = system
             model.save(update_fields=["coordinate_system"])
-            coordinate_system_logic.write_derivation_edges(info, name=model.name, own_system=system, derived_from=derived_from, ctx=ctx)
+            coordinate_system_logic.write_derivation_edges(
+                info,
+                name=model.name,
+                own_system=system,
+                derived_from=derived_from,
+                ctx=ctx,
+            )
         elif derived_from:
             # A lineage was stated for a config that already exists. Re-stating the *same* one is
             # the ordinary idempotent re-create and writes nothing; stating a *different* one is
@@ -288,13 +322,24 @@ def create_neuron_model(
             # no edges yet -- one written before this column existed -- takes the first statement.
             existing = graph_logic.collection_derivation_edges(model.coordinate_system)
             if existing:
-                stated = [coordinate_system_logic.resolve_derivation_source(info, entry.lower())[0].pk for entry in derived_from]
+                stated = [
+                    coordinate_system_logic.resolve_derivation_source(
+                        info, entry.lower()
+                    )[0].pk
+                    for entry in derived_from
+                ]
                 if [edge.output_id for edge in existing] != stated:
                     raise ValueError(
                         f"Neuron model '{model.name}' already records where it came from, and this create states a different lineage. "
                         "A derivation is authored once; edit the edges directly if it needs to change."
                     )
             else:
-                coordinate_system_logic.write_derivation_edges(info, name=model.name, own_system=model.coordinate_system, derived_from=derived_from, ctx=ctx)
+                coordinate_system_logic.write_derivation_edges(
+                    info,
+                    name=model.name,
+                    own_system=model.coordinate_system,
+                    derived_from=derived_from,
+                    ctx=ctx,
+                )
 
     return model

@@ -8,8 +8,8 @@ no ``owner`` argument here. What is the same is the store straddle -- see
 :func:`core.mutations.delete.delete_flagging_stores`.
 """
 
-from kante.types import Info
 import strawberry
+from kante.types import Info
 
 from core import scoping
 from core.guards import enforce_delete
@@ -38,7 +38,6 @@ def make_delete(model, input_type, guard=None):  # noqa: ANN001, ANN201 - a reso
     return resolve
 
 
-
 def make_owned_space_delete(model, input_type, guard=None):  # noqa: ANN001, ANN201 - a resolver factory
     """:func:`make_delete` for a container that owns its space, which it sweeps after itself.
 
@@ -64,6 +63,7 @@ def make_owned_space_delete(model, input_type, guard=None):  # noqa: ANN001, ANN
 
     resolve.__name__ = f"delete_{model.__name__.lower()}"
     return resolve
+
 
 def make_pin(model, input_type, return_type):  # noqa: ANN001, ANN201 - a resolver factory
     """Build a pin resolver toggling the request user on the pinned_by M2M."""

@@ -52,18 +52,29 @@ class SettingModel(BaseModel):
     flag: bool | None = None
 
     @model_validator(mode="after")
-    def _one_value_slot(self) -> "SettingModel":
-        filled = [slot for slot in (self.quantity, self.number, self.text, self.flag) if slot is not None]
+    def _one_value_slot(self) -> SettingModel:
+        filled = [
+            slot
+            for slot in (self.quantity, self.number, self.text, self.flag)
+            if slot is not None
+        ]
         if len(filled) > 1:
-            raise ValueError(f"Setting {self.name!r} fills more than one value slot; a setting holds exactly one value, so record two settings instead.")
+            raise ValueError(
+                f"Setting {self.name!r} fills more than one value slot; a setting holds exactly one value, so record two settings instead."
+            )
         return self
 
 
 class DeviceStateModel(BaseModel):
     """One hardware device's recorded state: identity plus its settings."""
 
-    label: str = Field(description="The device's identity in the setup, e.g. 'multiclamp-700b-1'")
-    kind: str | None = Field(None, description="A free-form device kind, e.g. 'amplifier', 'digitizer', 'probe'")
+    label: str = Field(
+        description="The device's identity in the setup, e.g. 'multiclamp-700b-1'"
+    )
+    kind: str | None = Field(
+        None,
+        description="A free-form device kind, e.g. 'amplifier', 'digitizer', 'probe'",
+    )
     settings: list[SettingModel] = Field(default_factory=list)
 
 
@@ -79,13 +90,21 @@ class RigStateModel(BaseModel):
     devices: list[DeviceStateModel] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _holding_level_matches_mode(self) -> "RigStateModel":
+    def _holding_level_matches_mode(self) -> RigStateModel:
         # The holding level is the level of whatever was *clamped*. Stating the other one is
         # not extra information, it is a contradiction of `mode`.
         if self.mode == ClampMode.VOLTAGE_CLAMP and self.holding_current is not None:
-            raise ValueError("A voltage clamp holds a potential, so `holdingCurrent` contradicts `mode: VOLTAGE_CLAMP`. State `holdingPotential`, or record the mode as CURRENT_CLAMP.")
+            raise ValueError(
+                "A voltage clamp holds a potential, so `holdingCurrent` contradicts `mode: VOLTAGE_CLAMP`. State `holdingPotential`, or record the mode as CURRENT_CLAMP."
+            )
         if self.mode == ClampMode.CURRENT_CLAMP and self.holding_potential is not None:
-            raise ValueError("A current clamp holds a current, so `holdingPotential` contradicts `mode: CURRENT_CLAMP`. State `holdingCurrent`, or record the mode as VOLTAGE_CLAMP.")
-        if self.mode == ClampMode.ZERO_CURRENT and (self.holding_current is not None or self.holding_potential is not None):
-            raise ValueError("`mode: ZERO_CURRENT` (I=0) holds nothing, so it takes neither `holdingCurrent` nor `holdingPotential`.")
+            raise ValueError(
+                "A current clamp holds a current, so `holdingPotential` contradicts `mode: CURRENT_CLAMP`. State `holdingCurrent`, or record the mode as VOLTAGE_CLAMP."
+            )
+        if self.mode == ClampMode.ZERO_CURRENT and (
+            self.holding_current is not None or self.holding_potential is not None
+        ):
+            raise ValueError(
+                "`mode: ZERO_CURRENT` (I=0) holds nothing, so it takes neither `holdingCurrent` nor `holdingPotential`."
+            )
         return self

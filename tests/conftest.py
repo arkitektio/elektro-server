@@ -8,15 +8,14 @@ import boto3
 import psycopg
 import pytest
 from asgiref.sync import sync_to_async
+from authentikate.models import Client, Membership, Organization, User
 from botocore.config import Config
-from moto import mock_aws
-
-from authentikate.models import Client, Organization, User, Membership
 from django.contrib.contenttypes.management import create_contenttypes
 from django.db.models.signals import post_migrate
-from kante.context import HttpContext, UniversalRequest
-from strawberry.http.temporal_response import TemporalResponse
 from dokker import PortNotFoundError, testing
+from kante.context import HttpContext, UniversalRequest
+from moto import mock_aws
+from strawberry.http.temporal_response import TemporalResponse
 
 
 @pytest.fixture(scope="function")
@@ -45,7 +44,9 @@ def create_bucket2(s3):
     s3.create_bucket(Bucket="cabanana")
 
 
-def _wait_for_port(e, service: str, container_port: int, deadline_seconds: float = 30.0) -> int:
+def _wait_for_port(
+    e, service: str, container_port: int, deadline_seconds: float = 30.0
+) -> int:
     """The host port docker published for ``service:container_port``, once the container is up."""
     deadline = time.monotonic() + deadline_seconds
     while True:
@@ -59,7 +60,9 @@ def _wait_for_port(e, service: str, container_port: int, deadline_seconds: float
 
 @pytest.fixture(scope="session")
 def backend_stack():
-    docker_compose_path = os.path.join(os.path.dirname(__file__), "integration", "docker-compose.yaml")
+    docker_compose_path = os.path.join(
+        os.path.dirname(__file__), "integration", "docker-compose.yaml"
+    )
 
     # No `down()` before `up()`: `testing()` mints a fresh `dokker-test-<uuid>` project
     # every call, so downing it would only tear down the empty project this run just
@@ -121,7 +124,14 @@ def backend_stack():
         # database pytest-django creates from it inherits it, and into testdb itself for
         # anything connecting directly.
         for dbname in ("template1", "testdb"):
-            with psycopg.connect(dbname=dbname, user="test", password="test", host="localhost", port=db_port, autocommit=True) as connection:
+            with psycopg.connect(
+                dbname=dbname,
+                user="test",
+                password="test",
+                host="localhost",
+                port=db_port,
+                autocommit=True,
+            ) as connection:
                 connection.execute("CREATE EXTENSION IF NOT EXISTS cube")
                 # Likewise `vector`: the dataset models' embedding columns need pgvector.
                 connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -172,7 +182,9 @@ def django_db_setup(django_db_setup, django_db_blocker):
         contenttypes = list(ContentType.objects.all())
         permissions = list(Permission.objects.all())
 
-    post_migrate.disconnect(dispatch_uid="django.contrib.auth.management.create_permissions")
+    post_migrate.disconnect(
+        dispatch_uid="django.contrib.auth.management.create_permissions"
+    )
     post_migrate.disconnect(create_contenttypes)
 
     def restore_contenttypes_and_permissions(sender, **kwargs):
@@ -227,7 +239,12 @@ def authenticated_context(db, backend_stack):
     )
     request.set_membership(membership)  # type: ignore
 
-    return HttpContext(request=request, response=TemporalResponse(), headers={"Authorization": "Bearer test"}, type="http")
+    return HttpContext(
+        request=request,
+        response=TemporalResponse(),
+        headers={"Authorization": "Bearer test"},
+        type="http",
+    )
 
 
 @pytest.fixture(scope="function")
@@ -257,7 +274,12 @@ def bot_context(db, backend_stack) -> HttpContext:
     )
     request.set_membership(membership)  # type: ignore
 
-    return HttpContext(request=request, response=TemporalResponse(), headers={"Authorization": "Bearer bottest"}, type="http")
+    return HttpContext(
+        request=request,
+        response=TemporalResponse(),
+        headers={"Authorization": "Bearer bottest"},
+        type="http",
+    )
 
 
 @pytest.fixture(scope="function")
@@ -281,7 +303,12 @@ def other_org_context(db, backend_stack) -> HttpContext:
     )
     request.set_membership(membership)  # type: ignore
 
-    return HttpContext(request=request, response=TemporalResponse(), headers={"Authorization": "Bearer othertest"}, type="http")
+    return HttpContext(
+        request=request,
+        response=TemporalResponse(),
+        headers={"Authorization": "Bearer othertest"},
+        type="http",
+    )
 
 
 @pytest.fixture(scope="function")
@@ -305,7 +332,12 @@ def same_user_other_org_context(db, backend_stack) -> HttpContext:
     )
     request.set_membership(membership)  # type: ignore
 
-    return HttpContext(request=request, response=TemporalResponse(), headers={"Authorization": "Bearer test-other-org"}, type="http")
+    return HttpContext(
+        request=request,
+        response=TemporalResponse(),
+        headers={"Authorization": "Bearer test-other-org"},
+        type="http",
+    )
 
 
 @pytest.fixture(scope="function")
@@ -328,7 +360,12 @@ def simple_api_context(db, backend_stack) -> HttpContext:
     )
     request.set_membership(membership)  # type: ignore
 
-    return HttpContext(request=request, response=TemporalResponse(), headers={"Authorization": "Bearer test"}, type="http")
+    return HttpContext(
+        request=request,
+        response=TemporalResponse(),
+        headers={"Authorization": "Bearer test"},
+        type="http",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +388,9 @@ def fresh_request(ctx: HttpContext) -> HttpContext:
         _organization=ctx.request._organization,
     )
     request.set_membership(ctx.request._membership)  # type: ignore[arg-type]
-    return HttpContext(request=request, response=TemporalResponse(), headers=ctx.headers, type="http")
+    return HttpContext(
+        request=request, response=TemporalResponse(), headers=ctx.headers, type="http"
+    )
 
 
 @pytest.fixture
@@ -369,7 +408,9 @@ def aexecute(authenticated_context):
     return _run
 
 
-def zarr_v3_metadata(shape: list[int], dimension_names: list[str | None] | None = None) -> dict:
+def zarr_v3_metadata(
+    shape: list[int], dimension_names: list[str | None] | None = None
+) -> dict:
     """Minimal valid Zarr v3 array metadata -- enough for Datalayer.get_zarr_metadata.
 
     The server reads this and never a chunk, so a store is fully described by it: its shape
@@ -381,7 +422,10 @@ def zarr_v3_metadata(shape: list[int], dimension_names: list[str | None] | None 
         "node_type": "array",
         "shape": list(shape),
         "data_type": "float64",
-        "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": list(shape)}},
+        "chunk_grid": {
+            "name": "regular",
+            "configuration": {"chunk_shape": list(shape)},
+        },
         "chunk_key_encoding": {"name": "default"},
         "fill_value": 0,
         "codecs": [],
@@ -433,7 +477,11 @@ def zarr_store(authenticated_context, s3_client):
             bucket="zarr",
         )
         if seed:
-            metadata = zarr_v3_metadata(shape, dimension_names) if shape is not None else ZARR_V3_METADATA
+            metadata = (
+                zarr_v3_metadata(shape, dimension_names)
+                if shape is not None
+                else ZARR_V3_METADATA
+            )
             s3_client.put_object(
                 Bucket="zarr",
                 Key=f"{key}/zarr.json",
@@ -478,15 +526,35 @@ def create_array_dataset(aexecute, zarr_store):
     or the raw result when ``raw=True`` (for a test about a refusal).
     """
 
-    async def _make(name="dataset", shape=None, *, axes=None, value_unit=None, anchors=None, levels=None, derived_from=None, folder=None, context=None, raw=False):
+    async def _make(
+        name="dataset",
+        shape=None,
+        *,
+        axes=None,
+        value_unit=None,
+        anchors=None,
+        levels=None,
+        derived_from=None,
+        folder=None,
+        context=None,
+        raw=False,
+    ):
         shape = list(shape or [1000])
         axes = axes or _DEFAULT_AXES[len(shape)]
         names = [axis["name"] for axis in axes]
         store = await zarr_store(context=context, shape=shape, dimension_names=names)
         scales = []
         for level, (level_shape, method) in enumerate(levels or [], start=1):
-            level_store = await zarr_store(context=context, shape=list(level_shape), dimension_names=names)
-            scales.append({"level": level, "array": str(level_store.pk), **({"scaleMethod": method} if method else {})})
+            level_store = await zarr_store(
+                context=context, shape=list(level_shape), dimension_names=names
+            )
+            scales.append(
+                {
+                    "level": level,
+                    "array": str(level_store.pk),
+                    **({"scaleMethod": method} if method else {}),
+                }
+            )
 
         all_anchors = list(anchors or [])
         if value_unit is not None:
@@ -500,7 +568,9 @@ def create_array_dataset(aexecute, zarr_store):
         if folder is not None:
             payload["folder"] = str(folder)
 
-        result = await aexecute(CREATE_ARRAY_DATASET, {"input": payload}, context=context)
+        result = await aexecute(
+            CREATE_ARRAY_DATASET, {"input": payload}, context=context
+        )
         if raw:
             return result
         assert not result.errors, result.errors
@@ -522,7 +592,9 @@ def bigfile_store(authenticated_context, s3_client):
     def _make(context=None, content=b"elektro", **kwargs):
         ctx = context or authenticated_context
         key = uuid.uuid4().hex
-        store = BigFileStore.objects.create(organization=ctx.request.organization, key=key, bucket="media", **kwargs)
+        store = BigFileStore.objects.create(
+            organization=ctx.request.organization, key=key, bucket="media", **kwargs
+        )
         if content is not None:
             s3_client.put_object(Bucket="media", Key=key, Body=content)
         return store
@@ -573,7 +645,9 @@ def make_neuron_model(authenticated_context):
             creator=ctx.request.user,
             organization=ctx.request.organization,
         )
-        Axis.objects.create(coordinate_system=system, order=0, name="object", type="INDEX")
+        Axis.objects.create(
+            coordinate_system=system, order=0, name="object", type="INDEX"
+        )
         return NeuronModel.objects.create(
             name=name,
             hash=uuid.uuid4().hex,
@@ -606,7 +680,16 @@ def make_simulation_chain(authenticated_context):
     from tests import seed
 
     @sync_to_async
-    def _make(context=None, *, name="sim", samples=400, rate="10 kHz", t_start="0 ms", timing="sampling", unit="millisecond"):
+    def _make(
+        context=None,
+        *,
+        name="sim",
+        samples=400,
+        rate="10 kHz",
+        t_start="0 ms",
+        timing="sampling",
+        unit="millisecond",
+    ):
         from kanne_server import scalars as quantities
 
         def parse(scalar, text):
@@ -615,9 +698,17 @@ def make_simulation_chain(authenticated_context):
 
         ctx = context or authenticated_context
         creation = seed._creation(ctx)
-        environment = models.ModEnvironment.objects.create(name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization)
-        nm_system = models.CoordinateSystem.objects.create(name="NeuronModel/model", creator=ctx.request.user, organization=ctx.request.organization)
-        models.Axis.objects.create(coordinate_system=nm_system, order=0, name="object", type="INDEX")
+        environment = models.ModEnvironment.objects.create(
+            name=f"env-{uuid.uuid4().hex}", organization=ctx.request.organization
+        )
+        nm_system = models.CoordinateSystem.objects.create(
+            name="NeuronModel/model",
+            creator=ctx.request.user,
+            organization=ctx.request.organization,
+        )
+        models.Axis.objects.create(
+            coordinate_system=nm_system, order=0, name="object", type="INDEX"
+        )
         nm = models.NeuronModel.objects.create(
             name="NeuronModel",
             hash=uuid.uuid4().hex,
@@ -630,26 +721,64 @@ def make_simulation_chain(authenticated_context):
 
         clock = clocks.create_clock(name=f"{name}/clock", unit=unit, ctx=creation)
 
-        rec_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/soma.v", seed.T_AXES, [[samples]], None, "mV", None)
-        stim_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/iclamp", seed.T_AXES, [[samples]], None, "nA", None)
+        rec_dataset = seed._seed_array_dataset_sync(
+            ctx, f"{name}/soma.v", seed.T_AXES, [[samples]], None, "mV", None
+        )
+        stim_dataset = seed._seed_array_dataset_sync(
+            ctx, f"{name}/iclamp", seed.T_AXES, [[samples]], None, "nA", None
+        )
         # What was run and where it was recorded are spokes on the datasets' own whole-dataset anchors, as createArrayDataset writes them.
-        rec_anchor = models.CoordinateAnchor.objects.get_or_create(dataset=rec_dataset, coordinates={})[0]
-        models.RecordingSite.objects.create(anchor=rec_anchor, model=nm, kind="VOLTAGE", cell="soma", location="0", position=0.5)
-        stim_anchor = models.CoordinateAnchor.objects.get_or_create(dataset=stim_dataset, coordinates={})[0]
-        models.StimulusSite.objects.create(anchor=stim_anchor, model=nm, kind="CURRENT", cell="soma", location="0", position=0.5)
+        rec_anchor = models.CoordinateAnchor.objects.get_or_create(
+            dataset=rec_dataset, coordinates={}
+        )[0]
+        models.RecordingSite.objects.create(
+            anchor=rec_anchor,
+            model=nm,
+            kind="VOLTAGE",
+            cell="soma",
+            location="0",
+            position=0.5,
+        )
+        stim_anchor = models.CoordinateAnchor.objects.get_or_create(
+            dataset=stim_dataset, coordinates={}
+        )[0]
+        models.StimulusSite.objects.create(
+            anchor=stim_anchor,
+            model=nm,
+            kind="CURRENT",
+            cell="soma",
+            location="0",
+            position=0.5,
+        )
         for anchor in (rec_anchor, stim_anchor):
-            models.SimulationState.objects.create(anchor=anchor, model=nm, duration=parse(quantities.Duration, "40 ms"))
+            models.SimulationState.objects.create(
+                anchor=anchor, model=nm, duration=parse(quantities.Duration, "40 ms")
+            )
         rec, stim = rec_dataset, stim_dataset
 
         time_dataset = None
         if timing != "sampling":
-            time_dataset = seed._seed_array_dataset_sync(ctx, f"{name}/times", seed.T_AXES, [[samples]], None, unit, None)
+            time_dataset = seed._seed_array_dataset_sync(
+                ctx, f"{name}/times", seed.T_AXES, [[samples]], None, unit, None
+            )
         # One edge per dataset, all onto the run's one clock.
         for dataset in (rec_dataset, stim_dataset):
             if time_dataset is None:
-                clocks.write_sampling_law(grid=dataset.coordinate_system, clock=clock, sampling_rate=parse(quantities.Frequency, rate), t_start=parse(quantities.Duration, t_start), ctx=creation)
+                clocks.write_sampling_law(
+                    grid=dataset.coordinate_system,
+                    clock=clock,
+                    sampling_rate=parse(quantities.Frequency, rate),
+                    t_start=parse(quantities.Duration, t_start),
+                    ctx=creation,
+                )
             else:
-                clocks.write_time_lookup(grid=dataset.coordinate_system, clock=clock, times=time_dataset, input_axis="t", ctx=creation)
+                clocks.write_time_lookup(
+                    grid=dataset.coordinate_system,
+                    clock=clock,
+                    times=time_dataset,
+                    input_axis="t",
+                    ctx=creation,
+                )
 
         return SimpleNamespace(
             neuron_model=nm,
@@ -691,7 +820,9 @@ def upload_zarr_to_grant(backend_stack):
             kwargs["session_token"] = grant["sessionToken"]
 
         s3 = S3Store(grant["bucket"], **kwargs)
-        arr = zarr.create_array(store=ObjectStore(s3), shape=shape, chunks=chunks, dtype="float64")
+        arr = zarr.create_array(
+            store=ObjectStore(s3), shape=shape, chunks=chunks, dtype="float64"
+        )
         arr[:] = np.arange(int(np.prod(shape)), dtype="float64").reshape(shape)
 
     return _upload

@@ -39,9 +39,29 @@ _ZYX = [
 ]
 
 
-async def _create(aexecute, zarr_store, name: str, dimension_names: list | None, axes: list, shape: list | None = None, scales: list | None = None):  # noqa: ANN001, ANN202
-    store = await zarr_store(shape=shape or [8, 64, 64], dimension_names=dimension_names)
-    return await aexecute(CREATE, {"input": {"name": name, "data": str(store.pk), "scales": scales or [], "axes": axes}})
+async def _create(
+    aexecute,
+    zarr_store,
+    name: str,
+    dimension_names: list | None,
+    axes: list,
+    shape: list | None = None,
+    scales: list | None = None,
+):  # noqa: ANN001, ANN202
+    store = await zarr_store(
+        shape=shape or [8, 64, 64], dimension_names=dimension_names
+    )
+    return await aexecute(
+        CREATE,
+        {
+            "input": {
+                "name": name,
+                "data": str(store.pk),
+                "scales": scales or [],
+                "axes": axes,
+            }
+        },
+    )
 
 
 async def test_axes_that_name_the_stores_dimensions_are_accepted(aexecute, zarr_store):
@@ -57,7 +77,9 @@ async def test_axes_that_name_the_stores_dimensions_are_accepted(aexecute, zarr_
     [["z", "c", "y", "x"], ["c", "z", "y", "x"], ["z", "y", "c", "x"]],
     ids=["z-first", "c-first", "c-between"],
 )
-async def test_an_acquisitions_own_dimension_order_is_accepted(aexecute, zarr_store, dimension_names: list):
+async def test_an_acquisitions_own_dimension_order_is_accepted(
+    aexecute, zarr_store, dimension_names: list
+):
     """The orderings the RFC-5 type rule used to refuse, which is most real stores.
 
     A channel axis after a spatial one, or between two of them, is how acquisitions are
@@ -67,30 +89,54 @@ async def test_an_acquisitions_own_dimension_order_is_accepted(aexecute, zarr_st
     The store's own `dimension_names` still has to agree -- that is the check that means
     something, and `test_a_transposed_declaration_is_refused` covers it.
     """
-    axes = [{"name": name, "type": "CHANNEL" if name == "c" else "SPACE"} for name in dimension_names]
+    axes = [
+        {"name": name, "type": "CHANNEL" if name == "c" else "SPACE"}
+        for name in dimension_names
+    ]
     result = await _create(
         aexecute,
         zarr_store,
         f"acquisition-{'-'.join(dimension_names)}",
         dimension_names,
         axes,
-        shape=[8, 3, 64, 64] if dimension_names[1] == "c" else [8, 64, 3, 64] if dimension_names[2] == "c" else [3, 8, 64, 64],
+        shape=[8, 3, 64, 64]
+        if dimension_names[1] == "c"
+        else [8, 64, 3, 64]
+        if dimension_names[2] == "c"
+        else [3, 8, 64, 64],
     )
 
     assert not result.errors, str(result.errors and result.errors[0])
     stored = result.data["createArrayDataset"]["intrinsicSystem"]["axes"]
-    assert [a["name"] for a in stored] == dimension_names, "stored in the store's order, not sorted into the RFC-5 one"
-    assert [a["order"] for a in stored] == list(range(len(dimension_names))), "order is the index into the shape"
+    assert [a["name"] for a in stored] == dimension_names, (
+        "stored in the store's order, not sorted into the RFC-5 one"
+    )
+    assert [a["order"] for a in stored] == list(range(len(dimension_names))), (
+        "order is the index into the shape"
+    )
 
 
 async def test_a_recordings_own_dimension_order_is_accepted(aexecute, zarr_store):
     """The ephys reading of the case above: (t, c) and (c, t) are both ordinary ways to write a recording."""
     for names in (["t", "c"], ["c", "t"]):
-        axes = [{"name": name, "type": "CHANNEL" if name == "c" else "TIME"} for name in names]
+        axes = [
+            {"name": name, "type": "CHANNEL" if name == "c" else "TIME"}
+            for name in names
+        ]
         shape = [1000, 4] if names[0] == "t" else [4, 1000]
-        result = await _create(aexecute, zarr_store, f"recording-{'-'.join(names)}", names, axes, shape=shape)
+        result = await _create(
+            aexecute,
+            zarr_store,
+            f"recording-{'-'.join(names)}",
+            names,
+            axes,
+            shape=shape,
+        )
         assert not result.errors, str(result.errors and result.errors[0])
-        assert [a["name"] for a in result.data["createArrayDataset"]["intrinsicSystem"]["axes"]] == names
+        assert [
+            a["name"]
+            for a in result.data["createArrayDataset"]["intrinsicSystem"]["axes"]
+        ] == names
 
 
 async def test_a_transposed_declaration_is_refused(aexecute, zarr_store):
@@ -117,7 +163,9 @@ async def test_a_transposed_declaration_is_refused(aexecute, zarr_store):
     assert "dimension 0 is 'z' in the store and was declared 'x'" in message
     assert "dimension 2 is 'x' in the store and was declared 'z'" in message
     assert not await ArrayDataset.objects.filter(name="transposed").aexists()
-    assert not await CoordinateSystem.objects.filter(name="transposed/intrinsic").aexists(), "refused before anything is written"
+    assert not await CoordinateSystem.objects.filter(
+        name="transposed/intrinsic"
+    ).aexists(), "refused before anything is written"
 
 
 async def test_a_store_that_names_no_dimensions_is_not_refused(aexecute, zarr_store):
@@ -153,7 +201,9 @@ async def test_a_null_dimension_name_is_skipped_not_compared(aexecute, zarr_stor
         ],
     )
     assert wrong.errors, "the dimensions that ARE named are still compared"
-    assert "dimension 2 is 'x' in the store and was declared 'q'" in str(wrong.errors[0])
+    assert "dimension 2 is 'x' in the store and was declared 'q'" in str(
+        wrong.errors[0]
+    )
 
 
 async def test_a_rank_mismatch_is_prose_rather_than_an_assertion(aexecute, zarr_store):
@@ -187,7 +237,14 @@ async def test_a_pyramid_level_is_checked_against_the_same_axes(aexecute, zarr_s
     quietly does not. The per-level check was a second bare `assert`, on rank only.
     """
     level = await zarr_store(shape=[4, 32, 32], dimension_names=["z", "x", "y"])
-    result = await _create(aexecute, zarr_store, "pyramid", ["z", "y", "x"], _ZYX, scales=[{"level": 1, "array": str(level.pk)}])
+    result = await _create(
+        aexecute,
+        zarr_store,
+        "pyramid",
+        ["z", "y", "x"],
+        _ZYX,
+        scales=[{"level": 1, "array": str(level.pk)}],
+    )
 
     assert result.errors, "a transposed pyramid level must not be accepted"
     message = str(result.errors[0])
@@ -197,12 +254,21 @@ async def test_a_pyramid_level_is_checked_against_the_same_axes(aexecute, zarr_s
     # One transaction here, which mikro's is not: level 0 was fine and had already been
     # written when level 1 was refused, and the refusal takes it back.
     assert not await ArrayDataset.objects.filter(name="pyramid").aexists()
-    assert await CoordinateSystem.objects.acount() == 0, "neither the grid nor the level's space outlives the refusal"
+    assert await CoordinateSystem.objects.acount() == 0, (
+        "neither the grid nor the level's space outlives the refusal"
+    )
 
 
 async def test_a_pyramid_level_that_agrees_is_accepted(aexecute, zarr_store):
     """The same shape, passing -- so the test above is failing on the names, not the pyramid."""
     level = await zarr_store(shape=[4, 32, 32], dimension_names=["z", "y", "x"])
-    result = await _create(aexecute, zarr_store, "good-pyramid", ["z", "y", "x"], _ZYX, scales=[{"level": 1, "array": str(level.pk)}])
+    result = await _create(
+        aexecute,
+        zarr_store,
+        "good-pyramid",
+        ["z", "y", "x"],
+        _ZYX,
+        scales=[{"level": 1, "array": str(level.pk)}],
+    )
 
     assert not result.errors, result.errors

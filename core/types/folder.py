@@ -7,26 +7,31 @@ datasets, table datasets, sparse datasets, annotation collections and files; bot
 
 import datetime
 import logging
-from typing import TYPE_CHECKING, Annotated, List, Optional, cast
+from typing import TYPE_CHECKING, Annotated, Optional, cast
 
 import kante
 import strawberry
-from strawberry.scalars import JSON
+from arkitekt_datalayer.types import BigFileStore
 from kante.types import Info
 from strawberry import auto
+from strawberry.scalars import JSON
 
 from core import enums, filters, models, order
-from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, apply_link_filters
+from core.types._shared import (
+    DESCRIPTORS_DESCRIPTION,
+    OrgScoped,
+    apply_link_filters,
+    resolve_descriptors,
+)
 from core.types.auth import Organization, ProvenanceEntry, Task, User
-from arkitekt_datalayer.types import BigFileStore
 
 if TYPE_CHECKING:
     # Runtime imports here would cycle: each of these modules imports this one back.
     from core.types.annotation import AnnotationCollection
     from core.types.array_dataset import ArrayDataset
+    from core.types.file_link import FileLink
     from core.types.sparse_dataset import SparseDataset
     from core.types.table_dataset import TableDataset
-    from core.types.file_link import FileLink
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +45,16 @@ logger = logging.getLogger(__name__)
     description="A file in its original format (e.g. an ABF, an NWB file, a vendor recording), stored in a BigFileStore. Files are the raw bytes that array datasets are converted from.",
 )
 class File(OrgScoped):
-    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = kante.django_field(
+        resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION
+    )
 
     id: auto
     name: auto
     store: BigFileStore
-    folder: Optional["Folder"] = kante.django_field(description="The folder this file is filed in, or null once its folder was deleted (deleting a folder unfiles what is in it and destroys nothing). Organisational only: it says where a user keeps the file, nothing about its contents")
+    folder: Optional["Folder"] = kante.django_field(
+        description="The folder this file is filed in, or null once its folder was deleted (deleting a folder unfiles what is in it and destroys nothing). Organisational only: it says where a user keeps the file, nothing about its contents"
+    )
 
     @kante.django_field(
         description=(
@@ -54,26 +63,54 @@ class File(OrgScoped):
         ),
         prefetch_related=["links__file"],
     )
-    def derived_containers(self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET) -> List[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
+    def derived_containers(
+        self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET
+    ) -> list[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
         """The links naming this file as a source."""
-        return apply_link_filters(self.links.filter(direction=enums.FileLinkDirectionChoices.SOURCE.value).order_by("pk"), filters, info)
+        return apply_link_filters(
+            self.links.filter(
+                direction=enums.FileLinkDirectionChoices.SOURCE.value
+            ).order_by("pk"),
+            filters,
+            info,
+        )
 
     @kante.django_field(
         description="The containers this file was written from: the dataset exported to NWB, the annotation collection written to a CSV of events. The mirror of `derivedContainers`",
         prefetch_related=["links__file"],
     )
-    def exported_from(self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET) -> List[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
+    def exported_from(
+        self, info: Info, filters: filters.FileLinkFilter | None = strawberry.UNSET
+    ) -> list[Annotated["FileLink", strawberry.lazy("core.types.file_link")]]:
         """The links naming this file as a rendition."""
-        return apply_link_filters(self.links.filter(direction=enums.FileLinkDirectionChoices.RENDITION.value).order_by("pk"), filters, info)
+        return apply_link_filters(
+            self.links.filter(
+                direction=enums.FileLinkDirectionChoices.RENDITION.value
+            ).order_by("pk"),
+            filters,
+            info,
+        )
 
-    provenance_entries: List["ProvenanceEntry"] = kante.django_field(description="Provenance entries for this file")
+    provenance_entries: list["ProvenanceEntry"] = kante.django_field(
+        description="Provenance entries for this file"
+    )
     creator: User = kante.django_field(description="The user who created this file")
-    created_through: Optional[Task] = kante.django_field(description="The task this file was created through, if any")
-    created_through_by: Optional[User] = kante.django_field(description="The assigner of the creating task, if any")
-    organization: Organization = kante.django_field(description="The organization this file belongs to")
+    created_through: Task | None = kante.django_field(
+        description="The task this file was created through, if any"
+    )
+    created_through_by: User | None = kante.django_field(
+        description="The assigner of the creating task, if any"
+    )
+    organization: Organization = kante.django_field(
+        description="The organization this file belongs to"
+    )
     size: float | None = kante.django_field(description="The size of the file in bytes")
-    content_type: str | None = kante.django_field(description="The content type of the file")
-    folder: Optional["Folder"] = kante.django_field(description="The folder this file is filed in")
+    content_type: str | None = kante.django_field(
+        description="The content type of the file"
+    )
+    folder: Optional["Folder"] = kante.django_field(
+        description="The folder this file is filed in"
+    )
 
 
 @kante.django_type(
@@ -84,30 +121,56 @@ class File(OrgScoped):
     description="A folder is a collection of the things elektro stores. It mimics a folder in a file system and is the top-level container for organising data.",
 )
 class Folder(OrgScoped):
-    descriptors: JSON = kante.django_field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: JSON = kante.django_field(
+        resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION
+    )
 
     id: auto
-    files: List["File"]
+    files: list["File"]
     # The four containers `FileLink` calls "a thing holding data". Being in a folder says
     # nothing about where any of them sit in time.
-    array_datasets: List[Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]] = kante.django_field(description="The array datasets filed in this folder")
-    table_datasets: List[Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")]] = kante.django_field(description="The table datasets (event lists, unit tables) filed in this folder")
-    sparse_datasets: List[Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")]] = kante.django_field(description="The sparse datasets (spike rasters) filed in this folder")
-    annotation_collections: List[Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")]] = kante.django_field(description="The annotation collections filed in this folder")
+    array_datasets: list[
+        Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]
+    ] = kante.django_field(description="The array datasets filed in this folder")
+    table_datasets: list[
+        Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")]
+    ] = kante.django_field(
+        description="The table datasets (event lists, unit tables) filed in this folder"
+    )
+    sparse_datasets: list[
+        Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")]
+    ] = kante.django_field(
+        description="The sparse datasets (spike rasters) filed in this folder"
+    )
+    annotation_collections: list[
+        Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")]
+    ] = kante.django_field(
+        description="The annotation collections filed in this folder"
+    )
     parent: Optional["Folder"]
-    children: List["Folder"]
+    children: list["Folder"]
     description: str | None
     name: str
-    provenance_entries: List["ProvenanceEntry"] = kante.django_field(description="Provenance entries for this folder")
+    provenance_entries: list["ProvenanceEntry"] = kante.django_field(
+        description="Provenance entries for this folder"
+    )
     is_default: bool
     created_at: datetime.datetime
     creator: User | None
-    created_through: Optional[Task] = kante.django_field(description="The task this folder was created through, if any")
-    created_through_by: Optional[User] = kante.django_field(description="The assigner of the creating task, if any")
+    created_through: Task | None = kante.django_field(
+        description="The task this folder was created through, if any"
+    )
+    created_through_by: User | None = kante.django_field(
+        description="The assigner of the creating task, if any"
+    )
 
     @kante.django_field()
     def pinned(self, info: Info) -> bool:
-        return cast(models.Folder, self).pinned_by.filter(id=info.context.request.user.id).exists()
+        return (
+            cast(models.Folder, self)
+            .pinned_by.filter(id=info.context.request.user.id)
+            .exists()
+        )
 
     @kante.django_field()
     def tags(self, info: Info) -> list[str]:

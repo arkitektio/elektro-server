@@ -28,12 +28,12 @@ not because it moved: one matrix is one upload, so there is only one declaration
 can no longer disagree.
 """
 
+import kante
 import strawberry
 from django.db import transaction
 from kante.types import Info
 from pydantic import BaseModel, Field
 
-import kante
 from core import enums, models, scalars, types
 from core.creation import CreationContext
 from core.inputs.coords import AxisInputModel, DerivedFromInput, DerivedFromSpec
@@ -46,7 +46,13 @@ from core.logic import graph as graph_logic
 from core.logic import identification as identification_logic
 from core.logic import pickers
 from core.mutations._generic import make_owned_space_delete
-from core.mutations.array_dataset import CoordinateAnchorInput, CoordinateAnchorInputModel, _get_or_create_anchor, _write_anchor_spokes, assert_anchors_name_axes
+from core.mutations.array_dataset import (
+    CoordinateAnchorInput,
+    CoordinateAnchorInputModel,
+    _get_or_create_anchor,
+    _write_anchor_spokes,
+    assert_anchors_name_axes,
+)
 from core.scoping import get_for_org
 
 #: The lowest rank a sparse dataset can have. Two, because a single compressed axis needs at
@@ -103,10 +109,18 @@ class CreateSparseDatasetInput:
             "with no row labels and no column labels, plus one statement per axis of what its positions are"
         )
     )
-    description: str | None = strawberry.field(default=None, description="A description of the sparse dataset")
-    folder: strawberry.ID | None = strawberry.field(default=None, description="The folder to file it in")
-    derived_from: list[DerivedFromInput] | None = strawberry.field(default=None, description="The data this matrix was computed from")
-    source_files: list[SourceFileInput] | None = strawberry.field(default=None, description="The files it was converted from")
+    description: str | None = strawberry.field(
+        default=None, description="A description of the sparse dataset"
+    )
+    folder: strawberry.ID | None = strawberry.field(
+        default=None, description="The folder to file it in"
+    )
+    derived_from: list[DerivedFromInput] | None = strawberry.field(
+        default=None, description="The data this matrix was computed from"
+    )
+    source_files: list[SourceFileInput] | None = strawberry.field(
+        default=None, description="The files it was converted from"
+    )
     anchors: list[CoordinateAnchorInput] | None = strawberry.field(
         default=None,
         description=(
@@ -137,7 +151,9 @@ def _resolve_store(info: Info, identifier: str, name: str) -> "models.SparseStor
     return store
 
 
-def _assert_store_agrees(store: "models.SparseStore", axes: list[AxisInputModel], name: str) -> dict[int, dict]:
+def _assert_store_agrees(
+    store: "models.SparseStore", axes: list[AxisInputModel], name: str
+) -> dict[int, dict]:
     """Check the store against the declared axes, and return its layouts by the axis each indexes.
 
     The shape check is the one that matters, and it is only possible because the store read its
@@ -190,13 +206,21 @@ def _resolve_identifications(
     What is left is the two things a shape cannot state: that an INDEX axis is identified at
     all, and that *something* keys this matrix.
     """
-    timed = [axis.name for axis in model.axes if axis.type == enums.AxisType.TIME and axis.identified_by]
+    timed = [
+        axis.name
+        for axis in model.axes
+        if axis.type == enums.AxisType.TIME and axis.identified_by
+    ]
     if timed:
         raise ValueError(
             f"'{model.name}' identifies its TIME axis {timed}, but a TIME axis' positions are samples, not ids: nothing's contents are them and no table's rows are. "
             "Leave `identifiedBy` empty and place the axis on a clock with a sampling law (`createSamplingLaw`) once the dataset exists."
         )
-    empty = [axis.name for axis in model.axes if axis.type == enums.AxisType.INDEX and not axis.identified_by]
+    empty = [
+        axis.name
+        for axis in model.axes
+        if axis.type == enums.AxisType.INDEX and not axis.identified_by
+    ]
     if empty:
         # The one line the list form costs, and it is worth it: `identifiedBy` was singular and
         # so this was free, but a singular field cannot say "keyed by a nucleus mask and a cell
@@ -223,7 +247,9 @@ def _resolve_identifications(
     return references, keyed
 
 
-def create_sparse_dataset(info: Info, input: CreateSparseDatasetInput) -> types.SparseDataset:
+def create_sparse_dataset(
+    info: Info, input: CreateSparseDatasetInput
+) -> types.SparseDataset:
     """Create a sparse dataset, its owned coordinate system, and the edges identifying its axes."""
     model = input.to_pydantic()
     ctx = CreationContext.from_info(info)
@@ -233,37 +259,63 @@ def create_sparse_dataset(info: Info, input: CreateSparseDatasetInput) -> types.
             f"'{model.name}' declares {len(model.axes)} axes, but a sparse array has at least {_MIN_RANK} -- a single compressed axis needs at least one other to hold the positions. "
             "The number of axes is checked against the store's own shape as well, so it is the matrix that decides the rank, not the declaration."
         )
-    duplicates = sorted({axis.name for axis in model.axes if [entry.name for entry in model.axes].count(axis.name) > 1})
+    duplicates = sorted(
+        {
+            axis.name
+            for axis in model.axes
+            if [entry.name for entry in model.axes].count(axis.name) > 1
+        }
+    )
     if duplicates:
-        raise ValueError(f"'{model.name}' declares the axis {duplicates} more than once. An axis name is how a colouring names a position along it, so it has to pick one axis.")
+        raise ValueError(
+            f"'{model.name}' declares the axis {duplicates} more than once. An axis name is how a colouring names a position along it, so it has to pick one axis."
+        )
 
     # elektro: `SparseAxisInput` has a `type` here (mikro's has none), because a spike raster's
     # sample axis is TIME. Nothing else is admitted -- a sparse matrix has no spatial or channel
     # axes -- and at most one TIME axis, because one sampling law places a raster.
-    wrong = sorted({axis.name for axis in model.axes if axis.type not in (enums.AxisType.INDEX, enums.AxisType.TIME)})
+    wrong = sorted(
+        {
+            axis.name
+            for axis in model.axes
+            if axis.type not in (enums.AxisType.INDEX, enums.AxisType.TIME)
+        }
+    )
     if wrong:
-        raise ValueError(f"'{model.name}' declares {wrong} with a type other than INDEX or TIME. A sparse matrix enumerates (INDEX) and may have one sample axis (TIME); nothing else.")
+        raise ValueError(
+            f"'{model.name}' declares {wrong} with a type other than INDEX or TIME. A sparse matrix enumerates (INDEX) and may have one sample axis (TIME); nothing else."
+        )
     if sum(axis.type == enums.AxisType.TIME for axis in model.axes) > 1:
-        raise ValueError(f"'{model.name}' declares more than one TIME axis. A spike raster has one sample axis, and one sampling law places it; a second would be a second clock.")
+        raise ValueError(
+            f"'{model.name}' declares more than one TIME axis. A spike raster has one sample axis, and one sampling law places it; a second would be a second clock."
+        )
     if all(axis.type == enums.AxisType.TIME for axis in model.axes):
-        raise ValueError(f"'{model.name}' has no INDEX axis. A sparse matrix enumerates something -- units, channels, genes -- along at least one axis.")
+        raise ValueError(
+            f"'{model.name}' has no INDEX axis. A sparse matrix enumerates something -- units, channels, genes -- along at least one axis."
+        )
     store = _resolve_store(info, model.store, model.name)
     by_axis = _assert_store_agrees(store, model.axes, model.name)
     # An anchor is keyed by axis name and read back by name, so one that pins an axis the
     # matrix does not have would silently label nothing. Checked before anything is written.
-    assert_anchors_name_axes(model.anchors or [], [axis.name for axis in model.axes], what="sparse dataset")
+    assert_anchors_name_axes(
+        model.anchors or [], [axis.name for axis in model.axes], what="sparse dataset"
+    )
     targets, keyed = _resolve_identifications(info, model)
 
     # Atomic for the reason `create_table_dataset` is: the row, its axes and its references are
     # written before the edges are checked, and an edge the rank rule refuses would otherwise
     # leave an orphan dataset behind and return an error.
     with transaction.atomic():
-        system = models.CoordinateSystem.objects.create(name=f"{model.name}/sparse", creator=ctx.user, organization=ctx.organization)
+        system = models.CoordinateSystem.objects.create(
+            name=f"{model.name}/sparse", creator=ctx.user, organization=ctx.organization
+        )
         dataset = models.SparseDataset.objects.create(
             name=model.name,
             description=model.description,
             coordinate_system=system,
-            folder=folder_logic.folder_for_new_container(info, ctx, model.folder, model.derived_from),
+            folder=folder_logic.folder_for_new_container(
+                info, ctx, model.folder, model.derived_from
+            ),
             creator=ctx.user,
             organization=ctx.organization,
             **ctx.provenance_kwargs(),
@@ -274,14 +326,24 @@ def create_sparse_dataset(info: Info, input: CreateSparseDatasetInput) -> types.
         graph_logic.create_pixel_axes(
             system,
             [
-                AxisInputModel(name=axis.name, type=axis.type, long_name=axis.long_name, description=axis.description)
+                AxisInputModel(
+                    name=axis.name,
+                    type=axis.type,
+                    long_name=axis.long_name,
+                    description=axis.description,
+                )
                 for axis in model.axes
             ],
         )
 
         models.SparseArray.objects.bulk_create(
             [
-                models.SparseArray(dataset=dataset, store=store, path=str(layout.get("path")), indexed_axis=indexed)
+                models.SparseArray(
+                    dataset=dataset,
+                    store=store,
+                    path=str(layout.get("path")),
+                    indexed_axis=indexed,
+                )
                 for indexed, layout in sorted(by_axis.items())
             ]
         )
@@ -290,11 +352,24 @@ def create_sparse_dataset(info: Info, input: CreateSparseDatasetInput) -> types.
         # leave the edge trying to produce an axis it should have left alone. Visible in the input
         # now -- an axis says which of the two it is -- but the write order still has to match.
         models.SparseAxisReference.objects.bulk_create(
-            [models.SparseAxisReference(dataset=dataset, axis=axis, references=target) for axis, target in targets.items()]
+            [
+                models.SparseAxisReference(
+                    dataset=dataset, axis=axis, references=target
+                )
+                for axis, target in targets.items()
+            ]
         )
 
-        coordinate_system_logic.write_derivation_edges(info, name=dataset.name, own_system=system, derived_from=model.derived_from or [], ctx=ctx)
-        file_link_logic.write_file_links(info, container=dataset, source_files=model.source_files or [], ctx=ctx)
+        coordinate_system_logic.write_derivation_edges(
+            info,
+            name=dataset.name,
+            own_system=system,
+            derived_from=model.derived_from or [],
+            ctx=ctx,
+        )
+        file_link_logic.write_file_links(
+            info, container=dataset, source_files=model.source_files or [], ctx=ctx
+        )
         # The caller stated which axis each source keys, so the derivation is checked against it
         # rather than only performed. `consumed` and the passthrough are still derived -- asking
         # for those would be asking a caller to restate the two systems' axes at each other.
@@ -320,16 +395,25 @@ class UpdateSparseDatasetInputModel(BaseModel):
     description: str | None = None
 
 
-@kante.pydantic_input(UpdateSparseDatasetInputModel, description="Input for renaming or redescribing a sparse dataset")
+@kante.pydantic_input(
+    UpdateSparseDatasetInputModel,
+    description="Input for renaming or redescribing a sparse dataset",
+)
 class UpdateSparseDatasetInput:
     """Input for updating a sparse dataset."""
 
-    id: strawberry.ID = strawberry.field(description="The ID of the sparse dataset to update")
+    id: strawberry.ID = strawberry.field(
+        description="The ID of the sparse dataset to update"
+    )
     name: str | None = strawberry.field(default=None, description="A new name")
-    description: str | None = strawberry.field(default=None, description="A new description")
+    description: str | None = strawberry.field(
+        default=None, description="A new description"
+    )
 
 
-def update_sparse_dataset(info: Info, input: UpdateSparseDatasetInput) -> types.SparseDataset:
+def update_sparse_dataset(
+    info: Info, input: UpdateSparseDatasetInput
+) -> types.SparseDataset:
     """Rename a sparse dataset, or redescribe it. Those two are the whole of what is editable.
 
     Not here: the store, the axes, the references and the coordinate system. All are written
@@ -350,14 +434,23 @@ class DeleteSparseDatasetInputModel(BaseModel):
     id: str = Field(description="The ID of the sparse dataset to delete")
 
 
-@kante.pydantic_input(DeleteSparseDatasetInputModel, description="Input for deleting a sparse dataset by ID")
+@kante.pydantic_input(
+    DeleteSparseDatasetInputModel,
+    description="Input for deleting a sparse dataset by ID",
+)
 class DeleteSparseDatasetInput:
     """Input for deleting a sparse dataset by ID."""
 
-    id: strawberry.ID = strawberry.field(description="The ID of the sparse dataset to delete")
+    id: strawberry.ID = strawberry.field(
+        description="The ID of the sparse dataset to delete"
+    )
 
 
 #: PROTECT, for the reason a table dataset is protected: a colouring names its source by id
 #: inside a JSON column, so there is no foreign key to cascade and a deleted matrix leaves an
 #: entry nothing can execute. See :func:`core.logic.pickers.assert_sparse_dataset_not_in_a_picker`.
-delete_sparse_dataset = make_owned_space_delete(models.SparseDataset, DeleteSparseDatasetInput, guard=pickers.assert_sparse_dataset_not_in_a_picker)
+delete_sparse_dataset = make_owned_space_delete(
+    models.SparseDataset,
+    DeleteSparseDatasetInput,
+    guard=pickers.assert_sparse_dataset_not_in_a_picker,
+)

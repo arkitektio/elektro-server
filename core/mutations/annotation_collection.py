@@ -16,16 +16,21 @@ What "drawn over" buys is decided by what the edge lands in:
   events and epochs are -- they belong to the segment, not to one signal of it.
 """
 
+import kante
 import strawberry
 from django.db import transaction
 from kante.types import Info
 from pydantic import BaseModel, Field
 
-import kante
 from core import guards, models, types
 from core.creation import CreationContext
 from core.input_unions import prose_errors
-from core.inputs.coords import AxisInput, AxisInputModel, DerivedFromInput, DerivedFromSpec
+from core.inputs.coords import (
+    AxisInput,
+    AxisInputModel,
+    DerivedFromInput,
+    DerivedFromSpec,
+)
 from core.logic import coordinate_system as coordinate_system_logic
 from core.logic import graph as graph_logic
 from core.logic import spaces as spaces_logic
@@ -47,8 +52,12 @@ class CreateAnnotationCollectionInputModel(BaseModel):
 class CreateAnnotationCollectionInput:
     """Input for creating an annotation collection."""
 
-    name: str = strawberry.field(description="The name of the annotation collection, e.g. 'detected spikes' or 'artifacts'. What the shapes in it *mean* is said here and in their names, never by their kind")
-    description: str | None = strawberry.field(default=None, description="A free-form description of the collection")
+    name: str = strawberry.field(
+        description="The name of the annotation collection, e.g. 'detected spikes' or 'artifacts'. What the shapes in it *mean* is said here and in their names, never by their kind"
+    )
+    description: str | None = strawberry.field(
+        default=None, description="A free-form description of the collection"
+    )
     axes: list[AxisInput] = strawberry.field(
         description=(
             "The axes of the collection's own coordinate system, in order: the components of every vertex drawn in it. `[{name: 't', type: TIME}]` for events and epochs; add "
@@ -66,7 +75,9 @@ class CreateAnnotationCollectionInput:
     )
 
 
-def create_annotation_collection(info: Info, input: CreateAnnotationCollectionInput) -> types.AnnotationCollection:
+def create_annotation_collection(
+    info: Info, input: CreateAnnotationCollectionInput
+) -> types.AnnotationCollection:
     """Create an annotation collection, in a coordinate system of its own.
 
     The collection owns its system, and an optional edge relates that system to the one the
@@ -97,7 +108,13 @@ def create_annotation_collection(info: Info, input: CreateAnnotationCollectionIn
         )
 
         # Optional on purpose: a collection in some absolute space is drawn over nothing.
-        coordinate_system_logic.write_derivation_edges(info, name=collection.name, own_system=system, derived_from=model.derived_from or [], ctx=ctx)
+        coordinate_system_logic.write_derivation_edges(
+            info,
+            name=collection.name,
+            own_system=system,
+            derived_from=model.derived_from or [],
+            ctx=ctx,
+        )
         # Once the derivation exists, because it is what decides the answer: a composable one
         # means the boxes are stored in the source's grid, and this is where the collection
         # says so. Inside the transaction with it -- a frame naming an edge that rolled back
@@ -111,14 +128,21 @@ class DeleteAnnotationCollectionInputModel(BaseModel):
     id: str = Field(description="The ID of the annotation collection to delete")
 
 
-@kante.pydantic_input(DeleteAnnotationCollectionInputModel, description="Input for deleting an annotation collection by ID")
+@kante.pydantic_input(
+    DeleteAnnotationCollectionInputModel,
+    description="Input for deleting an annotation collection by ID",
+)
 class DeleteAnnotationCollectionInput:
     """Input for deleting an annotation collection by ID."""
 
-    id: strawberry.ID = strawberry.field(description="The ID of the annotation collection to delete. Its annotations, its experiment view and its coordinate system go with it")
+    id: strawberry.ID = strawberry.field(
+        description="The ID of the annotation collection to delete. Its annotations, its experiment view and its coordinate system go with it"
+    )
 
 
-def delete_annotation_collection(info: Info, input: DeleteAnnotationCollectionInput) -> strawberry.ID:
+def delete_annotation_collection(
+    info: Info, input: DeleteAnnotationCollectionInput
+) -> strawberry.ID:
     """Delete an annotation collection, its shapes, and the drawing space it owned.
 
     The collection goes first: its FK to the space is PROTECT. The space is then swept -- a

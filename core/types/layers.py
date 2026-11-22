@@ -19,14 +19,12 @@ A concrete type reachable only through the interface is not auto-discovered by s
 SDL without an error.
 """
 
-from typing import TYPE_CHECKING, Annotated, List, Optional
-
-import strawberry
-from strawberry import auto
+from typing import TYPE_CHECKING, Annotated
 
 import kante
+import strawberry
 from kante.types import Info
-from kanne_server import scalars as quantities
+from strawberry import auto
 
 from core import enums, filters, models, order, scalars
 from core.inputs.coords import CoordinateInput, at_map
@@ -38,6 +36,7 @@ from core.types.array_dataset import DataArray, Lens
 from core.types.coords import AffinePlacement, PlacementStep
 from core.types.sparse_dataset import SparseDataset
 from core.types.table_dataset import TableDataset
+from kanne_server import scalars as quantities
 
 if TYPE_CHECKING:
     from core.types.experiment import Experiment
@@ -46,7 +45,10 @@ if TYPE_CHECKING:
 # --- the pickers --------------------------------------------------------------------------------
 
 
-@kante.pydantic_type(picker_models.JoinStepModel, description="One reference hop of a picker's join path: the column, in the table it stands in, whose values identify rows of the next table")
+@kante.pydantic_type(
+    picker_models.JoinStepModel,
+    description="One reference hop of a picker's join path: the column, in the table it stands in, whose values identify rows of the next table",
+)
 class JoinStep:
     table: strawberry.ID
     column: str
@@ -60,7 +62,7 @@ class ColorBy:
     kind: str
     table: strawberry.ID
     column: str
-    join_path: List[JoinStep]
+    join_path: list[JoinStep]
     colormap: enums.ColorMap | None
     min: float | None
     max: float | None
@@ -75,20 +77,26 @@ class FilterBy:
     kind: str
     table: strawberry.ID
     column: str
-    join_path: List[JoinStep]
+    join_path: list[JoinStep]
     min: float | None
     max: float | None
-    values: List[str] | None
+    values: list[str] | None
     exclude: bool
     label: str | None
 
 
-def _color_bys(stored: list | None) -> List[ColorBy]:
-    return [ColorBy.from_pydantic(picker_models.ColorByModel(**entry)) for entry in (stored or [])]
+def _color_bys(stored: list | None) -> list[ColorBy]:
+    return [
+        ColorBy.from_pydantic(picker_models.ColorByModel(**entry))
+        for entry in (stored or [])
+    ]
 
 
-def _filter_bys(stored: list | None) -> List[FilterBy]:
-    return [FilterBy.from_pydantic(picker_models.FilterByModel(**entry)) for entry in (stored or [])]
+def _filter_bys(stored: list | None) -> list[FilterBy]:
+    return [
+        FilterBy.from_pydantic(picker_models.FilterByModel(**entry))
+        for entry in (stored or [])
+    ]
 
 
 # --- the interface ------------------------------------------------------------------------------
@@ -125,7 +133,9 @@ class ExperimentLayer:
         they are a reverse relation: ``asAffine`` reads the source system's axis order.
         """
         scoped = build_prescoped_queryset(info, queryset)
-        return scoped.select_related(*scene_graph.LAYER_PLACEMENT_RELATIONS).prefetch_related(*scene_graph.LAYER_SOURCE_AXIS_PREFETCH)
+        return scoped.select_related(
+            *scene_graph.LAYER_PLACEMENT_RELATIONS
+        ).prefetch_related(*scene_graph.LAYER_SOURCE_AXIS_PREFETCH)
 
     @kante.django_field(
         description=(
@@ -135,12 +145,19 @@ class ExperimentLayer:
             "its own validity, invariance and provenance; `asAffine` is the same path composed"
         ),
     )
-    def path_to_world(self, info: Info, at: List[CoordinateInput] | None = None) -> List[PlacementStep] | None:
+    def path_to_world(
+        self, info: Info, at: list[CoordinateInput] | None = None
+    ) -> list[PlacementStep] | None:
         """The layer's placement path, as (edge, inverted) steps."""
-        steps = scene_graph.for_request(info, self.experiment).placement_path(self, at=at_map(at))
+        steps = scene_graph.for_request(info, self.experiment).placement_path(
+            self, at=at_map(at)
+        )
         if steps is None:
             return None
-        return [PlacementStep(transformation=edge, inverted=inverted) for edge, inverted in steps]
+        return [
+            PlacementStep(transformation=edge, inverted=inverted)
+            for edge, inverted in steps
+        ]
 
     @kante.django_field(
         description=(
@@ -150,9 +167,13 @@ class ExperimentLayer:
             "run) has no closed form, and the error names the transformation that stopped it. Pass `strict: true` to be refused a partial map instead of handed one"
         ),
     )
-    def as_affine(self, info: Info, strict: bool = False, at: List[CoordinateInput] | None = None) -> AffinePlacement | None:
+    def as_affine(
+        self, info: Info, strict: bool = False, at: list[CoordinateInput] | None = None
+    ) -> AffinePlacement | None:
         """The layer's placement path composed into one labelled affine map."""
-        condensed = scene_graph.for_request(info, self.experiment).condensed_placement(self, at=at_map(at))
+        condensed = scene_graph.for_request(info, self.experiment).condensed_placement(
+            self, at=at_map(at)
+        )
         if condensed is None:
             return None
         if strict and not condensed.total:
@@ -163,7 +184,12 @@ class ExperimentLayer:
                 f"This layer's placement does not constrain every axis of its experiment's world: it maps onto {condensed.output_axes} and says nothing about {missing}. "
                 "That is an honest partial registration, not a failure -- drop `strict` to read the map over the axes it does name, or author a registration that places the data along the rest."
             )
-        return AffinePlacement(matrix=condensed.matrix, input_axes=condensed.input_axes, output_axes=condensed.output_axes, total=condensed.total)
+        return AffinePlacement(
+            matrix=condensed.matrix,
+            input_axes=condensed.input_axes,
+            output_axes=condensed.output_axes,
+            total=condensed.total,
+        )
 
     @kante.django_field(
         description=(
@@ -171,9 +197,15 @@ class ExperimentLayer:
             "UNMAPPABLE is a fact to badge; CONDITIONAL is a placement to ask again for with `at`. Derived, never stored"
         ),
     )
-    def placement(self, info: Info, at: List[CoordinateInput] | None = None) -> enums.PlacementState:
+    def placement(
+        self, info: Info, at: list[CoordinateInput] | None = None
+    ) -> enums.PlacementState:
         """PLACED, CONDITIONAL, UNREGISTERED or UNMAPPABLE."""
-        return enums.PlacementState(scene_graph.for_request(info, self.experiment).placement_state(self, at=at_map(at)))
+        return enums.PlacementState(
+            scene_graph.for_request(info, self.experiment).placement_state(
+                self, at=at_map(at)
+            )
+        )
 
     @kante.django_field(
         description=(
@@ -181,9 +213,15 @@ class ExperimentLayer:
             "someone authored an offset, VALIDATED once it was checked, UNKNOWN when there is no path at all. Derived, never stored"
         ),
     )
-    def placement_validity(self, info: Info, at: List[CoordinateInput] | None = None) -> enums.PlacementValidity:
+    def placement_validity(
+        self, info: Info, at: list[CoordinateInput] | None = None
+    ) -> enums.PlacementValidity:
         """The weakest validity on the layer's placement path."""
-        return enums.PlacementValidity(scene_graph.for_request(info, self.experiment).placement_validity(self, at=at_map(at)))
+        return enums.PlacementValidity(
+            scene_graph.for_request(info, self.experiment).placement_validity(
+                self, at=at_map(at)
+            )
+        )
 
     @kante.django_field(
         description=(
@@ -191,18 +229,30 @@ class ExperimentLayer:
             "measured in samples is a duration on the timeline up to one factor; DIFFEOMORPHIC means the path crosses a time lookup; NONE means there is no path. Derived, never stored"
         ),
     )
-    def placement_invariance(self, info: Info, at: List[CoordinateInput] | None = None) -> enums.TransformInvariance:
+    def placement_invariance(
+        self, info: Info, at: list[CoordinateInput] | None = None
+    ) -> enums.TransformInvariance:
         """The weakest invariance class on the layer's placement path."""
-        return enums.TransformInvariance(scene_graph.for_request(info, self.experiment).placement_invariance(self, at=at_map(at)))
+        return enums.TransformInvariance(
+            scene_graph.for_request(info, self.experiment).placement_invariance(
+                self, at=at_map(at)
+            )
+        )
 
 
 # --- the kinds ----------------------------------------------------------------------------------
 
 
-@kante.type(description="The placement of one pyramid level in a trace layer's experiment: the level, and its path to the world")
+@kante.type(
+    description="The placement of one pyramid level in a trace layer's experiment: the level, and its path to the world"
+)
 class LevelPlacement:
-    data_array: DataArray = strawberry.field(description="The pyramid level being placed")
-    path: List[PlacementStep] | None = strawberry.field(description="The path from this level's sample grid to the experiment's world, or null when the dataset is not placed in it")
+    data_array: DataArray = strawberry.field(
+        description="The pyramid level being placed"
+    )
+    path: list[PlacementStep] | None = strawberry.field(
+        description="The path from this level's sample grid to the experiment's world, or null when the dataset is not placed in it"
+    )
 
 
 def _lens_duration(lens: "models.Lens") -> int | None:
@@ -216,16 +266,33 @@ def _lens_duration(lens: "models.Lens") -> int | None:
     if rate is None:
         return None
     samples = lens.get_size_of_axis(sample_axis.name)
-    step = next((entry.step or 1 for entry in lens.slices_list if entry.axis == sample_axis.name), 1)
+    step = next(
+        (
+            entry.step or 1
+            for entry in lens.slices_list
+            if entry.axis == sample_axis.name
+        ),
+        1,
+    )
     # samples * step / rate, in picoseconds, with the rate in nanohertz.
     return int(round(samples * step * 1e21 / rate))
 
 
-def _level_paths(layer, info: Info) -> List["LevelPlacement"]:  # noqa: ANN001 - a lens-backed layer row
+def _level_paths(layer, info: Info) -> list["LevelPlacement"]:  # noqa: ANN001 - a lens-backed layer row
     """One placement per pyramid level of a lens-backed layer's dataset: mikro's ``_level_placements``."""
     return [
-        LevelPlacement(data_array=array, path=None if steps is None else [PlacementStep(transformation=edge, inverted=inverted) for edge, inverted in steps])
-        for array, steps in scene_graph.for_request(info, layer.experiment).level_placements(layer)
+        LevelPlacement(
+            data_array=array,
+            path=None
+            if steps is None
+            else [
+                PlacementStep(transformation=edge, inverted=inverted)
+                for edge, inverted in steps
+            ],
+        )
+        for array, steps in scene_graph.for_request(
+            info, layer.experiment
+        ).level_placements(layer)
     ]
 
 
@@ -243,14 +310,28 @@ class TraceLayer(ExperimentLayer):
     """A trace layer: a lens over an array dataset."""
 
     id: auto
-    lens: Lens = kante.django_field(description="The selection this layer draws: a lens over the dataset. Unsliced when the layer shows everything")
-    channel_index: int | None = kante.django_field(description="The one channel of the lens' CHANNEL axis to draw; null draws every channel, stacked")
-    clim_min: float | None = kante.django_field(description="The bottom of the value range, in the dataset's value unit. Null reads it from the value histogram")
-    clim_max: float | None = kante.django_field(description="The top of the value range, in the dataset's value unit. Null reads it from the value histogram")
-    line_width: float | None = kante.django_field(description="The line width, in screen pixels")
-    channel_coloring: enums.ChannelColoring = kante.django_field(description="When the channels each get their own colour, stepped round the wheel from the layer's: only where they share a plot (the default), always, or never")
+    lens: Lens = kante.django_field(
+        description="The selection this layer draws: a lens over the dataset. Unsliced when the layer shows everything"
+    )
+    channel_index: int | None = kante.django_field(
+        description="The one channel of the lens' CHANNEL axis to draw; null draws every channel, stacked"
+    )
+    clim_min: float | None = kante.django_field(
+        description="The bottom of the value range, in the dataset's value unit. Null reads it from the value histogram"
+    )
+    clim_max: float | None = kante.django_field(
+        description="The top of the value range, in the dataset's value unit. Null reads it from the value histogram"
+    )
+    line_width: float | None = kante.django_field(
+        description="The line width, in screen pixels"
+    )
+    channel_coloring: enums.ChannelColoring = kante.django_field(
+        description="When the channels each get their own colour, stepped round the wheel from the layer's: only where they share a plot (the default), always, or never"
+    )
 
-    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    @kante.django_field(
+        description="The base colour as RGBA, 0-255. Null lets the viewer choose"
+    )
     def color(self, info: Info) -> scalars.RGBAColor | None:
         return self.color
 
@@ -264,7 +345,7 @@ class TraceLayer(ExperimentLayer):
     @kante.django_field(
         description="Per pyramid level, the path from that level's sample grid to this experiment's world. What a client zoomed out over an hour of data reads: pick a level by zoom and use its path"
     )
-    def level_paths(self, info: Info) -> List[LevelPlacement]:
+    def level_paths(self, info: Info) -> list[LevelPlacement]:
         """One placement per pyramid level of the lens' dataset."""
         return _level_paths(self, info)
 
@@ -288,31 +369,61 @@ class SpikesLayer(ExperimentLayer):
     """A spikes layer: a spike raster."""
 
     id: auto
-    sparse_dataset: SparseDataset = kante.django_field(description="The spike raster this layer draws: a sparse dataset over (unit, t)")
-    tick_height: float | None = kante.django_field(description="A spike tick's height as a fraction of its unit's row, 0 to 1")
-    row_order_column: str | None = kante.django_field(description="A column of `unitTable` the rows are ordered by (depth, channel); null keeps unit index order")
-    value_mode: enums.SpikeValueMode = kante.django_field(description="What a nonzero value means: one spike (PRESENCE), or its amplitude (AMPLITUDE, drawn through `colormap`)")
-    rate_bin: quantities.Duration | None = kante.django_field(description="Draw a firing-rate histogram at this bin width instead of a raster. Null draws the raster")
-    colormap: enums.ColorMap | None = kante.django_field(description="The colormap an amplitude or the active colour-by is drawn through")
-    clim_min: float | None = kante.django_field(description="(AMPLITUDE) The amplitude at the bottom of the colormap")
-    clim_max: float | None = kante.django_field(description="(AMPLITUDE) The amplitude at the top of the colormap")
-    active_color_by: int | None = kante.django_field(description="Which entry of `colorBys` is drawn, as an index into it. Null draws every unit in `color`")
-    active_filter_bys: List[int] = kante.django_field(description="Which entries of `filterBys` apply, as indices into it. They combine with AND: a unit is drawn when every active rule keeps it")
+    sparse_dataset: SparseDataset = kante.django_field(
+        description="The spike raster this layer draws: a sparse dataset over (unit, t)"
+    )
+    tick_height: float | None = kante.django_field(
+        description="A spike tick's height as a fraction of its unit's row, 0 to 1"
+    )
+    row_order_column: str | None = kante.django_field(
+        description="A column of `unitTable` the rows are ordered by (depth, channel); null keeps unit index order"
+    )
+    value_mode: enums.SpikeValueMode = kante.django_field(
+        description="What a nonzero value means: one spike (PRESENCE), or its amplitude (AMPLITUDE, drawn through `colormap`)"
+    )
+    rate_bin: quantities.Duration | None = kante.django_field(
+        description="Draw a firing-rate histogram at this bin width instead of a raster. Null draws the raster"
+    )
+    colormap: enums.ColorMap | None = kante.django_field(
+        description="The colormap an amplitude or the active colour-by is drawn through"
+    )
+    clim_min: float | None = kante.django_field(
+        description="(AMPLITUDE) The amplitude at the bottom of the colormap"
+    )
+    clim_max: float | None = kante.django_field(
+        description="(AMPLITUDE) The amplitude at the top of the colormap"
+    )
+    active_color_by: int | None = kante.django_field(
+        description="Which entry of `colorBys` is drawn, as an index into it. Null draws every unit in `color`"
+    )
+    active_filter_bys: list[int] = kante.django_field(
+        description="Which entries of `filterBys` apply, as indices into it. They combine with AND: a unit is drawn when every active rule keeps it"
+    )
 
-    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    @kante.django_field(
+        description="The base colour as RGBA, 0-255. Null lets the viewer choose"
+    )
     def color(self, info: Info) -> scalars.RGBAColor | None:
         return self.color
 
-    @kante.django_field(description="The table the raster's units are rows of: the one identifying its INDEX axis. Where every colour-by and filter-by starts. Null when no table identifies the units")
-    def unit_table(self, info: Info) -> Optional[TableDataset]:
+    @kante.django_field(
+        description="The table the raster's units are rows of: the one identifying its INDEX axis. Where every colour-by and filter-by starts. Null when no table identifies the units"
+    )
+    def unit_table(self, info: Info) -> TableDataset | None:
         return ephys_pickers.spike_root(self.sparse_dataset)
 
-    @kante.django_field(field_name="spike_color_bys", description="The colourings this layer offers, in the order a picker should show them: columns of `unitTable` or of tables it references")
-    def color_bys(self, info: Info) -> List[ColorBy]:
+    @kante.django_field(
+        field_name="spike_color_bys",
+        description="The colourings this layer offers, in the order a picker should show them: columns of `unitTable` or of tables it references",
+    )
+    def color_bys(self, info: Info) -> list[ColorBy]:
         return _color_bys(self.spike_color_bys)
 
-    @kante.django_field(field_name="spike_filter_bys", description="The filters this layer offers: columns of `unitTable` or of tables it references, each keeping a range or a set of values")
-    def filter_bys(self, info: Info) -> List[FilterBy]:
+    @kante.django_field(
+        field_name="spike_filter_bys",
+        description="The filters this layer offers: columns of `unitTable` or of tables it references, each keeping a range or a set of values",
+    )
+    def filter_bys(self, info: Info) -> list[FilterBy]:
         return _filter_bys(self.spike_filter_bys)
 
     @classmethod
@@ -335,29 +446,60 @@ class EventsLayer(ExperimentLayer):
     """An events layer: an event table."""
 
     id: auto
-    table_dataset: TableDataset = kante.django_field(description="The event table this layer draws")
-    stop_column: str | None = kante.django_field(description="A column whose values end each row's interval, in the time column's unit. Null draws instants")
-    label_column: str | None = kante.django_field(description="A column naming each row, drawn beside its mark")
-    lane_column: str | None = kante.django_field(description="A categorical column giving each distinct value its own lane. Null draws one lane")
-    colormap: enums.ColorMap | None = kante.django_field(description="The colormap the active colour-by is drawn through")
-    active_color_by: int | None = kante.django_field(description="Which entry of `colorBys` is drawn, as an index into it. Null draws every row in `color`")
-    active_filter_bys: List[int] = kante.django_field(description="Which entries of `filterBys` apply, as indices into it. They combine with AND")
+    table_dataset: TableDataset = kante.django_field(
+        description="The event table this layer draws"
+    )
+    stop_column: str | None = kante.django_field(
+        description="A column whose values end each row's interval, in the time column's unit. Null draws instants"
+    )
+    label_column: str | None = kante.django_field(
+        description="A column naming each row, drawn beside its mark"
+    )
+    lane_column: str | None = kante.django_field(
+        description="A categorical column giving each distinct value its own lane. Null draws one lane"
+    )
+    colormap: enums.ColorMap | None = kante.django_field(
+        description="The colormap the active colour-by is drawn through"
+    )
+    active_color_by: int | None = kante.django_field(
+        description="Which entry of `colorBys` is drawn, as an index into it. Null draws every row in `color`"
+    )
+    active_filter_bys: list[int] = kante.django_field(
+        description="Which entries of `filterBys` apply, as indices into it. They combine with AND"
+    )
 
-    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    @kante.django_field(
+        description="The base colour as RGBA, 0-255. Null lets the viewer choose"
+    )
     def color(self, info: Info) -> scalars.RGBAColor | None:
         return self.color
 
-    @kante.django_field(description="The table's TIME coordinate column: where each row sits in the table's own space. Derived from the table's declaration, never stored per layer")
+    @kante.django_field(
+        description="The table's TIME coordinate column: where each row sits in the table's own space. Derived from the table's declaration, never stored per layer"
+    )
     def time_column(self, info: Info) -> str | None:
-        column = self.table_dataset.columns.filter(role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=enums.AxisTypeChoices.TIME.value).order_by("order").first()
+        column = (
+            self.table_dataset.columns.filter(
+                role=enums.ColumnRoleChoices.COORDINATE.value,
+                axis_type=enums.AxisTypeChoices.TIME.value,
+            )
+            .order_by("order")
+            .first()
+        )
         return column.name if column is not None else None
 
-    @kante.django_field(field_name="table_color_bys", description="The colourings this layer offers: columns of the event table or of tables it references")
-    def color_bys(self, info: Info) -> List[ColorBy]:
+    @kante.django_field(
+        field_name="table_color_bys",
+        description="The colourings this layer offers: columns of the event table or of tables it references",
+    )
+    def color_bys(self, info: Info) -> list[ColorBy]:
         return _color_bys(self.table_color_bys)
 
-    @kante.django_field(field_name="table_filter_bys", description="The filters this layer offers: columns of the event table or of tables it references")
-    def filter_bys(self, info: Info) -> List[FilterBy]:
+    @kante.django_field(
+        field_name="table_filter_bys",
+        description="The filters this layer offers: columns of the event table or of tables it references",
+    )
+    def filter_bys(self, info: Info) -> list[FilterBy]:
         return _filter_bys(self.table_filter_bys)
 
     @classmethod
@@ -376,7 +518,9 @@ class AnnotationLayer(ExperimentLayer):
     """An annotation layer: a collection's marks."""
 
     id: auto
-    annotation_collection: AnnotationCollection = kante.django_field(description="The annotation collection whose marks this layer draws. Its own coordinate system is the layer's space")
+    annotation_collection: AnnotationCollection = kante.django_field(
+        description="The annotation collection whose marks this layer draws. Its own coordinate system is the layer's space"
+    )
 
     @classmethod
     def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
@@ -397,22 +541,36 @@ class HeatmapLayer(ExperimentLayer):
     """A heatmap layer: a lens drawn as an image."""
 
     id: auto
-    lens: Lens = kante.django_field(description="The selection this layer draws. Every axis but TIME and `rowAxis` is fixed to one position")
-    colormap: enums.ColorMap | None = kante.django_field(description="The continuous colormap the values are drawn through")
-    clim_min: float | None = kante.django_field(description="The value at the bottom of the colormap, in the dataset's value unit")
-    clim_max: float | None = kante.django_field(description="The value at the top of the colormap, in the dataset's value unit")
-    gamma: float | None = kante.django_field(description="The gamma the colour range is drawn through; null is linear")
+    lens: Lens = kante.django_field(
+        description="The selection this layer draws. Every axis but TIME and `rowAxis` is fixed to one position"
+    )
+    colormap: enums.ColorMap | None = kante.django_field(
+        description="The continuous colormap the values are drawn through"
+    )
+    clim_min: float | None = kante.django_field(
+        description="The value at the bottom of the colormap, in the dataset's value unit"
+    )
+    clim_max: float | None = kante.django_field(
+        description="The value at the top of the colormap, in the dataset's value unit"
+    )
+    gamma: float | None = kante.django_field(
+        description="The gamma the colour range is drawn through; null is linear"
+    )
 
     row_axis: str | None = kante.django_field(
         description="The axis drawn down the image: the stated one, or the dataset's FREQUENCY axis, else CHANNEL, else INDEX -- resolved and checked when the layer was written"
     )
 
-    @kante.django_field(description="How much time this layer shows: its lens' extent along the sample axis over the sampling law's rate. Null over a lookup")
+    @kante.django_field(
+        description="How much time this layer shows: its lens' extent along the sample axis over the sampling law's rate. Null over a lookup"
+    )
     def duration(self, info: Info) -> quantities.Duration | None:
         return _lens_duration(self.lens)
 
-    @kante.django_field(description="Per pyramid level, the path from that level's sample grid to this experiment's world: what a client zoomed out over an hour of data reads")
-    def level_paths(self, info: Info) -> List[LevelPlacement]:
+    @kante.django_field(
+        description="Per pyramid level, the path from that level's sample grid to this experiment's world: what a client zoomed out over an hour of data reads"
+    )
+    def level_paths(self, info: Info) -> list[LevelPlacement]:
         return _level_paths(self, info)
 
     @classmethod
@@ -434,32 +592,69 @@ class SeriesLayer(ExperimentLayer):
     """A series layer: a numeric table column over time."""
 
     id: auto
-    table_dataset: TableDataset = kante.django_field(description="The table this layer draws")
-    value_column: str | None = kante.django_field(description="The numeric column drawn as the value")
-    interpolation: enums.SeriesInterpolation = kante.django_field(description="How consecutive rows are joined")
-    lane_column: str | None = kante.django_field(description="A categorical column giving each distinct value its own line; null draws one")
-    line_width: float | None = kante.django_field(description="The line width, in screen pixels")
-    clim_min: float | None = kante.django_field(description="The bottom of the value range, in the column's unit")
-    clim_max: float | None = kante.django_field(description="The top of the value range, in the column's unit")
-    colormap: enums.ColorMap | None = kante.django_field(description="The colormap the active colour-by is drawn through")
-    active_color_by: int | None = kante.django_field(description="Which entry of `colorBys` is drawn, as an index into it")
-    active_filter_bys: List[int] = kante.django_field(description="Which entries of `filterBys` apply, as indices into it")
+    table_dataset: TableDataset = kante.django_field(
+        description="The table this layer draws"
+    )
+    value_column: str | None = kante.django_field(
+        description="The numeric column drawn as the value"
+    )
+    interpolation: enums.SeriesInterpolation = kante.django_field(
+        description="How consecutive rows are joined"
+    )
+    lane_column: str | None = kante.django_field(
+        description="A categorical column giving each distinct value its own line; null draws one"
+    )
+    line_width: float | None = kante.django_field(
+        description="The line width, in screen pixels"
+    )
+    clim_min: float | None = kante.django_field(
+        description="The bottom of the value range, in the column's unit"
+    )
+    clim_max: float | None = kante.django_field(
+        description="The top of the value range, in the column's unit"
+    )
+    colormap: enums.ColorMap | None = kante.django_field(
+        description="The colormap the active colour-by is drawn through"
+    )
+    active_color_by: int | None = kante.django_field(
+        description="Which entry of `colorBys` is drawn, as an index into it"
+    )
+    active_filter_bys: list[int] = kante.django_field(
+        description="Which entries of `filterBys` apply, as indices into it"
+    )
 
-    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    @kante.django_field(
+        description="The base colour as RGBA, 0-255. Null lets the viewer choose"
+    )
     def color(self, info: Info) -> scalars.RGBAColor | None:
         return self.color
 
-    @kante.django_field(description="The table's TIME coordinate column: where each row sits in the table's own space. Derived from the table's declaration, never stored per layer")
+    @kante.django_field(
+        description="The table's TIME coordinate column: where each row sits in the table's own space. Derived from the table's declaration, never stored per layer"
+    )
     def time_column(self, info: Info) -> str | None:
-        column = self.table_dataset.columns.filter(role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=enums.AxisTypeChoices.TIME.value).order_by("order").first()
+        column = (
+            self.table_dataset.columns.filter(
+                role=enums.ColumnRoleChoices.COORDINATE.value,
+                axis_type=enums.AxisTypeChoices.TIME.value,
+            )
+            .order_by("order")
+            .first()
+        )
         return column.name if column is not None else None
 
-    @kante.django_field(field_name="table_color_bys", description="The colourings this layer offers: columns of the table or of tables it references")
-    def color_bys(self, info: Info) -> List[ColorBy]:
+    @kante.django_field(
+        field_name="table_color_bys",
+        description="The colourings this layer offers: columns of the table or of tables it references",
+    )
+    def color_bys(self, info: Info) -> list[ColorBy]:
         return _color_bys(self.table_color_bys)
 
-    @kante.django_field(field_name="table_filter_bys", description="The filters this layer offers: columns of the table or of tables it references")
-    def filter_bys(self, info: Info) -> List[FilterBy]:
+    @kante.django_field(
+        field_name="table_filter_bys",
+        description="The filters this layer offers: columns of the table or of tables it references",
+    )
+    def filter_bys(self, info: Info) -> list[FilterBy]:
         return _filter_bys(self.table_filter_bys)
 
     @classmethod
@@ -481,35 +676,65 @@ class WaveformLayer(ExperimentLayer):
     """A waveform layer: per-unit templates in peri-spike time."""
 
     id: auto
-    lens: Lens = kante.django_field(description="The selection of templates this layer draws")
-    channel_index: int | None = kante.django_field(description="The one channel drawn; null draws every channel")
-    line_width: float | None = kante.django_field(description="The line width, in screen pixels")
-    clim_min: float | None = kante.django_field(description="The bottom of the value range, in the templates' value unit")
-    clim_max: float | None = kante.django_field(description="The top of the value range, in the templates' value unit")
-    colormap: enums.ColorMap | None = kante.django_field(description="The colormap the active colour-by is drawn through")
-    active_color_by: int | None = kante.django_field(description="Which entry of `colorBys` is drawn, as an index into it")
-    active_filter_bys: List[int] = kante.django_field(description="Which entries of `filterBys` apply, as indices into it")
+    lens: Lens = kante.django_field(
+        description="The selection of templates this layer draws"
+    )
+    channel_index: int | None = kante.django_field(
+        description="The one channel drawn; null draws every channel"
+    )
+    line_width: float | None = kante.django_field(
+        description="The line width, in screen pixels"
+    )
+    clim_min: float | None = kante.django_field(
+        description="The bottom of the value range, in the templates' value unit"
+    )
+    clim_max: float | None = kante.django_field(
+        description="The top of the value range, in the templates' value unit"
+    )
+    colormap: enums.ColorMap | None = kante.django_field(
+        description="The colormap the active colour-by is drawn through"
+    )
+    active_color_by: int | None = kante.django_field(
+        description="Which entry of `colorBys` is drawn, as an index into it"
+    )
+    active_filter_bys: list[int] = kante.django_field(
+        description="Which entries of `filterBys` apply, as indices into it"
+    )
 
-    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    @kante.django_field(
+        description="The base colour as RGBA, 0-255. Null lets the viewer choose"
+    )
     def color(self, info: Info) -> scalars.RGBAColor | None:
         return self.color
 
-    unit_axis: str | None = kante.django_field(description="The axis enumerating the units: the stated one, or the templates' one INDEX axis -- resolved when the layer was written")
+    unit_axis: str | None = kante.django_field(
+        description="The axis enumerating the units: the stated one, or the templates' one INDEX axis -- resolved when the layer was written"
+    )
 
-    @kante.django_field(description="The units table the templates' raster names: where colour-bys and filter-bys start. Null when the templates were derived from no raster")
-    def unit_table(self, info: Info) -> Optional[TableDataset]:
+    @kante.django_field(
+        description="The units table the templates' raster names: where colour-bys and filter-bys start. Null when the templates were derived from no raster"
+    )
+    def unit_table(self, info: Info) -> TableDataset | None:
         return ephys_pickers.waveform_root(self.lens.dataset)
 
-    @kante.django_field(description="How much peri-spike time a template spans: its extent along `w` over the sampling law's rate")
+    @kante.django_field(
+        description="How much peri-spike time a template spans: its extent along `w` over the sampling law's rate"
+    )
     def duration(self, info: Info) -> quantities.Duration | None:
         return _lens_duration(self.lens)
 
-    @kante.django_field(field_name="spike_color_bys", description="The colourings this layer offers: columns of the units table or of tables it references")
-    def color_bys(self, info: Info) -> List[ColorBy]:
+    @kante.django_field(
+        field_name="spike_color_bys",
+        description="The colourings this layer offers: columns of the units table or of tables it references",
+    )
+    def color_bys(self, info: Info) -> list[ColorBy]:
         return _color_bys(self.spike_color_bys)
 
-    @kante.django_field(field_name="spike_filter_bys", description="The filters this layer offers: columns of the units table or of tables it references")
-    def filter_bys(self, info: Info) -> List[FilterBy]:
+    @kante.django_field(
+        field_name="spike_filter_bys",
+        description="The filters this layer offers: columns of the units table or of tables it references",
+    )
+    def filter_bys(self, info: Info) -> list[FilterBy]:
         return _filter_bys(self.spike_filter_bys)
 
     @classmethod
@@ -517,14 +742,22 @@ class WaveformLayer(ExperimentLayer):
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.WAVEFORM.value
 
 
-def _coordinate_column_named(table: "models.TableDataset", axis_name: str) -> str | None:
+def _coordinate_column_named(
+    table: "models.TableDataset", axis_name: str
+) -> str | None:
     """The SPACE coordinate column a point layer reads as ``axis_name``. mikro's ``_coordinate_column_named``.
 
     By name first (case-insensitive), then by position among the SPACE columns -- the last is x,
     the one before y, the one before that z -- and only when there are at least two. Name the
     columns `x` and `y` and the fallback, which can transpose, is never reached.
     """
-    spatial = [column for column in table.columns.filter(role=enums.ColumnRoleChoices.COORDINATE.value, axis_type=enums.AxisTypeChoices.SPACE.value).order_by("order")]
+    spatial = [
+        column
+        for column in table.columns.filter(
+            role=enums.ColumnRoleChoices.COORDINATE.value,
+            axis_type=enums.AxisTypeChoices.SPACE.value,
+        ).order_by("order")
+    ]
     for column in spatial:
         if column.name.lower() == axis_name:
             return column.name
@@ -548,36 +781,64 @@ class PointLayer(ExperimentLayer):
     """A point layer: a table placed in space."""
 
     id: auto
-    table_dataset: TableDataset = kante.django_field(description="The table this layer draws")
-    point_size: float | None = kante.django_field(description="A point's size, in screen pixels")
-    size_column: str | None = kante.django_field(description="A numeric column scaling each point's size")
-    label_column: str | None = kante.django_field(description="A column naming each point")
-    colormap: enums.ColorMap | None = kante.django_field(description="The colormap the active colour-by is drawn through")
-    active_color_by: int | None = kante.django_field(description="Which entry of `colorBys` is drawn, as an index into it")
-    active_filter_bys: List[int] = kante.django_field(description="Which entries of `filterBys` apply, as indices into it")
+    table_dataset: TableDataset = kante.django_field(
+        description="The table this layer draws"
+    )
+    point_size: float | None = kante.django_field(
+        description="A point's size, in screen pixels"
+    )
+    size_column: str | None = kante.django_field(
+        description="A numeric column scaling each point's size"
+    )
+    label_column: str | None = kante.django_field(
+        description="A column naming each point"
+    )
+    colormap: enums.ColorMap | None = kante.django_field(
+        description="The colormap the active colour-by is drawn through"
+    )
+    active_color_by: int | None = kante.django_field(
+        description="Which entry of `colorBys` is drawn, as an index into it"
+    )
+    active_filter_bys: list[int] = kante.django_field(
+        description="Which entries of `filterBys` apply, as indices into it"
+    )
 
-    @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
+    @kante.django_field(
+        description="The base colour as RGBA, 0-255. Null lets the viewer choose"
+    )
     def color(self, info: Info) -> scalars.RGBAColor | None:
         return self.color
 
-    @kante.django_field(description="The SPACE coordinate column read as x: the one named `x`, else the last SPACE column")
+    @kante.django_field(
+        description="The SPACE coordinate column read as x: the one named `x`, else the last SPACE column"
+    )
     def x_column(self, info: Info) -> str | None:
         return _coordinate_column_named(self.table_dataset, "x")
 
-    @kante.django_field(description="The SPACE coordinate column read as y: the one named `y`, else the one before the last")
+    @kante.django_field(
+        description="The SPACE coordinate column read as y: the one named `y`, else the one before the last"
+    )
     def y_column(self, info: Info) -> str | None:
         return _coordinate_column_named(self.table_dataset, "y")
 
-    @kante.django_field(description="The SPACE coordinate column read as z, if the table has three")
+    @kante.django_field(
+        description="The SPACE coordinate column read as z, if the table has three"
+    )
     def z_column(self, info: Info) -> str | None:
         return _coordinate_column_named(self.table_dataset, "z")
 
-    @kante.django_field(field_name="table_color_bys", description="The colourings this layer offers: columns of the table or of tables it references")
-    def color_bys(self, info: Info) -> List[ColorBy]:
+    @kante.django_field(
+        field_name="table_color_bys",
+        description="The colourings this layer offers: columns of the table or of tables it references",
+    )
+    def color_bys(self, info: Info) -> list[ColorBy]:
         return _color_bys(self.table_color_bys)
 
-    @kante.django_field(field_name="table_filter_bys", description="The filters this layer offers: columns of the table or of tables it references")
-    def filter_bys(self, info: Info) -> List[FilterBy]:
+    @kante.django_field(
+        field_name="table_filter_bys",
+        description="The filters this layer offers: columns of the table or of tables it references",
+    )
+    def filter_bys(self, info: Info) -> list[FilterBy]:
         return _filter_bys(self.table_filter_bys)
 
     @classmethod
@@ -586,4 +847,13 @@ class PointLayer(ExperimentLayer):
 
 
 #: The concrete layer types, for the schema's ``types=``. See the module docstring.
-layer_types: list[type] = [TraceLayer, SpikesLayer, EventsLayer, AnnotationLayer, HeatmapLayer, SeriesLayer, WaveformLayer, PointLayer]
+layer_types: list[type] = [
+    TraceLayer,
+    SpikesLayer,
+    EventsLayer,
+    AnnotationLayer,
+    HeatmapLayer,
+    SeriesLayer,
+    WaveformLayer,
+    PointLayer,
+]

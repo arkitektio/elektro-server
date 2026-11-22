@@ -18,16 +18,15 @@ came from is UNMAPPABLE. That degenerate case is exactly the old FeatureCollecti
 
 from typing import TYPE_CHECKING
 
-from django.db import models
-from django.contrib.auth import get_user_model
-
-from authentikate.models import Organization
 from arkitekt_datalayer.models import ParquetStore
-from koherent.fields import ProvenanceField
-from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
+from authentikate.models import Organization
+from django.contrib.auth import get_user_model
+from django.db import models
 from django_choices_field import TextChoicesField
+from koherent.fields import ProvenanceField
 
 from core import enums
+from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 
 if TYPE_CHECKING:
     from core.models.coords import CoordinateSystem
@@ -53,7 +52,12 @@ class TableDataset(EmbeddedDescriptionMixin, models.Model):
     """
 
     name = models.CharField(max_length=1000, help_text="The name of this table dataset")
-    description = models.CharField(max_length=1000, null=True, blank=True, help_text="The description of this table dataset")
+    description = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="The description of this table dataset",
+    )
 
     # Filing, not placement -- see the note on `ArrayDataset.folder`.
     folder = models.ForeignKey(
@@ -71,7 +75,10 @@ class TableDataset(EmbeddedDescriptionMixin, models.Model):
         related_name="table_datasets",
         help_text="The Parquet store holding the rows. The client reads it directly with a datalayer access grant",
     )
-    provenance_metadata = models.JSONField(default=dict, help_text="How this table was produced (the run, its parameters and its inputs)")
+    provenance_metadata = models.JSONField(
+        default=dict,
+        help_text="How this table was produced (the run, its parameters and its inputs)",
+    )
 
     coordinate_system = models.ForeignKey(
         "CoordinateSystem",
@@ -85,9 +92,21 @@ class TableDataset(EmbeddedDescriptionMixin, models.Model):
         help_text="The coordinate system this table's coordinate columns are expressed in. Its axes are derived from those columns, so there is no second copy that can disagree",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this table dataset was created")
-    creator = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, null=True, blank=True, help_text="The user that created this table dataset")
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, help_text="The organization this table dataset belongs to")
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="The time this table dataset was created"
+    )
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="The user that created this table dataset",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this table dataset belongs to",
+    )
     created_through = models.ForeignKey(
         "koherent.Task",
         on_delete=models.SET_NULL,
@@ -156,7 +175,12 @@ class Column(models.Model):
     are not measured -- an id, a track id, a label, a colour -- refuse it.
     """
 
-    table = models.ForeignKey(TableDataset, on_delete=models.CASCADE, related_name="columns", help_text="The table dataset this column belongs to")
+    table = models.ForeignKey(
+        TableDataset,
+        on_delete=models.CASCADE,
+        related_name="columns",
+        help_text="The table dataset this column belongs to",
+    )
     # Relations between tables are schema facts, not coordinate facts. A FIELD edge is the
     # one crossing from geometry into record-land (it consumes spatial axes); once inside,
     # "this column's values identify rows of that table" does no coordinate work -- no walk
@@ -177,22 +201,57 @@ class Column(models.Model):
     )
     # elektro: mikro's `node_references` (a NetworkCollection's node ids) is gone -- this service
     # has no network collections, so there is nothing a column could key by node.
-    order = models.PositiveSmallIntegerField(help_text="The column's position in the declared schema, which is the file's order -- the two are checked against each other at creation. Deliberately not the axis order: the axes are a sequence the caller states in `axes`, and a coordinate column's position in the file has nothing to do with its position in the space")
-    name = models.CharField(max_length=255, help_text="The column name, matching the Parquet column")
-    dtype = models.CharField(max_length=64, help_text="The column's data type, as a DuckDB type string, e.g. 'DOUBLE', 'BIGINT'")
-    role = TextChoicesField(choices_enum=enums.ColumnRoleChoices, default=enums.ColumnRoleChoices.ATTRIBUTE, help_text="What the column is for: a coordinate that places the row, or data hanging off it")
-    axis_type = TextChoicesField(choices_enum=enums.AxisTypeChoices, null=True, blank=True, help_text="(coordinate) The semantic axis type this column samples, SPACE or TIME")
-    unit = models.CharField(max_length=64, null=True, blank=True, help_text="The unit the column's values are in, e.g. 'nanometer' for a coordinate or 'micrometer**2' for a measured area. A pint unit, validated at the API boundary. Null for pixel-index coordinates and for anything not measured (an id, a label, a colour, which refuse one)")
-    long_name = models.CharField(max_length=255, null=True, blank=True, help_text="A human-readable name for the column")
-    description = models.CharField(max_length=1000, null=True, blank=True, help_text="A free-form description of what the column holds, e.g. 'mean GFP intensity within the segmented object'")
+    order = models.PositiveSmallIntegerField(
+        help_text="The column's position in the declared schema, which is the file's order -- the two are checked against each other at creation. Deliberately not the axis order: the axes are a sequence the caller states in `axes`, and a coordinate column's position in the file has nothing to do with its position in the space"
+    )
+    name = models.CharField(
+        max_length=255, help_text="The column name, matching the Parquet column"
+    )
+    dtype = models.CharField(
+        max_length=64,
+        help_text="The column's data type, as a DuckDB type string, e.g. 'DOUBLE', 'BIGINT'",
+    )
+    role = TextChoicesField(
+        choices_enum=enums.ColumnRoleChoices,
+        default=enums.ColumnRoleChoices.ATTRIBUTE,
+        help_text="What the column is for: a coordinate that places the row, or data hanging off it",
+    )
+    axis_type = TextChoicesField(
+        choices_enum=enums.AxisTypeChoices,
+        null=True,
+        blank=True,
+        help_text="(coordinate) The semantic axis type this column samples, SPACE or TIME",
+    )
+    unit = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="The unit the column's values are in, e.g. 'nanometer' for a coordinate or 'micrometer**2' for a measured area. A pint unit, validated at the API boundary. Null for pixel-index coordinates and for anything not measured (an id, a label, a colour, which refuse one)",
+    )
+    long_name = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="A human-readable name for the column",
+    )
+    description = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="A free-form description of what the column holds, e.g. 'mean GFP intensity within the segmented object'",
+    )
 
     class Meta:
         """Meta options for the table column."""
 
         ordering = ["order"]
         constraints = [
-            models.UniqueConstraint(fields=["table", "name"], name="unique_table_column_name"),
-            models.UniqueConstraint(fields=["table", "order"], name="unique_table_column_order"),
+            models.UniqueConstraint(
+                fields=["table", "name"], name="unique_table_column_name"
+            ),
+            models.UniqueConstraint(
+                fields=["table", "order"], name="unique_table_column_order"
+            ),
         ]
 
     def __str__(self) -> str:

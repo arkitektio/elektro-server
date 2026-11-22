@@ -40,12 +40,11 @@ reciprocal ``rate -> period -> rate`` round-trips exactly through nanohertz up t
 
 import datetime
 
-from kanne_server import scalars as kanne_scalars
-
 from core import enums, models
 from core.creation import CreationContext
 from core.logic import coords as coords_logic
 from core.logic import graph as graph_logic
+from kanne_server import scalars as kanne_scalars
 
 #: kanne's canonical integers: a Duration is picoseconds, a Frequency is nanohertz.
 _PICOSECONDS_PER_SECOND = 1e12
@@ -58,16 +57,30 @@ CLOCK_AXIS = "t"
 def seconds_in(unit: str, seconds: float) -> float:
     """``seconds`` expressed in ``unit``."""
     registry = kanne_scalars.get_registry()
-    return float(registry.Quantity(seconds, "second").to(kanne_scalars.normalize_compact_units(unit)).magnitude)
+    return float(
+        registry.Quantity(seconds, "second")
+        .to(kanne_scalars.normalize_compact_units(unit))
+        .magnitude
+    )
 
 
 def seconds_from(unit: str, value: float) -> float:
     """``value`` of ``unit``, in seconds."""
     registry = kanne_scalars.get_registry()
-    return float(registry.Quantity(value, kanne_scalars.normalize_compact_units(unit)).to("second").magnitude)
+    return float(
+        registry.Quantity(value, kanne_scalars.normalize_compact_units(unit))
+        .to("second")
+        .magnitude
+    )
 
 
-def create_clock(*, name: str, unit: str = "second", epoch: datetime.datetime | None = None, ctx: CreationContext) -> "models.CoordinateSystem":
+def create_clock(
+    *,
+    name: str,
+    unit: str = "second",
+    epoch: datetime.datetime | None = None,
+    ctx: CreationContext,
+) -> "models.CoordinateSystem":
     """Mint a clock: a space with one TIME axis in ``unit``, optionally anchored to a wall-clock instant.
 
     ``epoch`` is where ``Block.recording_time`` went: ``wall_clock = epoch + t * unit`` is a
@@ -76,21 +89,35 @@ def create_clock(*, name: str, unit: str = "second", epoch: datetime.datetime | 
     """
     from core.inputs.coords import PhysicalAxisInputModel
 
-    clock = models.CoordinateSystem.objects.create(name=name, epoch=epoch, creator=ctx.user, organization=ctx.organization)
-    graph_logic.create_physical_axes(clock, [PhysicalAxisInputModel(name=CLOCK_AXIS, type=enums.AxisType.TIME, unit=unit)])
+    clock = models.CoordinateSystem.objects.create(
+        name=name, epoch=epoch, creator=ctx.user, organization=ctx.organization
+    )
+    graph_logic.create_physical_axes(
+        clock,
+        [PhysicalAxisInputModel(name=CLOCK_AXIS, type=enums.AxisType.TIME, unit=unit)],
+    )
     return clock
 
 
 def time_axis(system: "models.CoordinateSystem") -> "models.Axis | None":
     """The system's TIME axis. There is at most one: the database enforces it."""
-    return next((axis for axis in system.axes.all() if axis.type == enums.AxisTypeChoices.TIME.value), None)
+    return next(
+        (
+            axis
+            for axis in system.axes.all()
+            if axis.type == enums.AxisTypeChoices.TIME.value
+        ),
+        None,
+    )
 
 
 def clock_unit(clock: "models.CoordinateSystem") -> str:
     """The unit a clock counts in."""
     axis = time_axis(clock)
     if axis is None or not axis.unit:
-        raise ValueError(f"'{clock.name}' is not a clock: a clock has a TIME axis carrying a time unit, which is what a sampling law is written in.")
+        raise ValueError(
+            f"'{clock.name}' is not a clock: a clock has a TIME axis carrying a time unit, which is what a sampling law is written in."
+        )
     return axis.unit
 
 
@@ -117,7 +144,9 @@ def write_sampling_law(
             "is typed TIME; an INDEX axis has no metric, so it can only reach time through a lookup."
         )
     if sampling_rate <= 0:
-        raise ValueError("A sampling rate is positive: a zero or negative rate maps every sample onto one instant, or runs time backwards.")
+        raise ValueError(
+            "A sampling rate is positive: a zero or negative rate maps every sample onto one instant, or runs time backwards."
+        )
     assert_one_run(grid, clock)
 
     unit = clock_unit(clock)
@@ -140,13 +169,23 @@ def write_sampling_law(
 def _run_facts(grids) -> dict[tuple, list[str]]:  # noqa: ANN001 - any iterable of system ids
     """The integrator facts the datasets living in ``grids`` carry, each with the datasets stating it."""
     facts: dict[tuple, list[str]] = {}
-    spokes = models.SimulationState.objects.filter(anchor__dataset__coordinate_system_id__in=grids).select_related("model", "anchor__dataset").order_by("pk")
+    spokes = (
+        models.SimulationState.objects.filter(
+            anchor__dataset__coordinate_system_id__in=grids
+        )
+        .select_related("model", "anchor__dataset")
+        .order_by("pk")
+    )
     for spoke in spokes:
-        facts.setdefault((spoke.model_id, spoke.model.name, spoke.dt, spoke.duration), []).append(spoke.anchor.dataset.name)
+        facts.setdefault(
+            (spoke.model_id, spoke.model.name, spoke.dt, spoke.duration), []
+        ).append(spoke.anchor.dataset.name)
     return facts
 
 
-def assert_one_run(grid: "models.CoordinateSystem", clock: "models.CoordinateSystem") -> None:
+def assert_one_run(
+    grid: "models.CoordinateSystem", clock: "models.CoordinateSystem"
+) -> None:
     """Refuse timing ``grid`` onto ``clock`` when their outputs disagree about what was run.
 
     A simulated run is its clock: the outputs timed onto one clock are one run, and each says
@@ -159,17 +198,24 @@ def assert_one_run(grid: "models.CoordinateSystem", clock: "models.CoordinateSys
     own = _run_facts([grid.pk])
     if not own:
         return
-    others = _run_facts([pk for pk in (g.pk for g in grids_timed_on(clock)) if pk != grid.pk])
+    others = _run_facts(
+        [pk for pk in (g.pk for g in grids_timed_on(clock)) if pk != grid.pk]
+    )
     stated = {**others, **own}
     if len(stated) > 1:
-        spelled = "; ".join(f"model '{name}', dt {dt}, duration {duration} ps ({', '.join(datasets)})" for (_, name, dt, duration), datasets in stated.items())
+        spelled = "; ".join(
+            f"model '{name}', dt {dt}, duration {duration} ps ({', '.join(datasets)})"
+            for (_, name, dt, duration), datasets in stated.items()
+        )
         raise ValueError(
             f"The outputs timed onto '{clock.name}' are one run, and would disagree about what was run: {spelled}. "
             "A run integrated one model at one dt for one duration; time an output of another run onto a clock of its own."
         )
 
 
-def assert_is_times_dataset(times: "models.ArrayDataset", clock: "models.CoordinateSystem") -> None:
+def assert_is_times_dataset(
+    times: "models.ArrayDataset", clock: "models.CoordinateSystem"
+) -> None:
     """Refuse a times dataset whose values are not instants on this clock.
 
     A FIELD states no numbers, so unlike a sampling law it has nothing to convert with:
@@ -178,8 +224,12 @@ def assert_is_times_dataset(times: "models.ArrayDataset", clock: "models.Coordin
     """
     unit = clock_unit(clock)
     if not times.value_unit:
-        raise ValueError(f"A dataset used as sample times must say what its values measure: give '{times.name}' a dataset-wide `valueUnit` anchor ('{unit}' for this clock) when it is created. Without it a time lookup would be a list of bare numbers.")
-    coords_logic.assert_unit_matches_type(times.name, enums.AxisTypeChoices.TIME.value, times.value_unit)
+        raise ValueError(
+            f"A dataset used as sample times must say what its values measure: give '{times.name}' a dataset-wide `valueUnit` anchor ('{unit}' for this clock) when it is created. Without it a time lookup would be a list of bare numbers."
+        )
+    coords_logic.assert_unit_matches_type(
+        times.name, enums.AxisTypeChoices.TIME.value, times.value_unit
+    )
     if not coords_logic.units_are_interchangeable(times.value_unit, unit):
         raise ValueError(
             f"The values of '{times.name}' are in '{times.value_unit}' but the clock '{clock.name}' counts in '{unit}'. A time lookup (a FIELD edge) states no numbers, "
@@ -208,7 +258,9 @@ def write_time_lookup(
     assert_one_run(grid, clock)
     field = times.coordinate_system
     if field is None:
-        raise ValueError(f"'{times.name}' has no coordinate system, so it cannot be the field of a time lookup.")
+        raise ValueError(
+            f"'{times.name}' has no coordinate system, so it cannot be the field of a time lookup."
+        )
 
     return graph_logic.build_registration_edge(
         input_system=grid,
@@ -245,22 +297,46 @@ def write_offset(
     """
     source_unit, target_unit = clock_unit(source), clock_unit(target)
     start = seconds_in(target_unit, offset / _PICOSECONDS_PER_SECOND)
-    axes = {"input_axes": [time_axis(source).name], "output_axes": [time_axis(target).name]}
+    axes = {
+        "input_axes": [time_axis(source).name],
+        "output_axes": [time_axis(target).name],
+    }
 
-    if coords_logic.units_are_interchangeable(source_unit, target_unit) and not drift_ppm:
+    if (
+        coords_logic.units_are_interchangeable(source_unit, target_unit)
+        and not drift_ppm
+    ):
         # One unit on both sides, no drift: a bare offset. BY_DIMENSION so the two axes need not share a name.
         return graph_logic.build_registration_edge(
-            input_system=source, output_system=target, kind=enums.TransformKind.BY_DIMENSION, name=name, translation=[start], validity=validity, ctx=ctx, **axes
+            input_system=source,
+            output_system=target,
+            kind=enums.TransformKind.BY_DIMENSION,
+            name=name,
+            translation=[start],
+            validity=validity,
+            ctx=ctx,
+            **axes,
         )
 
     # Two units, or a drift: the edge has to state the factor, which a TRANSLATION cannot.
-    factor = seconds_in(target_unit, seconds_from(source_unit, 1.0)) * (1.0 + drift_ppm * 1e-6)
+    factor = seconds_in(target_unit, seconds_from(source_unit, 1.0)) * (
+        1.0 + drift_ppm * 1e-6
+    )
     return graph_logic.build_registration_edge(
-        input_system=source, output_system=target, kind=enums.TransformKind.BY_DIMENSION, name=name, affine=[[factor, start]], validity=validity, ctx=ctx, **axes
+        input_system=source,
+        output_system=target,
+        kind=enums.TransformKind.BY_DIMENSION,
+        name=name,
+        affine=[[factor, start]],
+        validity=validity,
+        ctx=ctx,
+        **axes,
     )
 
 
-def nominal_offset(source: "models.CoordinateSystem", target: "models.CoordinateSystem") -> int | None:
+def nominal_offset(
+    source: "models.CoordinateSystem", target: "models.CoordinateSystem"
+) -> int | None:
     """Where ``source``'s zero sits on ``target`` by their epochs alone, in canonical picoseconds; None unless both are anchored.
 
     The *nominal* sync: what two wall clocks say, before a TTL alignment corrects it. Read here
@@ -268,7 +344,9 @@ def nominal_offset(source: "models.CoordinateSystem", target: "models.Coordinate
     """
     if source.epoch is None or target.epoch is None:
         return None
-    return int(round((source.epoch - target.epoch).total_seconds() * _PICOSECONDS_PER_SECOND))
+    return int(
+        round((source.epoch - target.epoch).total_seconds() * _PICOSECONDS_PER_SECOND)
+    )
 
 
 # --- what an interpretation checks before it times a dataset ---------------------------------------
@@ -278,7 +356,9 @@ def grid_of(dataset: "models.ArrayDataset") -> "models.CoordinateSystem":
     """The sample grid an interpretation times, or a refusal that says why there is none."""
     grid = dataset.coordinate_system
     if grid is None:
-        raise ValueError(f"Dataset '{dataset.name}' has no coordinate system, so it is not in the graph and nothing can be timed against it.")
+        raise ValueError(
+            f"Dataset '{dataset.name}' has no coordinate system, so it is not in the graph and nothing can be timed against it."
+        )
     return grid
 
 
@@ -294,17 +374,32 @@ class TimedOnce:
     def __init__(self) -> None:
         self._seen: set[tuple[int, int]] = set()
 
-    def claim_grid(self, grid: "models.CoordinateSystem", clock: "models.CoordinateSystem", label: str) -> None:
+    def claim_grid(
+        self,
+        grid: "models.CoordinateSystem",
+        clock: "models.CoordinateSystem",
+        label: str,
+    ) -> None:
         """Claim the one timing of ``grid`` on ``clock``, whatever lives in the grid."""
         key = (grid.pk, clock.pk)
-        if key in self._seen or models.Transformation.objects.filter(input_id=key[0], output_id=key[1], parent__isnull=True).exists():
+        if (
+            key in self._seen
+            or models.Transformation.objects.filter(
+                input_id=key[0], output_id=key[1], parent__isnull=True
+            ).exists()
+        ):
             raise ValueError(
                 f"'{label}' is already timed against the clock '{clock.name}'. One grid has one timing on one clock: a second edge between the same two spaces "
                 "would be a rival answer, not a second statement. Correct the existing edge (`updateTransformation`), or time it against a clock of its own."
             )
         self._seen.add(key)
 
-    def claim(self, dataset: "models.ArrayDataset", clock: "models.CoordinateSystem", label: str) -> None:
+    def claim(
+        self,
+        dataset: "models.ArrayDataset",
+        clock: "models.CoordinateSystem",
+        label: str,
+    ) -> None:
         """Claim the one timing of a dataset's sample grid on ``clock``."""
         self.claim_grid(grid_of(dataset), clock, f"{label}' ('{dataset.name}")
 
@@ -314,11 +409,18 @@ def sample_count(dataset: "models.ArrayDataset", axis_name: str) -> int:
     return dataset.shape_list[dataset.axis_names.index(axis_name)]
 
 
-def assert_times_match(label: str, dataset: "models.ArrayDataset", sample_axis: str, times: "models.ArrayDataset") -> None:
+def assert_times_match(
+    label: str,
+    dataset: "models.ArrayDataset",
+    sample_axis: str,
+    times: "models.ArrayDataset",
+) -> None:
     """A time lookup needs exactly one instant per sample: a one-dimensional dataset of the right length."""
     expected = [sample_count(dataset, sample_axis)]
     if times.shape_list != expected:
-        raise ValueError(f"'{label}' has {expected[0]} samples along '{sample_axis}' but its times dataset '{times.name}' has shape {times.shape_list}: a time lookup needs exactly one instant per sample.")
+        raise ValueError(
+            f"'{label}' has {expected[0]} samples along '{sample_axis}' but its times dataset '{times.name}' has shape {times.shape_list}: a time lookup needs exactly one instant per sample."
+        )
 
 
 # --- reading the facts back -----------------------------------------------------------------------
@@ -327,11 +429,19 @@ def assert_times_match(label: str, dataset: "models.ArrayDataset", sample_axis: 
 # None rather than raise when the edge is not the shape they read -- a lookup has no rate.
 
 
-def _law_between(source: "models.CoordinateSystem | None", target: "models.CoordinateSystem | None") -> "tuple[float, float, str] | None":
+def _law_between(
+    source: "models.CoordinateSystem | None", target: "models.CoordinateSystem | None"
+) -> "tuple[float, float, str] | None":
     """``(factor, constant, target_unit)`` of the one-axis affine law from ``source`` to ``target``, if that is what relates them."""
     if source is None or target is None:
         return None
-    edge = models.Transformation.objects.filter(input=source, output=target, parent__isnull=True, selector__isnull=True).order_by("pk").first()
+    edge = (
+        models.Transformation.objects.filter(
+            input=source, output=target, parent__isnull=True, selector__isnull=True
+        )
+        .order_by("pk")
+        .first()
+    )
     if edge is None or edge.kind != enums.TransformKindChoices.BY_DIMENSION.value:
         return None
     params = edge.params or {}
@@ -346,7 +456,9 @@ def _law_between(source: "models.CoordinateSystem | None", target: "models.Coord
     return float(factor), float(constant), clock_unit(target)
 
 
-def sampling_of(grid: "models.CoordinateSystem | None", clock: "models.CoordinateSystem | None") -> tuple[int | None, int | None]:
+def sampling_of(
+    grid: "models.CoordinateSystem | None", clock: "models.CoordinateSystem | None"
+) -> tuple[int | None, int | None]:
     """``(sampling_rate, t_start)`` as canonical integers (nanohertz, picoseconds), read off the sampling law.
 
     ``(None, None)`` when the dataset is timed by a lookup, or not timed at all.
@@ -356,10 +468,14 @@ def sampling_of(grid: "models.CoordinateSystem | None", clock: "models.Coordinat
         return None, None
     period, start, unit = law
     rate = _NANOHERTZ_PER_HERTZ / seconds_from(unit, period)
-    return int(round(rate)), int(round(seconds_from(unit, start) * _PICOSECONDS_PER_SECOND))
+    return int(round(rate)), int(
+        round(seconds_from(unit, start) * _PICOSECONDS_PER_SECOND)
+    )
 
 
-def offset_of(source: "models.CoordinateSystem | None", target: "models.CoordinateSystem | None") -> int | None:
+def offset_of(
+    source: "models.CoordinateSystem | None", target: "models.CoordinateSystem | None"
+) -> int | None:
     """Where ``source``'s zero sits on ``target``, in canonical picoseconds. None when no offset edge relates them."""
     law = _law_between(source, target)
     if law is None:
@@ -368,17 +484,30 @@ def offset_of(source: "models.CoordinateSystem | None", target: "models.Coordina
     return int(round(seconds_from(unit, start) * _PICOSECONDS_PER_SECOND))
 
 
-def times_dataset_of(grid: "models.CoordinateSystem | None", clock: "models.CoordinateSystem | None") -> "models.ArrayDataset | None":
+def times_dataset_of(
+    grid: "models.CoordinateSystem | None", clock: "models.CoordinateSystem | None"
+) -> "models.ArrayDataset | None":
     """The dataset whose values time ``grid``'s samples on ``clock``, read off the time lookup. None for a sampled dataset."""
     if grid is None or clock is None:
         return None
-    edge = models.Transformation.objects.filter(input=grid, output=clock, parent__isnull=True, kind=enums.TransformKindChoices.FIELD.value).order_by("pk").first()
+    edge = (
+        models.Transformation.objects.filter(
+            input=grid,
+            output=clock,
+            parent__isnull=True,
+            kind=enums.TransformKindChoices.FIELD.value,
+        )
+        .order_by("pk")
+        .first()
+    )
     if edge is None:
         return None
     return next(iter(edge.effective_field.datasets.all()[:1]), None)
 
 
-def grids_timed_on(clock: "models.CoordinateSystem | None") -> "list[models.CoordinateSystem]":
+def grids_timed_on(
+    clock: "models.CoordinateSystem | None",
+) -> "list[models.CoordinateSystem]":
     """The spaces with a timing edge directly onto ``clock``, in edge order.
 
     A timing edge is any top-level edge landing on the clock whose input something *lives*
@@ -388,24 +517,40 @@ def grids_timed_on(clock: "models.CoordinateSystem | None") -> "list[models.Coor
     """
     if clock is None:
         return []
-    uninhabited = {f"input__{lookup}": value for lookup, value in graph_logic._UNINHABITED.items()}
-    edges = models.Transformation.objects.filter(output=clock, parent__isnull=True).exclude(**uninhabited).select_related("input").order_by("pk")
-    seen: dict[int, "models.CoordinateSystem"] = {}
+    uninhabited = {
+        f"input__{lookup}": value for lookup, value in graph_logic._UNINHABITED.items()
+    }
+    edges = (
+        models.Transformation.objects.filter(output=clock, parent__isnull=True)
+        .exclude(**uninhabited)
+        .select_related("input")
+        .order_by("pk")
+    )
+    seen: dict[int, models.CoordinateSystem] = {}
     for edge in edges:
         seen.setdefault(edge.input_id, edge.input)
     return list(seen.values())
 
 
-def datasets_timed_on(clock: "models.CoordinateSystem | None") -> "list[models.ArrayDataset]":
+def datasets_timed_on(
+    clock: "models.CoordinateSystem | None",
+) -> "list[models.ArrayDataset]":
     """The array datasets whose sample grid has a timing edge directly onto ``clock``."""
     grids = [grid.pk for grid in grids_timed_on(clock)]
     if not grids:
         return []
-    by_grid = {dataset.coordinate_system_id: dataset for dataset in models.ArrayDataset.objects.filter(coordinate_system_id__in=grids)}
+    by_grid = {
+        dataset.coordinate_system_id: dataset
+        for dataset in models.ArrayDataset.objects.filter(
+            coordinate_system_id__in=grids
+        )
+    }
     return [by_grid[pk] for pk in grids if pk in by_grid]
 
 
-def timing_clocks_of(grid: "models.CoordinateSystem | None") -> "list[models.CoordinateSystem]":
+def timing_clocks_of(
+    grid: "models.CoordinateSystem | None",
+) -> "list[models.CoordinateSystem]":
     """The clocks ``grid`` has a timing edge directly onto: a sampling law or a time lookup.
 
     Usually one. More than one when the same data is timed on two clocks -- a raster sampled on
@@ -423,18 +568,25 @@ def timing_clocks_by_grid(grid_ids) -> "dict[int, list[models.CoordinateSystem]]
     if not ids:
         return {}
     edges = (
-        models.Transformation.objects.filter(input_id__in=ids, parent__isnull=True, output__axes__type=enums.AxisTypeChoices.TIME.value, output__axes__unit__isnull=False)
+        models.Transformation.objects.filter(
+            input_id__in=ids,
+            parent__isnull=True,
+            output__axes__type=enums.AxisTypeChoices.TIME.value,
+            output__axes__unit__isnull=False,
+        )
         .select_related("output")
         .order_by("pk")
         .distinct()
     )
-    by_grid: dict[int, dict[int, "models.CoordinateSystem"]] = {}
+    by_grid: dict[int, dict[int, models.CoordinateSystem]] = {}
     for edge in edges:
         by_grid.setdefault(edge.input_id, {}).setdefault(edge.output_id, edge.output)
     return {grid: list(clocks.values()) for grid, clocks in by_grid.items()}
 
 
-def drift_of(source: "models.CoordinateSystem | None", target: "models.CoordinateSystem | None") -> float | None:
+def drift_of(
+    source: "models.CoordinateSystem | None", target: "models.CoordinateSystem | None"
+) -> float | None:
     """How much faster ``source`` ticks than ``target``, in ppm, read off the edge between them. None when no such edge relates them.
 
     The edge's factor, less the unit conversion between the two clocks: a millisecond clock onto a

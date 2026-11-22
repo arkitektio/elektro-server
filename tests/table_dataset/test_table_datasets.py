@@ -41,37 +41,63 @@ mutation Create($input: CreateTableDatasetInput!) {
 
 
 async def _parquet(ctx: HttpContext, key: str) -> models.ParquetStore:
-    return await sync_to_async(models.ParquetStore.objects.create)(path=f"s3://parquet/{key}", bucket="parquet", key=key, organization=ctx.request.organization, populated=True)
+    return await sync_to_async(models.ParquetStore.objects.create)(
+        path=f"s3://parquet/{key}",
+        bucket="parquet",
+        key=key,
+        organization=ctx.request.organization,
+        populated=True,
+    )
 
 
 async def _create(ctx: HttpContext, key: str, **input_fields) -> dict:
     store = await _parquet(ctx, key)
     columns = input_fields.pop("columns", [])
     store_columns, declared = seed.split_declaration(columns)
-    store.columns = [{"name": name, "type": dtype, "nullable": True} for name, dtype in store_columns]
+    store.columns = [
+        {"name": name, "type": dtype, "nullable": True} for name, dtype in store_columns
+    ]
     await sync_to_async(store.save)(update_fields=["columns"])
     payload = {"data": str(store.pk), "columns": declared, **input_fields}
-    return await schema.execute(CREATE, context_value=ctx, variable_values={"input": payload})
+    return await schema.execute(
+        CREATE, context_value=ctx, variable_values={"input": payload}
+    )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_coordinate_table_owns_a_placeable_space(authenticated_context: HttpContext):
+async def test_a_coordinate_table_owns_a_placeable_space(
+    authenticated_context: HttpContext,
+):
     """Its coordinate columns become SPACE axes of a TABLE system, in declared order and units."""
     result = await _create(
         authenticated_context,
         "localizations",
         name="molecules",
         columns=[
-            {"name": "y", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE", "unit": "nanometer"},
-            {"name": "x", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE", "unit": "nanometer"},
+            {
+                "name": "y",
+                "dtype": "DOUBLE",
+                "role": "COORDINATE",
+                "axisType": "SPACE",
+                "unit": "nanometer",
+            },
+            {
+                "name": "x",
+                "dtype": "DOUBLE",
+                "role": "COORDINATE",
+                "axisType": "SPACE",
+                "unit": "nanometer",
+            },
             {"name": "photons", "dtype": "DOUBLE", "role": "ATTRIBUTE"},
         ],
     )
     assert not result.errors, result.errors
     table = result.data["createTableDataset"]
 
-    assert [r["__typename"] for r in table["coordinateSystem"]["residents"]] == ["TableDataset"], "the rows live in the table's own space"
+    assert [r["__typename"] for r in table["coordinateSystem"]["residents"]] == [
+        "TableDataset"
+    ], "the rows live in the table's own space"
     axes = table["coordinateSystem"]["axes"]
     assert [a["name"] for a in axes] == ["y", "x"]
     assert [a["type"] for a in axes] == ["SPACE", "SPACE"]
@@ -79,12 +105,17 @@ async def test_a_coordinate_table_owns_a_placeable_space(authenticated_context: 
     assert [a["order"] for a in axes] == [0, 1]
     # The attribute column is declared but is not an axis.
     assert {c["name"] for c in table["columns"]} == {"y", "x", "photons"}
-    assert next(c for c in table["columns"] if c["name"] == "photons")["role"] == "ATTRIBUTE"
+    assert (
+        next(c for c in table["columns"] if c["name"] == "photons")["role"]
+        == "ATTRIBUTE"
+    )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_measurement_table_is_the_feature_collection_case(authenticated_context: HttpContext):
+async def test_a_measurement_table_is_the_feature_collection_case(
+    authenticated_context: HttpContext,
+):
     """No coordinate columns: a single INDEX axis, and an UNMAPPABLE edge to its source."""
     dataset = await seed.create_array_dataset(authenticated_context, "Labels")
     system = await sync_to_async(lambda: dataset.intrinsic_coordinate_system)()
@@ -93,7 +124,10 @@ async def test_a_measurement_table_is_the_feature_collection_case(authenticated_
         authenticated_context,
         "morphology",
         name="nuclei morphology",
-        columns=[{"name": "area", "dtype": "DOUBLE", "role": "ATTRIBUTE"}, {"name": "mean_intensity", "dtype": "DOUBLE", "role": "ATTRIBUTE"}],
+        columns=[
+            {"name": "area", "dtype": "DOUBLE", "role": "ATTRIBUTE"},
+            {"name": "mean_intensity", "dtype": "DOUBLE", "role": "ATTRIBUTE"},
+        ],
         derivedFrom=[{"kind": "COORDINATE_SYSTEM", "coordinateSystem": str(system.pk)}],
     )
     assert not result.errors, result.errors
@@ -109,9 +143,13 @@ async def test_a_measurement_table_is_the_feature_collection_case(authenticated_
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_default_derivation_is_unmappable_even_with_coordinates(authenticated_context: HttpContext):
+async def test_the_default_derivation_is_unmappable_even_with_coordinates(
+    authenticated_context: HttpContext,
+):
     """Naming a source is not authoring a map: without an explicit kind the edge stays UNMAPPABLE."""
-    dataset = await seed.create_array_dataset(authenticated_context, "Labels")  # (c, y, x)
+    dataset = await seed.create_array_dataset(
+        authenticated_context, "Labels"
+    )  # (c, y, x)
     system = await sync_to_async(lambda: dataset.intrinsic_coordinate_system)()
 
     result = await _create(
@@ -130,9 +168,13 @@ async def test_the_default_derivation_is_unmappable_even_with_coordinates(authen
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_identity_across_mismatched_rank_is_rejected(authenticated_context: HttpContext):
+async def test_an_identity_across_mismatched_rank_is_rejected(
+    authenticated_context: HttpContext,
+):
     """A (y,x) table cannot claim IDENTITY into a (c,y,x) source; BY_DIMENSION is how a rank change is stated."""
-    dataset = await seed.create_array_dataset(authenticated_context, "Labels")  # (c, y, x)
+    dataset = await seed.create_array_dataset(
+        authenticated_context, "Labels"
+    )  # (c, y, x)
     system = await sync_to_async(lambda: dataset.intrinsic_coordinate_system)()
 
     bad = await _create(
@@ -143,9 +185,17 @@ async def test_an_identity_across_mismatched_rank_is_rejected(authenticated_cont
             {"name": "y", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
             {"name": "x", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
         ],
-        derivedFrom=[{"kind": "COORDINATE_SYSTEM", "coordinateSystem": str(system.pk), "transform": {"kind": "IDENTITY"}}],
+        derivedFrom=[
+            {
+                "kind": "COORDINATE_SYSTEM",
+                "coordinateSystem": str(system.pk),
+                "transform": {"kind": "IDENTITY"},
+            }
+        ],
     )
-    assert bad.errors, "an identity between a 2-axis table and a 3-axis image is a rank change in disguise"
+    assert bad.errors, (
+        "an identity between a 2-axis table and a 3-axis image is a rank change in disguise"
+    )
 
     good = await _create(
         authenticated_context,
@@ -155,7 +205,17 @@ async def test_an_identity_across_mismatched_rank_is_rejected(authenticated_cont
             {"name": "y", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
             {"name": "x", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
         ],
-        derivedFrom=[{"kind": "COORDINATE_SYSTEM", "coordinateSystem": str(system.pk), "transform": {"kind": "BY_DIMENSION", "inputAxes": ["y", "x"], "outputAxes": ["y", "x"]}}],
+        derivedFrom=[
+            {
+                "kind": "COORDINATE_SYSTEM",
+                "coordinateSystem": str(system.pk),
+                "transform": {
+                    "kind": "BY_DIMENSION",
+                    "inputAxes": ["y", "x"],
+                    "outputAxes": ["y", "x"],
+                },
+            }
+        ],
     )
     assert not good.errors, good.errors
     assert good.data["createTableDataset"]["derivedFrom"][0]["kind"] == "BY_DIMENSION"
@@ -169,7 +229,10 @@ async def test_a_freestanding_table_has_no_edge(authenticated_context: HttpConte
         authenticated_context,
         "free",
         name="molecules",
-        columns=[{"name": "y", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"}, {"name": "x", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"}],
+        columns=[
+            {"name": "y", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
+            {"name": "x", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
+        ],
     )
     assert not result.errors, result.errors
     assert result.data["createTableDataset"]["derivedFrom"] == []
@@ -177,7 +240,9 @@ async def test_a_freestanding_table_has_no_edge(authenticated_context: HttpConte
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_out_of_order_coordinate_columns_are_accepted(authenticated_context: HttpContext):
+async def test_out_of_order_coordinate_columns_are_accepted(
+    authenticated_context: HttpContext,
+):
     """A table column's position is arbitrary, so it is not a thing to refuse a table over.
 
     This used to assert `result.errors` -- space-before-time was rejected, on the reasoning
@@ -206,12 +271,17 @@ async def test_out_of_order_coordinate_columns_are_accepted(authenticated_contex
     )
     assert not result.errors, result.errors
     axes = result.data["createTableDataset"]["coordinateSystem"]["axes"]
-    assert [(a["name"], a["type"], a["order"]) for a in axes] == [("x", "SPACE", 0), ("t", "TIME", 1)]
+    assert [(a["name"], a["type"], a["order"]) for a in axes] == [
+        ("x", "SPACE", 0),
+        ("t", "TIME", 1),
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_spatial_axes_keep_the_order_they_were_declared_in(authenticated_context: HttpContext):
+async def test_the_spatial_axes_keep_the_order_they_were_declared_in(
+    authenticated_context: HttpContext,
+):
     """The part that is load-bearing, and the part nothing else checks.
 
     x is the *last* spatial axis, y the one before it, by position and never by name. Anything
@@ -235,7 +305,9 @@ async def test_the_spatial_axes_keep_the_order_they_were_declared_in(authenticat
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_coordinate_column_must_be_a_permitted_axis_type(authenticated_context: HttpContext):
+async def test_a_coordinate_column_must_be_a_permitted_axis_type(
+    authenticated_context: HttpContext,
+):
     """A CHANNEL axis is not a coordinate: it indexes acquisitions, not positions.
 
     SPACE, TIME and INDEX are the permitted set -- INDEX because an id column's values are the
@@ -248,7 +320,12 @@ async def test_a_coordinate_column_must_be_a_permitted_axis_type(authenticated_c
         columns=[
             {"name": "y", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
             {"name": "x", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
-            {"name": "c", "dtype": "BIGINT", "role": "COORDINATE", "axisType": "CHANNEL"},
+            {
+                "name": "c",
+                "dtype": "BIGINT",
+                "role": "COORDINATE",
+                "axisType": "CHANNEL",
+            },
         ],
     )
     assert result.errors, "a coordinate column must be SPACE, TIME or INDEX"
@@ -256,7 +333,9 @@ async def test_a_coordinate_column_must_be_a_permitted_axis_type(authenticated_c
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_measurement_column_carries_its_unit_without_becoming_an_axis(authenticated_context: HttpContext):
+async def test_a_measurement_column_carries_its_unit_without_becoming_an_axis(
+    authenticated_context: HttpContext,
+):
     """An area is a quantity too: an ATTRIBUTE states what its values are in, and stays data.
 
     The dimension is not checked against anything -- an area is 'micrometer**2', not a length --
@@ -267,8 +346,18 @@ async def test_a_measurement_column_carries_its_unit_without_becoming_an_axis(au
         "morphology-units",
         name="nuclei morphology",
         columns=[
-            {"name": "area", "dtype": "DOUBLE", "role": "ATTRIBUTE", "unit": "micrometer**2"},
-            {"name": "mean_gfp", "dtype": "DOUBLE", "role": "ATTRIBUTE", "unit": "a.u."},
+            {
+                "name": "area",
+                "dtype": "DOUBLE",
+                "role": "ATTRIBUTE",
+                "unit": "micrometer**2",
+            },
+            {
+                "name": "mean_gfp",
+                "dtype": "DOUBLE",
+                "role": "ATTRIBUTE",
+                "unit": "a.u.",
+            },
             {"name": "n_pixels", "dtype": "BIGINT", "role": "ATTRIBUTE", "unit": None},
         ],
     )
@@ -279,33 +368,50 @@ async def test_a_measurement_column_carries_its_unit_without_becoming_an_axis(au
     assert columns["mean_gfp"]["unit"] == "a.u."
     assert columns["n_pixels"]["unit"] is None
     # None of them place a row: the table is still the degenerate enumerating space.
-    assert [a["name"] for a in result.data["createTableDataset"]["coordinateSystem"]["axes"]] == ["object"]
+    assert [
+        a["name"] for a in result.data["createTableDataset"]["coordinateSystem"]["axes"]
+    ] == ["object"]
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_unparseable_column_unit_is_refused(authenticated_context: HttpContext):
+async def test_an_unparseable_column_unit_is_refused(
+    authenticated_context: HttpContext,
+):
     """The unit is a pint unit, checked when the variable is coerced -- before the resolver runs."""
     result = await _create(
         authenticated_context,
         "bad-unit",
         name="molecules",
-        columns=[{"name": "area", "dtype": "DOUBLE", "role": "ATTRIBUTE", "unit": "furlongs_per_fortnight"}],
+        columns=[
+            {
+                "name": "area",
+                "dtype": "DOUBLE",
+                "role": "ATTRIBUTE",
+                "unit": "furlongs_per_fortnight",
+            }
+        ],
     )
     assert result.errors, "an unparseable unit must not be stored"
     assert "not a valid unit" in str(result.errors[0])
-    assert result.data is None, "coercion fails ahead of the resolver, so nothing is returned"
+    assert result.data is None, (
+        "coercion fails ahead of the resolver, so nothing is returned"
+    )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_column_that_is_not_measured_refuses_a_unit(authenticated_context: HttpContext):
+async def test_a_column_that_is_not_measured_refuses_a_unit(
+    authenticated_context: HttpContext,
+):
     """An id in nanometres names a metric that does not exist -- the INDEX argument, by role."""
     result = await _create(
         authenticated_context,
         "id-unit",
         name="molecules",
-        columns=[{"name": "object_id", "dtype": "BIGINT", "role": "ID", "unit": "nanometer"}],
+        columns=[
+            {"name": "object_id", "dtype": "BIGINT", "role": "ID", "unit": "nanometer"}
+        ],
     )
     assert result.errors, "only COORDINATE and ATTRIBUTE columns carry a unit"
     assert "is not measured" in str(result.errors[0])
@@ -313,7 +419,9 @@ async def test_a_column_that_is_not_measured_refuses_a_unit(authenticated_contex
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_table_dataset_is_not_editable_beyond_its_name(authenticated_context: HttpContext):
+async def test_a_table_dataset_is_not_editable_beyond_its_name(
+    authenticated_context: HttpContext,
+):
     """The store, the columns and the coordinate system are fixed at creation.
 
     Stated in three docstrings and a type description, and until now asserted nowhere -- which
@@ -325,7 +433,10 @@ async def test_a_table_dataset_is_not_editable_beyond_its_name(authenticated_con
         authenticated_context,
         "fixed-table",
         name="nuclei",
-        columns=[{"name": "i", "dtype": "BIGINT", "role": "COORDINATE", "axisType": "INDEX"}, {"name": "area", "dtype": "DOUBLE", "role": "ATTRIBUTE"}],
+        columns=[
+            {"name": "i", "dtype": "BIGINT", "role": "COORDINATE", "axisType": "INDEX"},
+            {"name": "area", "dtype": "DOUBLE", "role": "ATTRIBUTE"},
+        ],
     )
     assert not created.errors, created.errors
     table = created.data["createTableDataset"]
@@ -333,9 +444,19 @@ async def test_a_table_dataset_is_not_editable_beyond_its_name(authenticated_con
 
     # The whole of the editable surface: two scalar fields, neither of them the data.
     sdl = schema.as_str()
-    definition = sdl[sdl.find("input UpdateTableDatasetInput ") : sdl.find("\n}", sdl.find("input UpdateTableDatasetInput "))]
-    fields = {line.strip().split(":")[0] for line in definition.split("\n") if ":" in line and not line.strip().startswith('"')}
-    assert fields == {"id", "name", "description"}, f"updateTableDataset must not reach the store, the columns or the space, but takes {fields}"
+    definition = sdl[
+        sdl.find("input UpdateTableDatasetInput ") : sdl.find(
+            "\n}", sdl.find("input UpdateTableDatasetInput ")
+        )
+    ]
+    fields = {
+        line.strip().split(":")[0]
+        for line in definition.split("\n")
+        if ":" in line and not line.strip().startswith('"')
+    }
+    assert fields == {"id", "name", "description"}, (
+        f"updateTableDataset must not reach the store, the columns or the space, but takes {fields}"
+    )
 
     renamed = await schema.execute(
         "mutation Update($input: UpdateTableDatasetInput!) { updateTableDataset(input: $input) { id name } }",
@@ -346,17 +467,28 @@ async def test_a_table_dataset_is_not_editable_beyond_its_name(authenticated_con
     assert renamed.data["updateTableDataset"]["name"] == "renamed"
 
     # ...and the store and the declared schema are exactly where they were.
-    after = await sync_to_async(lambda: models.TableDataset.objects.get(pk=table["id"]))()
-    assert str(after.store_id) == store_at_creation, "renaming must not disturb the store"
-    assert await sync_to_async(lambda: [c.name for c in after.columns.all()])() == ["i", "area"]
+    after = await sync_to_async(
+        lambda: models.TableDataset.objects.get(pk=table["id"])
+    )()
+    assert str(after.store_id) == store_at_creation, (
+        "renaming must not disturb the store"
+    )
+    assert await sync_to_async(lambda: [c.name for c in after.columns.all()])() == [
+        "i",
+        "area",
+    ]
 
     # A table's own system is refused by updateCoordinateSystem: it serves shared spaces only.
     renamed_space = await schema.execute(
         "mutation Update($input: UpdateCoordinateSystemInput!) { updateCoordinateSystem(input: $input) { id name } }",
         context_value=authenticated_context,
-        variable_values={"input": {"id": table["coordinateSystem"]["id"], "name": "hijacked"}},
+        variable_values={
+            "input": {"id": table["coordinateSystem"]["id"], "name": "hijacked"}
+        },
     )
-    assert renamed_space.errors, "a table owns its space; only a shared space has a lifecycle of its own"
+    assert renamed_space.errors, (
+        "a table owns its space; only a shared space has a lifecycle of its own"
+    )
     assert "data lives in it" in str(renamed_space.errors[0])
 
 
@@ -365,33 +497,58 @@ async def test_a_table_dataset_is_not_editable_beyond_its_name(authenticated_con
 async def test_the_table_dataset_exposes_no_rows(authenticated_context: HttpContext):
     """Like FeatureCollection: the client reads the Parquet, GraphQL never paginates rows."""
     sdl = schema.as_str()
-    definition = sdl[sdl.find("type TableDataset ") : sdl.find("\n}", sdl.find("type TableDataset "))]
+    definition = sdl[
+        sdl.find("type TableDataset ") : sdl.find("\n}", sdl.find("type TableDataset "))
+    ]
     assert "\n  rows" not in definition
-    assert "\n  columns" in definition, "the declared schema is exposed; the row data is not"
+    assert "\n  columns" in definition, (
+        "the declared schema is exposed; the row data is not"
+    )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_registration_is_not_an_ingest_concern(authenticated_context: HttpContext):
+async def test_registration_is_not_an_ingest_concern(
+    authenticated_context: HttpContext,
+):
     """createTableDataset takes no `scene`: a registration is a separate, explicit step."""
     sdl = schema.as_str()
-    definition = sdl[sdl.find("input CreateTableDatasetInput ") : sdl.find("\n}", sdl.find("input CreateTableDatasetInput "))]
+    definition = sdl[
+        sdl.find("input CreateTableDatasetInput ") : sdl.find(
+            "\n}", sdl.find("input CreateTableDatasetInput ")
+        )
+    ]
     assert definition, "the input type exists"
-    assert "\n  scene" not in definition, "registering into a scene is createTransformation's job, not ingest's"
+    assert "\n  scene" not in definition, (
+        "registering into a scene is createTransformation's job, not ingest's"
+    )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_column_descriptions_are_stored_and_carried_onto_axes(authenticated_context: HttpContext):
+async def test_column_descriptions_are_stored_and_carried_onto_axes(
+    authenticated_context: HttpContext,
+):
     """A column's description round-trips, and a coordinate column's is carried onto its axis."""
     result = await _create(
         authenticated_context,
         "described",
         name="molecules",
         columns=[
-            {"name": "y", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE", "description": "distance from the coverslip"},
+            {
+                "name": "y",
+                "dtype": "DOUBLE",
+                "role": "COORDINATE",
+                "axisType": "SPACE",
+                "description": "distance from the coverslip",
+            },
             {"name": "x", "dtype": "DOUBLE", "role": "COORDINATE", "axisType": "SPACE"},
-            {"name": "photons", "dtype": "DOUBLE", "role": "ATTRIBUTE", "description": "photon count of the localization"},
+            {
+                "name": "photons",
+                "dtype": "DOUBLE",
+                "role": "ATTRIBUTE",
+                "description": "photon count of the localization",
+            },
         ],
     )
     assert not result.errors, result.errors
@@ -402,13 +559,17 @@ async def test_column_descriptions_are_stored_and_carried_onto_axes(authenticate
     assert columns["x"]["description"] is None
 
     axes = {a["name"]: a for a in table["coordinateSystem"]["axes"]}
-    assert axes["y"]["description"] == "distance from the coverslip", "the axis is the column, so it carries the same description"
+    assert axes["y"]["description"] == "distance from the coverslip", (
+        "the axis is the column, so it carries the same description"
+    )
     assert axes["x"]["description"] is None
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_column_that_declares_no_dtype_records_the_file_s_own(authenticated_context: HttpContext):
+async def test_a_column_that_declares_no_dtype_records_the_file_s_own(
+    authenticated_context: HttpContext,
+):
     """`dtype` is a fact about the file, so omitting it is a declaration, not a gap.
 
     The server read every column's type off the Parquet when the upload finished. A caller who
@@ -449,12 +610,18 @@ async def test_a_column_that_declares_no_dtype_records_the_file_s_own(authentica
         ("area", "DOUBLE"),
         ("label", "VARCHAR"),
     ]
-    assert [column["role"] for column in columns] == ["COORDINATE", "ATTRIBUTE", "LABEL"]
+    assert [column["role"] for column in columns] == [
+        "COORDINATE",
+        "ATTRIBUTE",
+        "LABEL",
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_stated_dtype_is_still_checked_against_the_file(authenticated_context: HttpContext):
+async def test_a_stated_dtype_is_still_checked_against_the_file(
+    authenticated_context: HttpContext,
+):
     """Optional is not unchecked: a caller who asserts a type is held to it."""
     store = await _parquet(authenticated_context, "wrong-dtype")
     store.columns = [{"name": "area", "type": "DOUBLE", "nullable": True}]

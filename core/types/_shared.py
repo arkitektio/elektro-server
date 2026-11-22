@@ -67,7 +67,9 @@ class OrgScopedOrNested(OrgScoped):
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
-        if getattr(queryset, "_result_cache", None) is not None or getattr(queryset, "_known_related_objects", None):
+        if getattr(queryset, "_result_cache", None) is not None or getattr(
+            queryset, "_known_related_objects", None
+        ):
             return queryset
         return build_prescoped_queryset(info, queryset)
 

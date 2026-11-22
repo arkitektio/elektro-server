@@ -27,7 +27,9 @@ async def test_create_model_collection(aexecute, make_neuron_model):
 
 async def test_create_model_collection_empty_models(aexecute):
     # No member models is allowed (the m2m is just left empty).
-    res = await aexecute(CREATE_MODEL_COLLECTION, {"input": {"name": "Empty", "models": []}})
+    res = await aexecute(
+        CREATE_MODEL_COLLECTION, {"input": {"name": "Empty", "models": []}}
+    )
     assert not res.errors, res.errors
 
 
@@ -44,10 +46,15 @@ query {
 """
 
 
-async def test_collections_and_models_say_when_and_by_whom_they_were_made(aexecute, make_neuron_model, authenticated_context):
+async def test_collections_and_models_say_when_and_by_whom_they_were_made(
+    aexecute, make_neuron_model, authenticated_context
+):
     """A member's profile feed merges services by date: both need their creation time and maker on the type."""
     nm = await make_neuron_model()
-    made = await aexecute(CREATE_MODEL_COLLECTION, {"input": {"name": "Collection", "models": [str(nm.id)]}})
+    made = await aexecute(
+        CREATE_MODEL_COLLECTION,
+        {"input": {"name": "Collection", "models": [str(nm.id)]}},
+    )
     assert not made.errors, made.errors
 
     res = await aexecute(DATED)

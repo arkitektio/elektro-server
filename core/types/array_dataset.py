@@ -30,6 +30,7 @@ from core.inputs import AnchorWindowInput
 from strawberry_django.pagination import OffsetPaginationInput
 from core.logic import file_link as file_link_logic
 from core.logic import graph as graph_logic
+from core.logic import listed_datasets
 from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, apply_link_filters
 from core.types.auth import ProvenanceEntry, Task, User
 from core.types.coords import CoordinateSystem, Resident, Transformation
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     # Only for the lazy annotations below: each of these modules imports this one back.
     from core.types import NeuronModel
     from core.types.layers import ExperimentLayer
+    from core.types.experiment import Experiment
     from core.types.annotation import AnnotationCollection
     from core.types.file_link import FileLink
     from core.types.folder import Folder
@@ -127,12 +129,16 @@ class ArrayDataset(OrgScoped):
         """Every container whose derivation edges land in one of this dataset's spaces."""
         return graph_logic.derived_containers(self)
 
-    @kante.django_field(description="Whether this dataset carries a resolution pyramid. Derived: true when it has more than one level")
+    @kante.django_field(prefetch_related=["data_arrays"], description="Whether this dataset carries a resolution pyramid. Derived: true when it has more than one level")
     def multiscale(self, info: Info) -> bool:
         """Whether the dataset has more than one pyramid level."""
-        return self.multiscale
+        return listed_datasets.multiscale(cast(models.ArrayDataset, self))
 
-    @kante.django_field(description="The dataset's axis names, in array order. Derived from the axes of its intrinsic coordinate system")
+    @kante.django_field(
+        select_related=["coordinate_system"],
+        prefetch_related=["coordinate_system__axes"],
+        description="The dataset's axis names, in array order. Derived from the axes of its intrinsic coordinate system",
+    )
     def axis_names(self, info: Info) -> List[str]:
         """The dataset's axis names."""
         return self.axis_names
@@ -163,20 +169,21 @@ class ArrayDataset(OrgScoped):
         """Every spec the dataset's axes satisfy."""
         return self.spec
 
-    @kante.django_field(description="The dataset's shape: that of its level-0 array")
+    @kante.django_field(prefetch_related=["data_arrays"], description="The dataset's shape: that of its level-0 array")
     def shape(self, info: Info) -> List[int]:
         """The dataset's shape."""
-        return self.shape_list
+        return listed_datasets.shape(cast(models.ArrayDataset, self))
 
     @kante.django_field(
         description=(
             "The unit of this dataset's VALUES -- what was measured at each sample ('mV', 'pA', 'second' for a times dataset). Read from the dataset-wide `ValueUnit` anchor, the one "
             "pinned to no coordinate; a per-channel unit is on that channel's anchor and is not an answer here. Not an axis unit: an axis says where a sample is. Null when unstated"
-        )
+        ),
+        prefetch_related=[listed_datasets.unit_anchors()],
     )
     def value_unit(self, info: Info) -> kanne_scalars.Unit | None:
         """The dataset-wide value unit."""
-        return self.value_unit
+        return listed_datasets.value_unit(cast(models.ArrayDataset, self))
 
     @kante.django_field(description="The physical dimension of this dataset's values, derived from `valueUnit` ('[time]' for a times dataset, a voltage or a current for a recording). Null when the unit is unstated or arbitrary")
     def value_dimension(self, info: Info) -> kanne_scalars.Dimension | None:
@@ -199,17 +206,23 @@ class ArrayDataset(OrgScoped):
 
     # What interprets this dataset. Elektro's counterpart of mikro's `ArrayDataset.scenes`: a
     # dataset says nothing about what it means, so this is the way to ask who does.
+    @kante.django_field(description="The experiments drawing this dataset, through any layer over any of its lenses: each once, oldest first. `experimentLayers` lists the layers themselves")
+    def experiments(self, info: Info) -> List[Annotated["Experiment", strawberry.lazy("core.types.experiment")]]:
+        """The experiments with a layer whose lens selects over this dataset."""
+        return list(scoping.for_org(models.Experiment, info).filter(layers__lens__dataset_id=self.pk).distinct().order_by("pk"))
+
     @kante.django_field(description="The experiment layers drawing this dataset, through any of its lenses")
     def experiment_layers(self, info: Info) -> List[Annotated["ExperimentLayer", strawberry.lazy("core.types.layers")]]:
         """The layers whose lens selects over this dataset."""
         return list(scoping.for_org(models.ExperimentLayer, info).filter(lens__dataset_id=self.pk).order_by("experiment_id", "order", "pk"))
 
     @kante.django_field(
-        description="What computed this dataset, if it was simulated: the `simulation` spoke of its whole-dataset anchor -- the model that was integrated, its dt and duration. Null for a recording, and for a run's input"
+        prefetch_related=[listed_datasets.simulation_anchors()],
+        description="What computed this dataset, if it was simulated: the `simulation` spoke of its whole-dataset anchor -- the model that was integrated, its dt and duration. Null for a recording, and for a run's input",
     )
     def simulation(self, info: Info) -> Optional["SimulationState"]:
         """The simulation state anchored at ``{}``."""
-        return models.SimulationState.objects.filter(anchor__dataset_id=self.pk, anchor__coordinates={}).select_related("model").first()
+        return listed_datasets.simulation(cast(models.ArrayDataset, self))  # type: ignore[return-value]
 
 
 @kante.django_type(

@@ -241,7 +241,10 @@ def sessions_of(info: Info, datasets: "models.QuerySet") -> List["NeuronModelSes
     """The viewer's datasets among ``datasets``, grouped by the clock they are timed onto (`sites.sessions_of`)."""
     from core.logic import sites
 
-    scoped = list(scoping.for_org(models.ArrayDataset, info).filter(pk__in=datasets.values("pk")).order_by("pk"))
+    from core.logic import listed_datasets
+
+    # Each session lists its datasets as list rows: their levels, axes, unit and run load with them.
+    scoped = list(listed_datasets.with_list_facts(scoping.for_org(models.ArrayDataset, info).filter(pk__in=datasets.values("pk")).order_by("pk")))
     return [NeuronModelSession(clock=clock, datasets=grouped) for clock, grouped in sites.sessions_of(scoped)]
 
 

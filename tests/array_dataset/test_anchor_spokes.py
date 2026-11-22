@@ -219,3 +219,54 @@ async def test_two_anchors_may_not_share_their_coordinates(create_array_dataset)
     merged = [{"axisAnchors": [], "valueUnit": {"unit": "mV"}, "acquisitionMetadata": {"metadataString": "{}"}}]
     accepted = await create_array_dataset("Rivals", [1000, 2], axes=TC, anchors=merged, raw=True)
     assert not accepted.errors, accepted.errors
+
+
+WITHIN = """
+query Within($id: ID!, $within: [AnchorWindowInput!], $pagination: OffsetPaginationInput) {
+  lens(id: $id) {
+    activeAnchors(within: $within, pagination: $pagination) {
+      coordinates
+      channelLabel { label }
+    }
+  }
+}
+"""
+
+
+async def _channel_and_time_anchors(create_array_dataset, authenticated_context) -> models.Lens:  # noqa: ANN001
+    anchors = [
+        {"axisAnchors": [], "valueUnit": {"unit": "mV"}},
+        {"axisAnchors": [{"axis": "c", "value": 0}], "label": {"label": "Vm"}},
+        {"axisAnchors": [{"axis": "c", "value": 1}], "label": {"label": "Icmd"}},
+        {"axisAnchors": [{"axis": "t", "value": 100}, {"axis": "c", "value": 0}], "label": {"label": "Vm (early)"}},
+        {"axisAnchors": [{"axis": "t", "value": 600}, {"axis": "c", "value": 0}], "label": {"label": "Vm (late)"}},
+    ]
+    created = await create_array_dataset("Paired", [1000, 2], axes=TC, anchors=anchors)
+    dataset = await models.ArrayDataset.objects.aget(pk=created["id"])
+    return await seed.create_lens(authenticated_context, dataset)
+
+
+async def test_within_narrows_a_lens_to_one_channel_and_a_time_window(aexecute, create_array_dataset, authenticated_context):
+    """What a trace row's card asks: the anchors on this channel, in the samples on screen -- not every anchor of the recording."""
+    lens = await _channel_and_time_anchors(create_array_dataset, authenticated_context)
+
+    read = await aexecute(WITHIN, {"id": str(lens.pk), "within": [{"axis": "c", "min": 0, "max": 0}, {"axis": "t", "min": 0, "max": 500}]})
+    assert not read.errors, read.errors
+    coordinates = [anchor["coordinates"] for anchor in read.data["lens"]["activeAnchors"]]
+
+    assert coordinates == [{}, {"c": 0}, {"t": 100, "c": 0}], "global anchors are inside any window; channel 1 and the late anchor are out"
+
+
+async def test_active_anchors_page_oldest_first(aexecute, create_array_dataset, authenticated_context):
+    lens = await _channel_and_time_anchors(create_array_dataset, authenticated_context)
+
+    pages = []
+    for offset in (0, 2, 4):
+        read = await aexecute(WITHIN, {"id": str(lens.pk), "pagination": {"offset": offset, "limit": 2}})
+        assert not read.errors, read.errors
+        pages.append([anchor["coordinates"] for anchor in read.data["lens"]["activeAnchors"]])
+
+    assert [len(page) for page in pages] == [2, 2, 1]
+    assert pages[0][0] == {}, "the oldest anchor, the dataset-wide one, comes first"
+    flat = [str(coordinates) for page in pages for coordinates in page]
+    assert len(set(flat)) == 5, "pages neither overlap nor skip"

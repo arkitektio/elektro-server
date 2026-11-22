@@ -689,3 +689,21 @@ class Lens(Described):
         # OPTIMIZATION: prefetch/select the spokes to prevent N+1 database death
         return qs.select_related("rig").prefetch_related("acquisition_metadata", "value_histogram")
 
+    def anchors_within(self, windows: "list[tuple[str, float | None, float | None]]") -> "models.QuerySet[CoordinateAnchor]":
+        """:attr:`active_anchors` narrowed further to the ones inside every window, as (axis, min, max).
+
+        Inclusive on both sides, either side open. An anchor that says nothing about an axis
+        holds for every position on it, so it is inside any window on that axis -- the same
+        axis-agnostic rule the lens' own slices keep. The spokes stay selected and prefetched.
+        """
+        anchors = self.active_anchors
+        for axis, low, high in windows:
+            axis_is_global = ~Q(coordinates__has_key=axis)
+            in_range = Q()
+            if low is not None:
+                in_range &= Q(**{f"coordinates__{axis}__gte": low})
+            if high is not None:
+                in_range &= Q(**{f"coordinates__{axis}__lte": high})
+            anchors = anchors.filter(axis_is_global | in_range)
+        return anchors
+

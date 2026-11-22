@@ -6,7 +6,7 @@ Vendored from mikro's ``core/queries/coords.py`` (attribute plans, a table conce
 import strawberry
 from kante.types import Info
 
-from core import models, types
+from core import enums, models, types
 from core.logic import graph as graph_logic
 from core.scoping import get_for_org
 
@@ -15,6 +15,7 @@ def coordinate_graph(
     info: Info,
     coordinate_system: strawberry.ID,
     max_depth: int | None = None,
+    direction: enums.GraphDirection = enums.GraphDirection.BOTH,
 ) -> types.CoordinateGraph:
     """Walk the coordinate graph out from one system and return the subgraph it reaches.
 
@@ -35,6 +36,7 @@ def coordinate_graph(
         root,
         organization=info.context.request.organization,
         max_depth=max_depth,
+        direction=direction,
     )
 
     return types.CoordinateGraph(root=root, systems=systems, transformations=transformations)

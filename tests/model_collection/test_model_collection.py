@@ -34,3 +34,25 @@ async def test_create_model_collection_empty_models(aexecute):
 async def test_create_model_collection_missing_name(aexecute):
     res = await aexecute(CREATE_MODEL_COLLECTION, {"input": {"models": []}})
     assert res.errors
+
+
+DATED = """
+query {
+  modelCollections(ordering: [{ createdAt: DESC }]) { id createdAt creator { sub } }
+  neuronModels(ordering: [{ createdAt: DESC }]) { id createdAt creator { sub } }
+}
+"""
+
+
+async def test_collections_and_models_say_when_and_by_whom_they_were_made(aexecute, make_neuron_model, authenticated_context):
+    """A member's profile feed merges services by date: both need their creation time and maker on the type."""
+    nm = await make_neuron_model()
+    made = await aexecute(CREATE_MODEL_COLLECTION, {"input": {"name": "Collection", "models": [str(nm.id)]}})
+    assert not made.errors, made.errors
+
+    res = await aexecute(DATED)
+    assert not res.errors, res.errors
+    (collection,) = res.data["modelCollections"]
+    model = next(row for row in res.data["neuronModels"] if row["id"] == str(nm.id))
+    assert collection["createdAt"] and model["createdAt"]
+    assert collection["creator"] == {"sub": authenticated_context.request.user.sub}

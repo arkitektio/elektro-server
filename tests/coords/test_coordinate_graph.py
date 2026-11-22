@@ -324,3 +324,58 @@ async def test_the_lineage_graph_stops_at_the_organization_boundary(aexecute, au
     theirs = await seed.create_dataset(other_org_context, "Theirs", seed.T_AXES, [1000])
     denied = await aexecute(LINEAGE, {"system": str(theirs.coordinate_system_id), "maxDepth": None})
     assert denied.errors, "a foreign coordinate system must not be a valid lineage root"
+
+
+# --- coordinateGraph(direction:) -----------------------------------------------------------------
+
+DIRECTED_GRAPH = """
+query Directed($id: ID!, $direction: GraphDirection) {
+  coordinateGraph(coordinateSystem: $id, direction: $direction) {
+    systems { id }
+    transformations { id input { id } output { id } }
+  }
+}
+"""
+
+
+async def _directed(aexecute, system_id, direction: str) -> set[str]:  # noqa: ANN001
+    result = await aexecute(DIRECTED_GRAPH, {"id": str(system_id), "direction": direction})
+    assert not result.errors, result.errors
+    return {system["id"] for system in result.data["coordinateGraph"]["systems"]}
+
+
+async def test_outgoing_does_not_cross_the_world_into_its_other_residents(aexecute, authenticated_context):
+    """OUTGOING reaches where this dataset maps to -- the world -- but not what else maps into that world.
+
+    The add-layer form pulled the whole undirected component and threw away the spaces reached
+    through other worlds; walking one way is the server answering that question itself.
+    """
+    ctx = authenticated_context
+    first = await seed.create_array_dataset(ctx, "First")
+    second = await seed.create_array_dataset(ctx, "Second")
+    experiment = await create_experiment(ctx, "Composition")
+    await _register(ctx, first, experiment)
+    await _register(ctx, second, experiment)
+
+    outgoing = await _directed(aexecute, first.coordinate_system_id, "OUTGOING")
+    both = await _directed(aexecute, first.coordinate_system_id, "BOTH")
+
+    assert str(experiment.world_id) in outgoing, "the world is downstream of the dataset"
+    assert str(second.coordinate_system_id) not in outgoing, "the sibling maps INTO the world; an outgoing walk never turns back"
+    assert str(second.coordinate_system_id) in both, "the default still walks the whole component"
+
+
+async def test_incoming_reaches_what_maps_into_a_space_and_nothing_downstream(aexecute, authenticated_context):
+    """INCOMING from the world: every dataset registered into it, and not the spaces those map onward to."""
+    ctx = authenticated_context
+    first = await seed.create_array_dataset(ctx, "First")
+    second = await seed.create_array_dataset(ctx, "Second")
+    calibration = await _calibrate(ctx, first)
+    experiment = await create_experiment(ctx, "Composition")
+    await _register(ctx, first, experiment)
+    await _register(ctx, second, experiment)
+
+    incoming = await _directed(aexecute, experiment.world_id, "INCOMING")
+
+    assert {str(first.coordinate_system_id), str(second.coordinate_system_id)} <= incoming
+    assert str(calibration.pk) not in incoming, "the calibration is downstream of the first dataset, not upstream of the world"

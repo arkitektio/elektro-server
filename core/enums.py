@@ -172,6 +172,14 @@ class BlendingChoices(TextChoices):
     NORMAL = "normal", "Normal (Alpha Over)"
 
 
+class ChannelColoringChoices(TextChoices):
+    """When a multi-channel trace colours its channels individually, as stored."""
+
+    OVERLAY = "overlay", "Overlay (own colours only where channels share a plot)"
+    ALWAYS = "always", "Always (every channel its own colour)"
+    NEVER = "never", "Never (every channel in the layer's colour)"
+
+
 class ExperimentLayerKindChoices(TextChoices):
     """How a layer of an experiment draws its data. mikro's ``LayerKindChoices``, for time series."""
 
@@ -541,6 +549,40 @@ _describe(
     FileLinkDirection,
     SOURCE="The container was produced from the file: a CZI a converter read to write a Zarr dataset, a CSV a table was loaded from. This is the ingest direction, and the file existed first.",
     RENDITION="The file was produced from the container: a dataset written out as OME-TIFF, a mesh exported to STL. This is the export direction, and the container existed first.",
+)
+
+
+@strawberry.enum(description="Which way a walk over the coordinate graph follows an edge")
+class GraphDirection(str, Enum):
+    """The direction a graph walk follows edges in."""
+
+    OUTGOING = "OUTGOING"
+    INCOMING = "INCOMING"
+    BOTH = "BOTH"
+
+
+_describe(
+    GraphDirection,
+    OUTGOING="From an edge's input to its output only: where this space maps to -- its physical spaces, the clocks and worlds it is registered into, and onward.",
+    INCOMING="From an edge's output to its input only: what maps into this space -- the grids, levels and lenses registered into it, and theirs.",
+    BOTH="Either way: the whole connected component, which reaches everything else registered into a shared world.",
+)
+
+
+@strawberry.enum(description="When a multi-channel trace gives each channel its own colour, stepped round the wheel from the layer's colour")
+class ChannelColoring(str, Enum):
+    """When a multi-channel trace colours its channels individually."""
+
+    OVERLAY = "overlay"
+    ALWAYS = "always"
+    NEVER = "never"
+
+
+_describe(
+    ChannelColoring,
+    OVERLAY="Only where the channels share one plot; stacked channels are already told apart by their bands. The default.",
+    ALWAYS="Every channel its own colour, stacked or overlaid.",
+    NEVER="Every channel in the layer's one colour.",
 )
 
 

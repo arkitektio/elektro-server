@@ -161,6 +161,7 @@ class _TraceSettings(_Compositing):
     line_width: float | None = Field(default=None, gt=0)
     clim_min: float | None = None
     clim_max: float | None = None
+    channel_coloring: enums.ChannelColoring | None = None
 
 
 class CreateTraceLayerInputModel(_TraceSettings):
@@ -197,6 +198,7 @@ class CreateTraceLayerInput:
     line_width: float | None = strawberry.field(default=None, description="The line width, in screen pixels")
     clim_min: float | None = strawberry.field(default=None, description="The bottom of the value range, in the dataset's value unit")
     clim_max: float | None = strawberry.field(default=None, description="The top of the value range, in the dataset's value unit")
+    channel_coloring: enums.ChannelColoring | None = strawberry.field(default=None, description="When the channels each get their own colour. Omit for OVERLAY: only where they share a plot")
     name: str | None = None
     blending: enums.Blending | None = None
     opacity: float | None = None
@@ -207,7 +209,14 @@ class CreateTraceLayerInput:
 def _trace_settings(parsed: _TraceSettings) -> dict:
     if parsed.clim_min is not None and parsed.clim_max is not None and parsed.clim_min > parsed.clim_max:
         raise ValueError(f"A value range runs from `climMin` to `climMax`, but {parsed.clim_min} > {parsed.clim_max}.")
-    values = {"channel_index": parsed.channel_index, "color": _rgba(parsed.color), "line_width": parsed.line_width, "clim_min": parsed.clim_min, "clim_max": parsed.clim_max}
+    values = {
+        "channel_index": parsed.channel_index,
+        "color": _rgba(parsed.color),
+        "line_width": parsed.line_width,
+        "clim_min": parsed.clim_min,
+        "clim_max": parsed.clim_max,
+        "channel_coloring": None if parsed.channel_coloring is None else parsed.channel_coloring.value,
+    }
     return {key: value for key, value in values.items() if value is not None}
 
 
@@ -288,6 +297,7 @@ class UpdateTraceLayerInput:
     line_width: float | None = None
     clim_min: float | None = None
     clim_max: float | None = None
+    channel_coloring: enums.ChannelColoring | None = strawberry.field(default=None, description="When the channels each get their own colour: OVERLAY, ALWAYS or NEVER")
     name: str | None = None
     blending: enums.Blending | None = None
     opacity: float | None = None

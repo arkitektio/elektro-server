@@ -248,6 +248,7 @@ class TraceLayer(ExperimentLayer):
     clim_min: float | None = kante.django_field(description="The bottom of the value range, in the dataset's value unit. Null reads it from the value histogram")
     clim_max: float | None = kante.django_field(description="The top of the value range, in the dataset's value unit. Null reads it from the value histogram")
     line_width: float | None = kante.django_field(description="The line width, in screen pixels")
+    channel_coloring: enums.ChannelColoring = kante.django_field(description="When the channels each get their own colour, stepped round the wheel from the layer's: only where they share a plot (the default), always, or never")
 
     @kante.django_field(description="The base colour as RGBA, 0-255. Null lets the viewer choose")
     def color(self, info: Info) -> scalars.RGBAColor | None:

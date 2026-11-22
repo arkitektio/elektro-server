@@ -170,3 +170,27 @@ async def test_a_raster_a_picker_names_cannot_be_deleted(aexecute, authenticated
     res = await aexecute("mutation ($input: DeleteSparseDatasetInput!) { deleteSparseDataset(input: $input) }", {"input": {"id": str(raster.pk)}})
     assert res.errors and "colour by a slice of it" in str(res.errors[0]) and "experiment 'E'" in str(res.errors[0])
     assert await models.SparseDataset.objects.filter(pk=raster.pk).aexists()
+
+
+TRACE_COLORING = "mutation ($input: UpdateTraceLayerInput!) { updateTraceLayer(input: $input) { id channelColoring } }"
+READ_COLORING = "query ($id: ID!) { experiment(id: $id) { layers { ... on TraceLayer { id channelColoring } } } }"
+
+
+async def test_a_trace_layers_channel_coloring_survives_a_reload(aexecute, authenticated_context):
+    """It was applied optimistically and never sent, so it was lost on reload. Now it is stored."""
+    experiment, _, lens, _ = await _staged(authenticated_context)
+    layer = await add_layer(authenticated_context, experiment, lens)
+
+    fresh = await aexecute(READ_COLORING, {"id": str(experiment.pk)})
+    assert not fresh.errors, fresh.errors
+    assert fresh.data["experiment"]["layers"] == [{"id": str(layer.pk), "channelColoring": "OVERLAY"}], "a new layer colours channels only where they share a plot"
+
+    res = await aexecute(TRACE_COLORING, {"input": {"id": str(layer.pk), "channelColoring": "ALWAYS"}})
+    assert not res.errors, res.errors
+    assert res.data["updateTraceLayer"]["channelColoring"] == "ALWAYS"
+
+    reloaded = await aexecute(READ_COLORING, {"id": str(experiment.pk)})
+    assert reloaded.data["experiment"]["layers"] == [{"id": str(layer.pk), "channelColoring": "ALWAYS"}]
+
+    untouched = await aexecute(TRACE_COLORING, {"input": {"id": str(layer.pk), "lineWidth": 2}})
+    assert untouched.data["updateTraceLayer"]["channelColoring"] == "ALWAYS", "an update that leaves it out leaves it alone"

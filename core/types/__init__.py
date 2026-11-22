@@ -61,6 +61,8 @@ class ModelCollection(OrgScoped):
     name: str
     models: List["NeuronModel"] = strawberry_django.field()
     description: str | None
+    creator: User | None
+    created_at: datetime.datetime = strawberry_django.field(description="When the collection was made")
 
 
 @strawberry_django.type(models.ModelWorkspace, filters=filters.ModelWorkspaceFilter, ordering=filters.ModelWorkspaceOrder, pagination=True)
@@ -259,6 +261,7 @@ class NeuronModel(OrgScoped):
     name: auto
     description: str | None
     creator: User | None
+    created_at: datetime.datetime = strawberry_django.field(description="When the model was made")
     environment: ModEnvironment
     coordinate_system: Annotated["CoordinateSystem", strawberry.lazy("core.types.coords")] | None = strawberry_django.field(
         description="The coordinate system this model owns. It carries one INDEX axis and nothing placeable; its derivation edges are the model's lineage"

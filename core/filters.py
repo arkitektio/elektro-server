@@ -434,6 +434,16 @@ class CoordinateSystemFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterM
             return Q()
         return Q(**{f"{prefix}datasets__id": value}) | Q(**{f"{prefix}lenses__dataset_id": value}) | Q(**{f"{prefix}data_arrays__dataset_id": value})
 
+    @kante.filter_field(description="Filter to the spaces carrying every one of these axis types, e.g. [TIME] for clocks and the spaces sampled on one. The same question `hasAxisTypes` asks of array datasets, asked of the space itself")
+    def has_axis_types(self, info: Info, value: list[enums.AxisType] | None, prefix: str) -> Q:
+        """Match spaces with an axis of every one of these types: one subquery per type, all ANDed."""
+        if not value:
+            return Q()
+        condition = Q()
+        for axis_type in {axis_type.value for axis_type in value}:
+            condition &= _has_axis_type_q(prefix, "id", axis_type)
+        return condition
+
     @kante.filter_field(description="Filter to the spaces something composes over without living in them: an experiment's world. False finds the spaces nothing is laid out in")
     def composed_over(self, info: Info, value: bool | None, prefix: str) -> Q:
         if value is None or not graph_logic.WORLD_RELATIONS:
@@ -556,6 +566,11 @@ class AnnotationCollectionFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFil
     @kante.filter_field(description="Filter to the collections drawn over this coordinate system: pass a segment's clock for the events and epochs marking the whole segment, or an experiment's world for those on its timeline")
     def drawn_over(self, info: Info, value: strawberry.ID | None, prefix: str) -> Q:
         return Q() if value is None else Q(**{f"{prefix}coordinate_system__in": _systems_drawn_over_system(value)})
+
+    @kante.filter_field(description="Filter by whether the collection is drawn in a space with a TIME axis -- events and epochs on a clock -- or in one without (shapes over a static map)")
+    def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
+        """Match collections drawn in a space with (true) or without (false) a TIME axis."""
+        return _timed_q(prefix, value)
 
 
 @kante.filter_type(models.Annotation)
@@ -1010,6 +1025,11 @@ class ArrayDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
         queryset, alias = _annotate_axis_type_count(queryset, prefix, types)
         return queryset, Q(**{alias: len(types)})
 
+    @kante.filter_field(description="Filter by whether the dataset's sample grid has a TIME axis -- a recording, a stimulus, placeable on a clock -- or none (a unit's waveform templates, a static map). The same question `timed` asks of sparse and table datasets; `hasAxisTypes: [TIME]` is its true half")
+    def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
+        """Match array datasets whose sample grid has (true) or lacks (false) a TIME axis."""
+        return _timed_q(prefix, value)
+
     @kante.filter_field(description="Filter by whether the dataset carries a resolution pyramid: true for the multiscale ones, false for those with a single level")
     def multiscale(self, info: Info, queryset: QuerySet, value: bool | None, prefix: str) -> tuple[QuerySet, Q]:
         if value is None:
@@ -1240,6 +1260,27 @@ def _derived_dataset_ids(source_id: strawberry.ID | None = None):
     return edges.values_list("input__datasets__id", flat=True)
 
 
+def _has_axis_type_q(prefix: str, system: str, axis_type: str) -> Q:
+    """Q for the rows whose coordinate system carries an axis of this type.
+
+    ``system`` is the path from the filtered row to its coordinate system's id: ``coordinate_system_id``
+    on a container, ``id`` on a coordinate system itself. A subquery rather than a join across
+    ``axes``, which would repeat a row per matching axis -- and composes under ``~`` for the
+    systems without one. The one place `timed` and `hasAxisTypes` ask their question, so a
+    sparse dataset and an array dataset never answer "is it timed" two different ways.
+    """
+    systems = models.Axis.objects.filter(type=axis_type).values("coordinate_system_id")
+    return Q(**{f"{prefix}{system}__in": systems})
+
+
+def _timed_q(prefix: str, value: bool | None, system: str = "coordinate_system_id") -> Q:
+    """`timed`: the rows whose coordinate system has a TIME axis (true) or none (false); null leaves them all."""
+    if value is None:
+        return Q()
+    has_time = _has_axis_type_q(prefix, system, enums.AxisTypeChoices.TIME.value)
+    return has_time if value else ~has_time
+
+
 def _annotate_axis_type_count(queryset: QuerySet, prefix: str, types: set[str]) -> tuple[QuerySet, str]:
     """Annotate how many of `types` a dataset's intrinsic axes match, and return the alias to compare against.
 
@@ -1284,12 +1325,7 @@ class SparseDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFi
     @kante.filter_field(description="Filter by whether the matrix has a TIME axis -- a spike raster, placed on a clock by a sampling law -- or only enumerations. elektro's own")
     def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
         """Match sparse datasets with (true) or without (false) a TIME axis."""
-        if value is None:
-            return Q()
-        # A subquery rather than a join across `axes`, which would repeat a row per TIME axis.
-        timed = models.Axis.objects.filter(type=enums.AxisTypeChoices.TIME.value).values("coordinate_system_id")
-        has_time = Q(**{f"{prefix}coordinate_system_id__in": timed})
-        return has_time if value else ~has_time
+        return _timed_q(prefix, value)
 
     @kante.filter_field(description="Filter to sparse datasets placeable into a coordinate system across steps that compose into one affine map -- a raster's sampling law onto a clock is one")
     def placeable_in(self, info: Info, value: PlaceableFilter | None, prefix: str) -> Q:
@@ -1328,12 +1364,7 @@ class TableDatasetFilter(IdsFilterMixin, SemanticNameSearchFilterMixin, OwnedFil
 
     @kante.filter_field(description="Filter by whether the table has a TIME coordinate column -- an event or epoch list, placeable on a clock -- or none (a unit table, a measurement table). elektro's own")
     def timed(self, info: Info, value: bool | None, prefix: str) -> Q:
-        if value is None:
-            return Q()
-        # A subquery rather than a join across `axes`, which would repeat a row per TIME axis.
-        timed = models.Axis.objects.filter(type=enums.AxisTypeChoices.TIME.value).values("coordinate_system_id")
-        has_time = Q(**{f"{prefix}coordinate_system_id__in": timed})
-        return has_time if value else ~has_time
+        return _timed_q(prefix, value)
 
     @kante.filter_field(description="Filter to table datasets placeable into this coordinate system: those whose own coordinate system reaches it across steps that compose into one affine map, walking the transformation edges")
     def placeable_in(self, info: Info, value: PlaceableFilter | None, prefix: str) -> Q:

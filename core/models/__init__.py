@@ -359,6 +359,13 @@ class ExperimentLayer(models.Model):
     clim_min = models.FloatField(null=True, blank=True, help_text="(trace) The bottom of the value range, in the dataset's value unit; (spikes, amplitude) the bottom of the colormap. Null reads it from the value histogram")
     clim_max = models.FloatField(null=True, blank=True, help_text="(trace) The top of the value range, in the dataset's value unit; (spikes, amplitude) the top of the colormap. Null reads it from the value histogram")
     line_width = models.FloatField(null=True, blank=True, help_text="(trace) The line width, in screen pixels")
+    channel_coloring = TextChoicesField(
+        choices_enum=enums.ChannelColoringChoices,
+        default=enums.ChannelColoringChoices.OVERLAY.value,
+        # A database default too, so the build before this one keeps inserting layers.
+        db_default=enums.ChannelColoringChoices.OVERLAY.value,
+        help_text="(trace) When the channels each get their own colour: only where they share a plot, always, or never",
+    )
 
     # -- shared by the drawing kinds -----------------------------------------------------------
     color = models.JSONField(null=True, blank=True, help_text="(trace, spikes, events) The base colour as RGBA, 0-255. Null lets the viewer choose")

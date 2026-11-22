@@ -12,7 +12,7 @@ spokes are this service's (:mod:`rigkit` where mikro has ``optikit``). Every typ
 """
 
 import datetime
-from typing import TYPE_CHECKING, Annotated, List, Optional
+from typing import TYPE_CHECKING, Annotated, List, Optional, cast
 
 import strawberry
 from strawberry.scalars import JSON
@@ -26,6 +26,8 @@ from rigkit.types import RigStateGraph
 
 from core import enums, filters, models, order, scalars, scoping
 from core.base_models import slices as base_models
+from core.inputs import AnchorWindowInput
+from strawberry_django.pagination import OffsetPaginationInput
 from core.logic import file_link as file_link_logic
 from core.logic import graph as graph_logic
 from core.types._shared import DESCRIPTORS_DESCRIPTION, resolve_descriptors, OrgScoped, apply_link_filters
@@ -487,7 +489,25 @@ class Lens(OrgScoped):
         """The lens' slices."""
         return self.slices_list
 
-    @kante.django_field(description="The dataset's coordinate anchors that fall inside this lens: an anchor pinned along an axis is in when its position is within the slice, and an anchor global along it always is. How a view of channels 2 to 5 learns what those four channels are called")
-    def active_anchors(self, info: Info) -> List[CoordinateAnchor]:
-        """The anchors the lens' slices do not exclude."""
-        return self.active_anchors
+    @kante.django_field(description="The dataset's coordinate anchors that fall inside this lens: an anchor pinned along an axis is in when its position is within the slice, and an anchor global along it always is. How a view of channels 2 to 5 learns what those four channels are called. `within` narrows to a channel and a time window, oldest anchor first")
+    def active_anchors(
+        self,
+        info: Info,
+        within: Annotated[
+            Optional[List[AnchorWindowInput]],
+            strawberry.argument(
+                description=(
+                    "Narrow further to the anchors inside every one of these windows, in the dataset's own anchor coordinates (sample indices): "
+                    "a time window, one channel (`min == max`). An anchor that says nothing about an axis is inside any window on it"
+                )
+            ),
+        ] = None,
+        pagination: Optional[OffsetPaginationInput] = None,
+    ) -> List[CoordinateAnchor]:
+        """The anchors the lens' slices do not exclude, optionally narrowed and paged, oldest first."""
+        lens = cast(models.Lens, self)
+        anchors = lens.anchors_within([(window.axis, window.min, window.max) for window in within or []]).order_by("pk")
+        if pagination is not None:
+            offset = pagination.offset or 0
+            anchors = anchors[offset:] if pagination.limit is None or pagination.limit < 0 else anchors[offset : offset + pagination.limit]
+        return list(anchors)

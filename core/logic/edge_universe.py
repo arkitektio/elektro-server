@@ -36,6 +36,7 @@ dataset. A parent is not an unrelated dataset; it is where the pixels came from.
 from collections.abc import Iterable
 
 from django.db.models import Q
+from kante.context import Organization
 
 from core import models
 from core.logic import graph as graph_logic
@@ -190,7 +191,7 @@ def container_buckets(
 def root_edges_of(
     space: "models.CoordinateSystem | None",
     *,
-    organization=None,
+    organization: Organization | None = None,
     loaders: dict | None = None,
 ) -> list["models.Transformation"]:
     """Every top-level edge touching this space, in both directions.
@@ -257,7 +258,7 @@ class EdgeUniverse:
         self,
         space: "models.CoordinateSystem | None",
         *,
-        organization=None,
+        organization: Organization | None = None,
         seed_systems: Iterable[int] = (),
         seed_datasets: Iterable[int] = (),
         loaders: dict | None = None,

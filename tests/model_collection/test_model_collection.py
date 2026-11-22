@@ -1,8 +1,10 @@
 """createModelCollection executed against the schema."""
 
 import pytest
+from kante.context import HttpContext
 
 from core.models import ModelCollection
+from tests.fixture_types import AExecute, NeuronModelFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -14,18 +16,21 @@ mutation ($input: CreateModelCollectionInput!) {
 """
 
 
-async def test_create_model_collection(aexecute, make_neuron_model):
+async def test_create_model_collection(
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     nm = await make_neuron_model()
     res = await aexecute(
         CREATE_MODEL_COLLECTION,
         {"input": {"name": "Collection", "models": [str(nm.id)]}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createModelCollection"]["name"] == "Collection"
     assert await ModelCollection.objects.filter(name="Collection").aexists()
 
 
-async def test_create_model_collection_empty_models(aexecute):
+async def test_create_model_collection_empty_models(aexecute: AExecute) -> None:
     # No member models is allowed (the m2m is just left empty).
     res = await aexecute(
         CREATE_MODEL_COLLECTION, {"input": {"name": "Empty", "models": []}}
@@ -33,7 +38,7 @@ async def test_create_model_collection_empty_models(aexecute):
     assert not res.errors, res.errors
 
 
-async def test_create_model_collection_missing_name(aexecute):
+async def test_create_model_collection_missing_name(aexecute: AExecute) -> None:
     res = await aexecute(CREATE_MODEL_COLLECTION, {"input": {"models": []}})
     assert res.errors
 
@@ -47,8 +52,10 @@ query {
 
 
 async def test_collections_and_models_say_when_and_by_whom_they_were_made(
-    aexecute, make_neuron_model, authenticated_context
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """A member's profile feed merges services by date: both need their creation time and maker on the type."""
     nm = await make_neuron_model()
     made = await aexecute(
@@ -59,6 +66,7 @@ async def test_collections_and_models_say_when_and_by_whom_they_were_made(
 
     res = await aexecute(DATED)
     assert not res.errors, res.errors
+    assert res.data is not None
     (collection,) = res.data["modelCollections"]
     model = next(row for row in res.data["neuronModels"] if row["id"] == str(nm.id))
     assert collection["createdAt"] and model["createdAt"]

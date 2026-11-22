@@ -17,8 +17,9 @@ The rule, evaluated against the anchor:
 
 from __future__ import annotations
 
-from typing import Any
-
+from authentikate.models import User
+from django.db.models import Model
+from kante.context import UniversalRequest
 from kante.types import Info
 
 from core import models
@@ -77,7 +78,7 @@ class PermissionDenied(Exception):
     """Raised when the current user may not perform the requested action."""
 
 
-def resolve_anchor(instance: Any) -> Any:
+def resolve_anchor(instance: Model) -> Model:
     """Walk to the object that governs permissions for ``instance``.
 
     Follows the configured attribute chain. If a nullable link in the chain is
@@ -94,7 +95,7 @@ def resolve_anchor(instance: Any) -> Any:
     return anchor
 
 
-def _current_roles(request: Any) -> list[str]:
+def _current_roles(request: UniversalRequest) -> list[str]:
     """Roles the current user holds in the active organization."""
     try:
         membership = request.membership
@@ -103,7 +104,7 @@ def _current_roles(request: Any) -> list[str]:
     return membership.roles or []
 
 
-def _original_task_assigner(anchor: Any) -> Any | None:
+def _original_task_assigner(anchor: Model) -> User | None:
     """The user who assigned the task that created ``anchor`` (if any).
 
     Resolved from the earliest provenance history row. Objects created outside
@@ -124,7 +125,7 @@ def is_org_admin(info: Info) -> bool:
     return ADMIN in _current_roles(info.context.request)
 
 
-def can_delete(info: Info, instance: Any) -> bool:
+def can_delete(info: Info, instance: Model) -> bool:
     """Whether the current user may delete ``instance`` (or its anchor)."""
     request = info.context.request
     user = request.user
@@ -148,7 +149,7 @@ def can_delete(info: Info, instance: Any) -> bool:
     return False
 
 
-def enforce_delete(info: Info, instance: Any) -> None:
+def enforce_delete(info: Info, instance: Model) -> None:
     """Raise :class:`PermissionDenied` unless the current user may delete ``instance``."""
     if not can_delete(info, instance):
         raise PermissionDenied(

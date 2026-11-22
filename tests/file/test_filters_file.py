@@ -4,10 +4,14 @@ Ported from the file half of mikro's ``tests/test_filters_file_table.py`` (there
 dataset here). The link, store, extension and mime-group filters are in ``test_file_links.py``.
 """
 
+from collections.abc import Mapping
+
 import pytest
+from kante.context import HttpContext
 
 from core.enums import FileLinkDirectionChoices
 from core.models import ArrayDataset, FileLink
+from tests.fixture_types import AExecute
 from tests.seed import create_file, create_folder
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -19,13 +23,20 @@ FILE_QUERY = """
 """
 
 
-async def file_names(aexecute, filters, context=None):  # noqa: ANN001, ANN201
+async def file_names(
+    aexecute: AExecute,
+    filters: Mapping[str, object],
+    context: HttpContext | None = None,
+) -> set[str]:
     result = await aexecute(FILE_QUERY, {"filters": filters}, context=context)
     assert not result.errors, result.errors
+    assert result.data is not None
     return {f["name"] for f in result.data["files"]}
 
 
-async def test_file_filter_by_folder(aexecute, authenticated_context):
+async def test_file_filter_by_folder(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ds_a = await create_folder(authenticated_context, "A")
     ds_b = await create_folder(authenticated_context, "B")
     await create_file(authenticated_context, "InA", ds_a)
@@ -39,7 +50,9 @@ async def test_file_filter_by_folder(aexecute, authenticated_context):
     }
 
 
-async def test_file_filter_by_size_and_content_type(aexecute, authenticated_context):
+async def test_file_filter_by_size_and_content_type(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ds = await create_folder(authenticated_context, "DS")
     await create_file(
         authenticated_context, "Small", ds, size=100, content_type="text/csv"
@@ -54,7 +67,9 @@ async def test_file_filter_by_size_and_content_type(aexecute, authenticated_cont
     }
 
 
-async def test_file_filter_by_not_derived(aexecute, authenticated_context):
+async def test_file_filter_by_not_derived(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`notDerived` separates the files a converter read from the files written out of data here.
 
     In mikro it used to read the `File.origins` M2M, which no resolver ever wrote -- so it
@@ -83,7 +98,9 @@ async def test_file_filter_by_not_derived(aexecute, authenticated_context):
     assert await file_names(aexecute, {"notDerived": False}) == {"Derived"}
 
 
-async def test_file_filter_by_search(aexecute, authenticated_context):
+async def test_file_filter_by_search(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ds = await create_folder(authenticated_context, "DS")
     await create_file(authenticated_context, "measurements.csv", ds)
     await create_file(authenticated_context, "raw.abf", ds)
@@ -91,7 +108,9 @@ async def test_file_filter_by_search(aexecute, authenticated_context):
     assert await file_names(aexecute, {"search": "MEASURE"}) == {"measurements.csv"}
 
 
-async def test_an_explicit_null_is_no_constraint(aexecute, authenticated_context):
+async def test_an_explicit_null_is_no_constraint(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`USE_DEPRECATED_FILTERS`: strawberry-django hands a resolver the explicit `null` a client sent, and every one of these must read it as "not asked"."""
     ctx = authenticated_context
     ds = await create_folder(ctx, "DS")
@@ -122,8 +141,10 @@ async def test_an_explicit_null_is_no_constraint(aexecute, authenticated_context
 
 
 async def test_files_are_listed_per_organization(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """Every list here is organization-scoped, whatever the filter says."""
     mine = await create_folder(authenticated_context, "Mine")
     await create_file(authenticated_context, "mine.abf", mine)

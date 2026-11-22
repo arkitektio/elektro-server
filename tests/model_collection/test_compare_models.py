@@ -3,15 +3,17 @@
 from core.types import ChangeType, compare_models
 
 
-def _kanne_q(canonical, given, unit="femtovolt"):
+def _kanne_q(canonical: int, given: str, unit: str = "femtovolt") -> dict[str, object]:
     return {"canonical": canonical, "given": given, "unit": unit}
 
 
-def _generic_q(magnitude, unit, dimension="[arbitrary]"):
+def _generic_q(
+    magnitude: float, unit: str, dimension: str = "[arbitrary]"
+) -> dict[str, object]:
     return {"magnitude": magnitude, "unit": unit, "dimension": dimension}
 
 
-def test_quantity_change_is_single_human_readable_row():
+def test_quantity_change_is_single_human_readable_row() -> None:
     a = {"vInit": _kanne_q(-67_000_000_000_000, "-67 mV")}
     b = {"vInit": _kanne_q(-70_000_000_000_000, "-70 mV")}
     changes = compare_models(a, b)
@@ -22,7 +24,7 @@ def test_quantity_change_is_single_human_readable_row():
     assert c.value_a == "-67 mV" and c.value_b == "-70 mV"
 
 
-def test_generic_quantity_change_condensed():
+def test_generic_quantity_change_condensed() -> None:
     a = {"gbar": _generic_q(0.12, "siemens / centimeter ** 2", "[current] ...")}
     b = {"gbar": _generic_q(0.24, "siemens / centimeter ** 2", "[current] ...")}
     changes = compare_models(a, b)
@@ -31,12 +33,12 @@ def test_generic_quantity_change_condensed():
     assert changes[0].value_b == "0.24 siemens / centimeter ** 2"
 
 
-def test_unchanged_quantity_yields_no_change():
+def test_unchanged_quantity_yields_no_change() -> None:
     q = _kanne_q(-70_000_000_000_000, "-70 mV")
     assert compare_models({"vInit": dict(q)}, {"vInit": dict(q)}) == []
 
 
-def test_added_and_removed_quantity_are_human_readable():
+def test_added_and_removed_quantity_are_human_readable() -> None:
     added = compare_models({}, {"vInit": _kanne_q(-70_000_000_000_000, "-70 mV")})
     assert len(added) == 1 and added[0].type == ChangeType.ADDED
     assert added[0].value_b == "-70 mV"
@@ -46,7 +48,7 @@ def test_added_and_removed_quantity_are_human_readable():
     assert removed[0].value_a == "-70 mV"
 
 
-def test_quantity_inside_list_is_condensed():
+def test_quantity_inside_list_is_condensed() -> None:
     # e.g. an ion's reversal_potential inside compartments[].ions[]
     a = {"ions": [{"ion": "na", "e": _kanne_q(50_000_000_000_000, "50 mV")}]}
     b = {"ions": [{"ion": "na", "e": _kanne_q(55_000_000_000_000, "55 mV")}]}
@@ -56,7 +58,7 @@ def test_quantity_inside_list_is_condensed():
     assert changes[0].value_a == "50 mV" and changes[0].value_b == "55 mV"
 
 
-def test_non_quantity_dicts_still_recurse():
+def test_non_quantity_dicts_still_recurse() -> None:
     # A regular nested dict must still diff key-by-key (not be treated as a quantity).
     a = {"topology": {"nseg": 1, "L": 20}}
     b = {"topology": {"nseg": 3, "L": 20}}

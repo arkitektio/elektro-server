@@ -19,6 +19,7 @@ unit restores its dataset and lenses, and a derivation edge the datasets it leav
 
 from collections import Counter
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from elektro_server.vocabulary import (
     EXTENT_KEYS,
@@ -32,6 +33,9 @@ from kanne_server.scalars import (
     is_arbitrary_unit,
     normalize_compact_units,
 )
+
+if TYPE_CHECKING:
+    from core import models
 
 
 def array_descriptors(
@@ -49,7 +53,7 @@ def array_descriptors(
     for key, wanted in EXTENT_KEYS.items():
         descriptors[key] = sum(
             extent
-            for axis_type, extent in zip(axis_types, shape)
+            for axis_type, extent in zip(axis_types, shape, strict=True)
             if axis_type == wanted
         )
     return descriptors
@@ -72,7 +76,7 @@ def value_dimension(unit: str | None) -> str:
     return "other"
 
 
-def value_descriptors(dataset) -> dict[str, str]:  # noqa: ANN001 - a core.models.ArrayDataset
+def value_descriptors(dataset: "models.ArrayDataset") -> dict[str, str]:
     """What a dataset's values are: what its dataset-wide unit measures, and whether a derivation declared them labels."""
     from core.logic import (
         graph as graph_logic,  # it imports the models this module describes
@@ -85,7 +89,7 @@ def value_descriptors(dataset) -> dict[str, str]:  # noqa: ANN001 - a core.model
     }
 
 
-def dataset_descriptors(dataset) -> dict[str, int | str]:  # noqa: ANN001 - a core.models.ArrayDataset
+def dataset_descriptors(dataset: "models.ArrayDataset") -> dict[str, int | str]:
     """An array dataset's descriptors, from the row and what was written with it."""
     try:
         counted = array_descriptors(
@@ -96,7 +100,7 @@ def dataset_descriptors(dataset) -> dict[str, int | str]:  # noqa: ANN001 - a co
     return {**counted, **value_descriptors(dataset)}
 
 
-def lens_descriptors(lens) -> dict[str, int | str]:  # noqa: ANN001 - a core.models.Lens
+def lens_descriptors(lens: "models.Lens") -> dict[str, int | str]:
     """A lens' descriptors: its dataset's axes over the shape its slices cut out.
 
     A lens keeps every axis of its dataset (a slice narrows an axis, it never drops one), so

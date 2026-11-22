@@ -17,9 +17,11 @@ docstrings drifted into claiming the opposite.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -36,8 +38,8 @@ mutation Update($input: UpdateArrayDatasetInput!) {
 
 
 async def test_a_dataset_can_be_renamed_and_redescribed(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The two fields that are editable, edited."""
     dataset = await seed.create_dataset(authenticated_context, "raw")
 
@@ -52,6 +54,7 @@ async def test_a_dataset_can_be_renamed_and_redescribed(
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     updated = result.data["updateArrayDataset"]
     assert updated["name"] == "soma voltage"
@@ -65,7 +68,9 @@ async def test_a_dataset_can_be_renamed_and_redescribed(
     )
 
 
-async def test_a_rename_is_audited(aexecute, authenticated_context):
+async def test_a_rename_is_audited(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The point of routing a rename through a mutation rather than leaving the column writable.
 
     Attribution comes from `authentikate.vars.user_var`, which `AuthentikateExtension` sets per
@@ -85,6 +90,7 @@ async def test_a_rename_is_audited(aexecute, authenticated_context):
         UPDATE, {"input": {"id": str(dataset.pk), "name": "renamed once"}}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     entries = result.data["updateArrayDataset"]["provenanceEntries"]
     assert len(entries) > before, "a save must leave a history row behind"
@@ -114,7 +120,7 @@ async def test_a_rename_is_audited(aexecute, authenticated_context):
     assert after == before + 2, f"two renames, two rows -- got {after - before}"
 
 
-async def test_a_dataset_update_cannot_reach_its_geometry():
+async def test_a_dataset_update_cannot_reach_its_geometry() -> None:
     """The surface itself is the guarantee: there is no field to smuggle an array or an axis through."""
     from elektro_server.schema import schema
 
@@ -135,8 +141,8 @@ async def test_a_dataset_update_cannot_reach_its_geometry():
 
 
 async def test_a_datasets_own_coordinate_system_is_not_updatable(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`updateCoordinateSystem` serves shared spaces alone: every other system is named by its owner.
 
     The refusal that makes "no updates on its coordinate system" true rather than merely
@@ -161,8 +167,10 @@ async def test_a_datasets_own_coordinate_system_is_not_updatable(
 
 
 async def test_another_organization_cannot_rename_this_dataset(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """Every by-id lookup is organization-scoped here, so the rename fails before it is a rename."""
     dataset = await seed.create_dataset(authenticated_context, "raw")
     result = await aexecute(

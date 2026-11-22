@@ -7,9 +7,11 @@ per row (mikro's point layer). The x and y columns are the table's declaration, 
 """
 
 import pytest
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -33,7 +35,9 @@ mutation ($input: CreatePointLayerInput!) {
 """
 
 
-async def _probe(ctx):  # noqa: ANN001, ANN202
+async def _probe(
+    ctx: HttpContext,
+) -> tuple[models.CoordinateSystem, models.TableDataset, models.Experiment]:
     """A probe space, a channel map registered into it, and an experiment over the space."""
     probe = await seed.create_world(ctx, "probe", axes=PROBE_AXES)
     channels = await seed.create_table_dataset(ctx, "channel map", columns=CHANNEL_MAP)
@@ -48,8 +52,8 @@ async def _probe(ctx):  # noqa: ANN001, ANN202
 
 
 async def test_a_channel_map_is_drawn_in_the_probe_space(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     _, channels, experiment = await _probe(authenticated_context)
     res = await aexecute(
         CREATE_POINTS,
@@ -67,6 +71,7 @@ async def test_a_channel_map_is_drawn_in_the_probe_space(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     layer = res.data["createPointLayer"]
     assert (
         layer["kind"],
@@ -93,8 +98,11 @@ async def test_a_channel_map_is_drawn_in_the_probe_space(
     ids=["size-by-text", "missing-label", "zero-size"],
 )
 async def test_a_point_setting_is_checked(
-    aexecute, authenticated_context, settings, refusal
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    settings: dict[str, object],
+    refusal: str,
+) -> None:
     _, channels, experiment = await _probe(authenticated_context)
     res = await aexecute(
         CREATE_POINTS,
@@ -110,8 +118,8 @@ async def test_a_point_setting_is_checked(
 
 
 async def test_a_table_with_a_time_column_is_not_a_place(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     probe, _, experiment = await _probe(authenticated_context)
     events = await seed.create_table_dataset(authenticated_context, "TTL")
     res = await aexecute(
@@ -141,14 +149,15 @@ async def test_a_table_with_a_time_column_is_not_a_place(
 
 
 async def test_the_bootstrap_draws_a_channel_map_as_points(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     probe, _, _ = await _probe(authenticated_context)
     res = await aexecute(
         "mutation ($input: CreateExperimentFromCoordinateSystemInput!) { createExperimentFromCoordinateSystem(input: $input) { name layers { kind name ... on PointLayer { xColumn yColumn } } } }",
         {"input": {"coordinateSystem": str(probe.pk)}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     staged = res.data["createExperimentFromCoordinateSystem"]
     assert staged["name"] == probe.name, "named for the space"
     assert staged["layers"] == [
@@ -157,8 +166,8 @@ async def test_the_bootstrap_draws_a_channel_map_as_points(
 
 
 async def test_units_at_their_positions_are_coloured_through_the_units_table(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The documented shape for units in space: a positions table whose (x, y) are SPACE axes and whose `unit_id` references the units table.
 
     The units table itself stays keyed by its one INDEX `unit_id` -- the raster's axis reference
@@ -208,14 +217,15 @@ async def test_units_at_their_positions_are_coloured_through_the_units_table(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createPointLayer"]["colorBys"] == [
         {"column": "quality", "colormap": "DISTINCT"}
     ]
 
 
 async def test_unnamed_space_columns_are_read_by_position(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """mikro's fallback when no column is named x or y: the last SPACE column is x, the one before it y (array order, z-y-x)."""
     probe = await seed.create_world(
         authenticated_context,
@@ -255,6 +265,7 @@ async def test_unnamed_space_columns_are_read_by_position(
         {"input": {"experiment": str(experiment.pk), "tableDataset": str(sites.pk)}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     layer = res.data["createPointLayer"]
     assert (layer["xColumn"], layer["yColumn"], layer["zColumn"]) == (
         "lateral",

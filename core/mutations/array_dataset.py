@@ -736,7 +736,7 @@ def _create_array_dataset(
                 organization=ctx.organization,
             )
 
-        data_array = models.DataArray.objects.create(
+        models.DataArray.objects.create(
             level=level,
             store=store,
             dataset=dataset,

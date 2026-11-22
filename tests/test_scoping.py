@@ -7,22 +7,29 @@ helpers directly so the pattern is covered as soon as it lands.
 """
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from django.db.models import Model
 from kante.context import HttpContext
+from kante.context import Organization as RequestOrganization
+from kante.types import Info
 
 from core import scoping
 from core.models import ArrayDataset, Folder
 
 
-def _fake_info(organization):
+def _fake_info(organization: RequestOrganization) -> Info:
     """A minimal stand-in for kante's Info — for_org only reads request.organization."""
-    return SimpleNamespace(
-        context=SimpleNamespace(request=SimpleNamespace(organization=organization))
+    return cast(
+        Info,
+        SimpleNamespace(
+            context=SimpleNamespace(request=SimpleNamespace(organization=organization))
+        ),
     )
 
 
-def test_organization_path_direct():
+def test_organization_path_direct() -> None:
     # Both models carry a direct organization FK, so the lookup path is trivial.
     assert scoping.organization_path(Folder) == "organization"
     assert scoping.organization_path(ArrayDataset) == "organization"
@@ -31,7 +38,7 @@ def test_organization_path_direct():
 @pytest.mark.django_db(transaction=True)
 def test_for_org_scopes_queryset(
     authenticated_context: HttpContext, other_org_context: HttpContext
-):
+) -> None:
     org_a = authenticated_context.request.organization
     org_b = other_org_context.request.organization
 
@@ -48,10 +55,10 @@ def test_for_org_scopes_queryset(
         membership=other_org_context.request.membership,
     )
 
-    scoped_a = scoping.for_org(Folder, _fake_info(org_a))  # type: ignore[arg-type]
+    scoped_a = scoping.for_org(Folder, _fake_info(org_a))
     assert list(scoped_a.values_list("pk", flat=True)) == [ds_a.pk]
 
-    scoped_b = scoping.for_org(Folder, _fake_info(org_b))  # type: ignore[arg-type]
+    scoped_b = scoping.for_org(Folder, _fake_info(org_b))
     assert list(scoped_b.values_list("pk", flat=True)) == [ds_b.pk]
 
 
@@ -101,7 +108,7 @@ ORGANIZATION_PATHS = {
 }
 
 
-def _core_models():
+def _core_models() -> list[type[Model]]:
     from django.apps import apps
 
     return [
@@ -111,21 +118,26 @@ def _core_models():
     ]
 
 
-def test_every_model_is_listed():
+def test_every_model_is_listed() -> None:
     assert sorted(model.__name__ for model in _core_models()) == sorted(
         ORGANIZATION_PATHS
     ), "a new model must state how it reaches its organization"
 
 
 @pytest.mark.parametrize("model", _core_models(), ids=lambda model: model.__name__)
-def test_every_model_reaches_an_organization_over_required_links(model):
+def test_every_model_reaches_an_organization_over_required_links(
+    model: type[Model],
+) -> None:
     scoping.organization_path.cache_clear()
     path = scoping.organization_path(model)
     assert path == ORGANIZATION_PATHS[model.__name__]
+    assert path is not None
 
     # A nullable link on the way would silently hide every row whose link is null from scoped reads.
     current = model
     for name in path.split("__"):
+        # Each step but the last is a relation, resolved to its model class once apps are loaded.
+        assert isinstance(current, type), current
         field = current._meta.get_field(name)
         assert not field.null, (
             f"{current.__name__}.{name} is nullable, so rows without it would vanish from every scoped read"
@@ -139,7 +151,7 @@ def test_every_model_reaches_an_organization_over_required_links(model):
 @pytest.mark.django_db(transaction=True)
 def test_nested_scoping_relaxes_only_for_the_relation_of_a_known_parent(
     authenticated_context: HttpContext, other_org_context: HttpContext
-):
+) -> None:
     """`OrgScopedOrNested` must scope every root read, and leave alone only what is visibly a parent's relation.
 
     It exists because re-filtering a prefetched relation throws the prefetch away (a query per
@@ -158,12 +170,15 @@ def test_nested_scoping_relaxes_only_for_the_relation_of_a_known_parent(
     Axis.objects.create(coordinate_system=mine, order=0, name="t", type="TIME")
     Axis.objects.create(coordinate_system=theirs, order=0, name="t", type="TIME")
 
-    info = SimpleNamespace(
-        variable_values={},
-        context=SimpleNamespace(
-            request=SimpleNamespace(
-                organization=authenticated_context.request.organization
-            )
+    info = cast(
+        Info,
+        SimpleNamespace(
+            variable_values={},
+            context=SimpleNamespace(
+                request=SimpleNamespace(
+                    organization=authenticated_context.request.organization
+                )
+            ),
         ),
     )
 

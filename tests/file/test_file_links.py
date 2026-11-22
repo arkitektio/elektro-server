@@ -20,11 +20,21 @@ mikro patches ``ZarrStore.fill_info``, ``BigFileStore.fill_info`` and
 the export reads the size of a real object, both in the compose RustFS.
 """
 
+from collections.abc import Mapping, Sequence
+
 import pytest
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import enums, models
 from core.inputs.file_link import EXPORT_OF_MEMBERS, file_link_union_types
 from core.logic.file_link import _CONTAINER_FIELDS, _CONTAINER_MODELS
+from tests.fixture_types import (
+    AExecute,
+    BigFileStoreFactory,
+    GraphQLData,
+    ZarrStoreFactory,
+)
 from tests.seed import create_dataset, create_file, create_folder
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -45,7 +55,12 @@ LINK_FILE = "mutation L($input: LinkFileInput!) { linkFile(input: $input) { id d
 T = [{"name": "t", "type": "TIME"}]
 
 
-async def _ingest(aexecute, zarr_store, source_files: list, context=None):  # noqa: ANN001, ANN202
+async def _ingest(
+    aexecute: AExecute,
+    zarr_store: ZarrStoreFactory,
+    source_files: Sequence[Mapping[str, object]],
+    context: HttpContext | None = None,
+) -> ExecutionResult:
     """Run the real ingest mutation, naming the files the array was converted from. Returns the raw result."""
     store = await zarr_store(context=context, shape=[1000], dimension_names=["t"])
     return await aexecute(
@@ -64,30 +79,35 @@ async def _ingest(aexecute, zarr_store, source_files: list, context=None):  # no
 
 
 async def _create_array_dataset_with_sources(
-    aexecute, zarr_store, source_files: list
-) -> dict:  # noqa: ANN001
+    aexecute: AExecute,
+    zarr_store: ZarrStoreFactory,
+    source_files: Sequence[Mapping[str, object]],
+) -> GraphQLData:
     result = await _ingest(aexecute, zarr_store, source_files)
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createArrayDataset"]
 
 
-async def _annotation_collection(aexecute, name: str = "Marks") -> str:  # noqa: ANN001
+async def _annotation_collection(aexecute: AExecute, name: str = "Marks") -> str:
     """The other container kind, made the way a client makes one. Returns its id."""
     result = await aexecute(
         "mutation ($input: CreateAnnotationCollectionInput!) { createAnnotationCollection(input: $input) { id } }",
         {"input": {"name": name, "axes": T}},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createAnnotationCollection"]["id"]
 
 
-async def _file_names(aexecute, filters: dict) -> set:  # noqa: ANN001
+async def _file_names(aexecute: AExecute, filters: Mapping[str, object]) -> set[str]:
     """The names the `files` query returns for a filter, as a set."""
     result = await aexecute(
         "query L($filters: FileFilter) { files(filters: $filters) { name } }",
         {"filters": filters},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return {row["name"] for row in result.data["files"]}
 
 
@@ -153,8 +173,8 @@ async def test_the_container_kinds_are_the_four_this_service_has() -> None:
 
 
 async def test_a_dataset_records_the_file_it_was_converted_from(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     ctx = authenticated_context
     folder = await create_folder(ctx, "DS")
     file = await create_file(ctx, "session.abf", folder)
@@ -180,8 +200,8 @@ async def test_a_dataset_records_the_file_it_was_converted_from(
 
 
 async def test_two_series_of_one_file_are_two_links(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """A dataset fused from two series names one file twice, and that is not a duplicate.
 
     This is why the series is part of the link's *identity* rather than a label on it: keyed
@@ -207,8 +227,8 @@ async def test_two_series_of_one_file_are_two_links(
 
 
 async def test_naming_one_file_twice_is_refused_with_a_sentence(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """The writer refuses before the database does, so the client gets prose not an IntegrityError."""
     ctx = authenticated_context
     folder = await create_folder(ctx, "DS")
@@ -231,8 +251,8 @@ async def test_naming_one_file_twice_is_refused_with_a_sentence(
 
 
 async def test_source_files_leave_the_coordinate_graph_alone(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """The whole point of the split: recording a file mints no space and writes no edge.
 
     Had FILE become a `DerivedFromInput` kind, this dataset would carry a coordinate system
@@ -278,8 +298,10 @@ mutation E($input: FromFileLike!) {
 
 
 async def test_a_file_records_the_dataset_it_was_written_from(
-    aexecute, bigfile_store, authenticated_context
-):
+    aexecute: AExecute,
+    bigfile_store: BigFileStoreFactory,
+    authenticated_context: HttpContext,
+) -> None:
     ctx = authenticated_context
     dataset = await create_dataset(ctx, "Sweep")
     store = await bigfile_store(content=b"x" * 42)
@@ -302,6 +324,7 @@ async def test_a_file_records_the_dataset_it_was_written_from(
     )
 
     assert not result.errors, result.errors
+    assert result.data is not None
     file = result.data["fromFileLike"]
     # The supplied name, not the store's key: `fileName` was required and then ignored.
     assert file["name"] == "sweep.nwb"
@@ -315,8 +338,8 @@ async def test_a_file_records_the_dataset_it_was_written_from(
 
 
 async def test_a_file_records_the_annotation_collection_it_was_written_from(
-    aexecute, bigfile_store
-):
+    aexecute: AExecute, bigfile_store: BigFileStoreFactory
+) -> None:
     """The second container kind, through the same door: a CSV of event marks."""
     collection = await _annotation_collection(aexecute, "Marks")
     store = await bigfile_store()
@@ -338,6 +361,7 @@ async def test_a_file_records_the_annotation_collection_it_was_written_from(
     )
 
     assert not result.errors, result.errors
+    assert result.data is not None
     (link,) = result.data["fromFileLike"]["exportedFrom"]
     assert link["container"] == {"__typename": "AnnotationCollection", "name": "Marks"}
 
@@ -351,8 +375,8 @@ async def test_a_file_records_the_annotation_collection_it_was_written_from(
     ),
 )
 async def test_an_export_of_a_container_that_does_not_exist_leaves_no_file(
-    aexecute, bigfile_store
-):
+    aexecute: AExecute, bigfile_store: BigFileStoreFactory
+) -> None:
     store = await bigfile_store()
     result = await aexecute(
         FROM_FILE_LIKE,
@@ -371,8 +395,8 @@ async def test_an_export_of_a_container_that_does_not_exist_leaves_no_file(
 
 
 async def test_link_file_records_an_export_after_the_fact(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A dataset exported months later gets the same row the create mutation would have written."""
     ctx = authenticated_context
     dataset = await create_dataset(ctx, "Sweep")
@@ -390,6 +414,7 @@ async def test_link_file_records_an_export_after_the_fact(
     )
 
     assert not result.errors, result.errors
+    assert result.data is not None
     (link,) = result.data["linkFile"]
     assert link["direction"] == "RENDITION"
     assert link["container"]["__typename"] == "ArrayDataset"
@@ -404,8 +429,8 @@ async def test_link_file_records_an_export_after_the_fact(
 
 
 async def test_link_file_refuses_an_undecidable_direction(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Naming both ends leaves it unsaid which was made from which, and that is the whole column."""
     ctx = authenticated_context
     dataset = await create_dataset(ctx, "Sweep")
@@ -427,7 +452,9 @@ async def test_link_file_refuses_an_undecidable_direction(
     assert "not both" in str(result.errors[0].message), result.errors[0].message
 
 
-async def test_link_file_refuses_two_containers(aexecute, authenticated_context):
+async def test_link_file_refuses_two_containers(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ctx = authenticated_context
     dataset = await create_dataset(ctx, "Sweep")
     folder = await create_folder(ctx, "DS")
@@ -476,8 +503,11 @@ async def test_an_export_link_rejects_a_field_outside_its_kind() -> None:
 
 
 async def test_a_file_from_another_organization_is_refused(
-    aexecute, zarr_store, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    zarr_store: ZarrStoreFactory,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """Every id a client sends is org-scoped, and a file link is no exception."""
     foreign_folder = await create_folder(other_org_context, "Theirs")
     foreign_file = await create_file(other_org_context, "theirs.abf", foreign_folder)
@@ -492,8 +522,11 @@ async def test_a_file_from_another_organization_is_refused(
 
 
 async def test_another_organization_reads_no_link_of_this_one(
-    aexecute, zarr_store, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    zarr_store: ZarrStoreFactory,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """The read side of the same rule: `fileLinks`, `fileLink(id:)` and `files` are all organization-scoped."""
     ctx = authenticated_context
     file = await create_file(ctx, "session.abf", await create_folder(ctx, "DS"))
@@ -504,6 +537,7 @@ async def test_another_organization_reads_no_link_of_this_one(
 
     mine = await aexecute("query { fileLinks { id } files { name } }")
     assert not mine.errors, mine.errors
+    assert mine.data is not None
     assert mine.data == {
         "fileLinks": [{"id": link["id"]}],
         "files": [{"name": "session.abf"}],
@@ -513,6 +547,7 @@ async def test_another_organization_reads_no_link_of_this_one(
         "query { fileLinks { id } files { name } }", context=other_org_context
     )
     assert not theirs.errors, theirs.errors
+    assert theirs.data is not None
     assert theirs.data == {"fileLinks": [], "files": []}
 
     by_id = await aexecute(
@@ -529,8 +564,8 @@ async def test_another_organization_reads_no_link_of_this_one(
 
 
 async def test_datasets_can_be_filtered_by_the_file_and_series_they_came_from(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """ "Which datasets came from sweep 3 of this file" is a normal query, not a bespoke walk."""
     ctx = authenticated_context
     folder = await create_folder(ctx, "DS")
@@ -541,12 +576,13 @@ async def test_datasets_can_be_filtered_by_the_file_and_series_they_came_from(
     )
     await create_dataset(ctx, "Unrelated")
 
-    async def names(filters):  # noqa: ANN001, ANN202
+    async def names(filters: Mapping[str, object]) -> set[str]:
         result = await aexecute(
             "query L($filters: ArrayDatasetFilter) { arrayDatasets(filters: $filters) { name } }",
             {"filters": filters},
         )
         assert not result.errors, result.errors
+        assert result.data is not None
         return {row["name"] for row in result.data["arrayDatasets"]}
 
     assert await names({"sourceFile": str(file.id)}) == {"Sweep"}
@@ -559,8 +595,8 @@ async def test_datasets_can_be_filtered_by_the_file_and_series_they_came_from(
 
 
 async def test_the_documented_read_fields_all_exist(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """Every read field the file-link design names must be real.
 
     A doc that names a field the schema does not have is worse than no doc -- it reads as
@@ -591,12 +627,13 @@ async def test_the_documented_read_fields_all_exist(
     )
 
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["fromSeries"] == [{"name": "Sweep"}]
 
 
 async def test_a_collision_with_a_link_already_on_record_writes_nothing(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """A second entry colliding with an existing link must not leave the first one written.
 
     The in-request duplicate is caught by `_refuse_duplicates` before anything is fetched;
@@ -635,8 +672,8 @@ async def test_a_collision_with_a_link_already_on_record_writes_nothing(
 
 
 async def test_the_three_container_filters_differ_only_by_direction(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`sourceOf` and `exportedFrom` are one-way; `linkedTo` is both.
 
     One dataset with a file on each side of it, so a filter that ignores `direction` returns
@@ -671,8 +708,8 @@ async def test_the_three_container_filters_differ_only_by_direction(
 
 
 async def test_a_container_ref_reads_the_kind_not_only_the_id(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The reason the ref is `{kind, id}` and not a bare ID.
 
     A dataset and an annotation collection have ids drawn from separate sequences, so an
@@ -696,6 +733,7 @@ async def test_a_container_ref_reads_the_kind_not_only_the_id(
         },
     )
     assert not linked.errors, linked.errors
+    assert linked.data is not None
     assert (
         linked.data["linkFile"][0]["container"]["__typename"] == "AnnotationCollection"
     )
@@ -710,8 +748,8 @@ async def test_a_container_ref_reads_the_kind_not_only_the_id(
 
 
 async def test_two_links_to_one_container_return_the_file_once(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """A to-many hop without `.distinct()` returns the row once per matching link."""
     ctx = authenticated_context
     folder = await create_folder(ctx, "DS")
@@ -731,14 +769,15 @@ async def test_two_links_to_one_container_return_the_file_once(
         {"filters": {"linkedTo": {"kind": "DATASET", "id": dataset["id"]}}},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert [row["name"] for row in result.data["files"]] == ["session.abf"], (
         "two links, one file, one row"
     )
 
 
 async def test_not_derived_survives_a_second_link_join(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`notDerived` combined with `sourceOf` -- two `links__` lookups in one query.
 
     This is why `notDerived` is a `pk__in` subquery rather than `~Q(links__direction=...)`:
@@ -775,8 +814,8 @@ async def test_not_derived_survives_a_second_link_join(
 
 
 async def test_unlinked_finds_the_orphan_uploads(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`unlinked` is stricter than `notDerived`: no links at all, in either direction."""
     ctx = authenticated_context
     folder = await create_folder(ctx, "DS")
@@ -796,7 +835,11 @@ async def test_unlinked_finds_the_orphan_uploads(
     }
 
 
-async def test_store_filters(aexecute, bigfile_store, authenticated_context):
+async def test_store_filters(
+    aexecute: AExecute,
+    bigfile_store: BigFileStoreFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """`hasStore` and `populated` are deliberately not complementary.
 
     mikro's `test_store_and_metadata_filters`, under the name of what it tests: neither service's
@@ -826,7 +869,9 @@ async def test_store_filters(aexecute, bigfile_store, authenticated_context):
     assert await _file_names(aexecute, {"hasStore": False, "populated": False}) == set()
 
 
-async def test_extension_normalizes_dot_and_case(aexecute, authenticated_context):
+async def test_extension_normalizes_dot_and_case(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ctx = authenticated_context
     folder = await create_folder(ctx, "DS")
     await create_file(ctx, "cell3.ABF", folder)
@@ -841,8 +886,8 @@ async def test_extension_normalizes_dot_and_case(aexecute, authenticated_context
 
 
 async def test_mime_group_classifies_a_vendor_file_the_content_type_cannot(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The case the obvious implementation gets wrong.
 
     An ABF uploads as `application/octet-stream`, so a contentType-prefix rule would file it
@@ -866,8 +911,8 @@ async def test_mime_group_classifies_a_vendor_file_the_content_type_cannot(
 
 
 async def test_mime_group_falls_back_to_the_content_type_of_an_extensionless_file(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ctx = authenticated_context
     folder = await create_folder(ctx, "DS")
     await create_file(ctx, "readme", folder, content_type="text/plain")
@@ -888,7 +933,9 @@ async def test_mime_group_falls_back_to_the_content_type_of_an_extensionless_fil
         "Identical in mikro/core/filters.py, whose test never queries DOCUMENT."
     ),
 )
-async def test_a_file_is_in_exactly_one_mime_group(aexecute, authenticated_context):
+async def test_a_file_is_in_exactly_one_mime_group(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A bucket is a partition: the picker that lists TABLE files and the one that lists DOCUMENT files must not both show the same CSV."""
     ctx = authenticated_context
     folder = await create_folder(ctx, "DS")
@@ -899,7 +946,9 @@ async def test_a_file_is_in_exactly_one_mime_group(aexecute, authenticated_conte
     assert await _file_names(aexecute, {"mimeGroup": "DOCUMENT"}) == {"protocol.pdf"}
 
 
-async def test_link_lists_are_filterable(aexecute, zarr_store, authenticated_context):
+async def test_link_lists_are_filterable(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`FileLinkFilter` reaches the SDL only by being some field's argument.
 
     Declared on the django_type alone it was absent from the schema entirely, so this pins
@@ -926,6 +975,7 @@ async def test_link_lists_are_filterable(aexecute, zarr_store, authenticated_con
         """
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     (dataset,) = result.data["arrayDatasets"]
     assert len(dataset["all"]) == 2
     assert [link["seriesIdentifier"] for link in dataset["one"]] == ["sweep-3"]

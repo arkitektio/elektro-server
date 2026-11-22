@@ -9,10 +9,12 @@ per-kind ones refuse a layer of another kind, and nothing a layer draws goes wit
 import pytest
 from asgiref.sync import sync_to_async
 from django.db import IntegrityError
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
 from tests.coords._helpers import add_layer
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -32,7 +34,9 @@ query ($id: ID!, $filters: ExperimentLayerFilter) {
 """
 
 
-async def _staged(ctx):  # noqa: ANN001, ANN202
+async def _staged(
+    ctx: HttpContext,
+) -> tuple[models.Experiment, models.ArrayDataset, models.Lens, models.SparseDataset]:
     """A session clock with a (t, c) recording and a raster timed on it, and an experiment over the clock."""
     session = await seed.create_clock(ctx, "session")
     vm = await seed.create_array_dataset(ctx, "Vm", seed.TC_AXES, [[3000, 2]])
@@ -50,8 +54,8 @@ async def _staged(ctx):  # noqa: ANN001, ANN202
 
 
 async def test_the_generic_create_adds_a_layer_of_any_kind(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     experiment, _, lens, raster = await _staged(authenticated_context)
     trace = await aexecute(
         CREATE_LAYER,
@@ -64,6 +68,7 @@ async def test_the_generic_create_adds_a_layer_of_any_kind(
         },
     )
     assert not trace.errors, trace.errors
+    assert trace.data is not None
     spikes = await aexecute(
         CREATE_LAYER,
         {
@@ -76,6 +81,7 @@ async def test_the_generic_create_adds_a_layer_of_any_kind(
         },
     )
     assert not spikes.errors, spikes.errors
+    assert spikes.data is not None
 
     assert trace.data["createLayer"] == {
         "id": trace.data["createLayer"]["id"],
@@ -95,6 +101,7 @@ async def test_the_generic_create_adds_a_layer_of_any_kind(
         LAYERS, {"id": str(experiment.pk), "filters": {"kind": "SPIKES"}}
     )
     assert not listed.errors, listed.errors
+    assert listed.data is not None
     assert [layer["kind"] for layer in listed.data["layers"]] == ["SPIKES"]
     assert [
         (layer["__typename"], layer["order"])
@@ -112,8 +119,12 @@ async def test_the_generic_create_adds_a_layer_of_any_kind(
     ],
 )
 async def test_a_kind_names_the_one_source_it_draws(
-    aexecute, authenticated_context, kind, source, refusal
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    kind: str,
+    source: str,
+    refusal: str,
+) -> None:
     experiment, _, lens, raster = await _staged(authenticated_context)
     ids = {"lens": str(lens.pk), "sparseDataset": str(raster.pk)}
     res = await aexecute(
@@ -130,8 +141,8 @@ async def test_a_kind_names_the_one_source_it_draws(
 
 
 async def test_the_database_refuses_a_layer_with_the_wrong_source(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """The mutations check it first, to say it in a sentence; the constraint is what holds for a write that goes around them."""
     experiment, _, lens, raster = await _staged(authenticated_context)
     with pytest.raises(IntegrityError):
@@ -145,8 +156,8 @@ async def test_the_database_refuses_a_layer_with_the_wrong_source(
 
 
 async def test_a_raster_with_no_time_axis_is_not_drawn_as_spikes(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     experiment, *_ = await _staged(authenticated_context)
     matrix = await seed.create_sparse_dataset(
         authenticated_context,
@@ -170,8 +181,8 @@ async def test_a_raster_with_no_time_axis_is_not_drawn_as_spikes(
 
 
 async def test_the_generic_update_restyles_compositing_only(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     experiment, _, lens, _ = await _staged(authenticated_context)
     layer = await add_layer(authenticated_context, experiment, lens)
     res = await aexecute(
@@ -188,6 +199,7 @@ async def test_the_generic_update_restyles_compositing_only(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["updateLayer"] == {
         "id": str(layer.pk),
         "name": "membrane",
@@ -202,8 +214,8 @@ async def test_the_generic_update_restyles_compositing_only(
 
 
 async def test_a_per_kind_update_refuses_a_layer_of_another_kind(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     experiment, _, lens, _ = await _staged(authenticated_context)
     layer = await add_layer(authenticated_context, experiment, lens)
     res = await aexecute(
@@ -213,8 +225,8 @@ async def test_a_per_kind_update_refuses_a_layer_of_another_kind(
 
 
 async def test_a_trace_layer_is_restyled_and_checked_against_its_lens(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     experiment, _, lens, _ = await _staged(authenticated_context)
     layer = await add_layer(authenticated_context, experiment, lens)
     res = await aexecute(
@@ -231,6 +243,7 @@ async def test_a_trace_layer_is_restyled_and_checked_against_its_lens(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["updateTraceLayer"] == {
         "id": str(layer.pk),
         "channelIndex": 1,
@@ -251,8 +264,8 @@ async def test_a_trace_layer_is_restyled_and_checked_against_its_lens(
 
 
 async def test_rebinding_a_layer_is_gated_like_creating_one(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A rebind is a create of the same layer over another source: a raster no route reaches is refused."""
     experiment, _, lens, raster = await _staged(authenticated_context)
     layer = await sync_to_async(models.ExperimentLayer.objects.create)(
@@ -269,6 +282,7 @@ async def test_rebinding_a_layer_is_gated_like_creating_one(
         UPDATE_SPIKES, {"input": {"id": str(layer.pk), "valueMode": "AMPLITUDE"}}
     )
     assert not moved.errors, moved.errors
+    assert moved.data is not None
     assert moved.data["updateSpikesLayer"] == {
         "id": str(layer.pk),
         "tickHeight": None,
@@ -278,8 +292,8 @@ async def test_rebinding_a_layer_is_gated_like_creating_one(
 
 
 async def test_one_annotation_layer_per_collection_per_experiment(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Drawing on an experiment mints its collection and its one layer; a second layer of it is refused."""
     experiment, *_ = await _staged(authenticated_context)
     drawn = await aexecute(
@@ -294,6 +308,7 @@ async def test_one_annotation_layer_per_collection_per_experiment(
         },
     )
     assert not drawn.errors, drawn.errors
+    assert drawn.data is not None
     collection = drawn.data["createAnnotation"]["collection"]["id"]
     assert (
         await models.ExperimentLayer.objects.filter(
@@ -315,8 +330,8 @@ async def test_one_annotation_layer_per_collection_per_experiment(
 
 
 async def test_deleting_a_layer_deletes_nothing_it_drew(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     experiment, vm, lens, raster = await _staged(authenticated_context)
     trace = await add_layer(authenticated_context, experiment, lens)
     spikes = await sync_to_async(models.ExperimentLayer.objects.create)(
@@ -333,8 +348,8 @@ async def test_deleting_a_layer_deletes_nothing_it_drew(
 
 
 async def test_a_raster_a_picker_names_cannot_be_deleted(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The PROTECT half for JSON: a picker entry naming a matrix by id has no foreign key to cascade. Written through the ORM, the way only a future SPARSE colouring could."""
     experiment, _, lens, raster = await _staged(authenticated_context)
     await sync_to_async(models.ExperimentLayer.objects.create)(
@@ -360,14 +375,15 @@ READ_COLORING = "query ($id: ID!) { experiment(id: $id) { layers { ... on TraceL
 
 
 async def test_a_trace_layers_channel_coloring_survives_a_reload(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """It was applied optimistically and never sent, so it was lost on reload. Now it is stored."""
     experiment, _, lens, _ = await _staged(authenticated_context)
     layer = await add_layer(authenticated_context, experiment, lens)
 
     fresh = await aexecute(READ_COLORING, {"id": str(experiment.pk)})
     assert not fresh.errors, fresh.errors
+    assert fresh.data is not None
     assert fresh.data["experiment"]["layers"] == [
         {"id": str(layer.pk), "channelColoring": "OVERLAY"}
     ], "a new layer colours channels only where they share a plot"
@@ -376,6 +392,7 @@ async def test_a_trace_layers_channel_coloring_survives_a_reload(
         TRACE_COLORING, {"input": {"id": str(layer.pk), "channelColoring": "ALWAYS"}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["updateTraceLayer"]["channelColoring"] == "ALWAYS"
 
     reloaded = await aexecute(READ_COLORING, {"id": str(experiment.pk)})

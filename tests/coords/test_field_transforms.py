@@ -20,13 +20,18 @@ doors a client actually has, and covers:
 - deletion: a self-field must not pin its dataset forever, and a separate field must be pinned.
 """
 
+from collections.abc import Sequence
+
 import pytest
 from asgiref.sync import sync_to_async
 from django.db.models import ProtectedError
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -59,8 +64,13 @@ _SECONDS = [{"name": "t", "type": "TIME", "unit": "second"}]
 
 
 async def _lookup(
-    aexecute, input_id, output_id, field_id, input_axes=("t",), output_axes=("t",)
-):  # noqa: ANN001, ANN202
+    aexecute: AExecute,
+    input_id: int,
+    output_id: int,
+    field_id: int,
+    input_axes: Sequence[str] = ("t",),
+    output_axes: Sequence[str] = ("t",),
+) -> ExecutionResult:
     transform = {
         "kind": "FIELD",
         "field": str(field_id),
@@ -79,7 +89,9 @@ async def _lookup(
     )
 
 
-async def _signal_times_clock(ctx):  # noqa: ANN001, ANN202
+async def _signal_times_clock(
+    ctx: HttpContext,
+) -> tuple[models.ArrayDataset, models.ArrayDataset, models.CoordinateSystem]:
     """An irregularly sampled signal, the times dataset that times it (alone in its own system), and a clock in seconds."""
     signal = await seed.create_dataset(ctx, "Ca", seed.T_AXES, [500], value_unit="a.u.")
     times = await seed.create_dataset(
@@ -93,8 +105,8 @@ async def _signal_times_clock(ctx):  # noqa: ANN001, ANN202
 
 
 async def test_a_times_dataset_alone_in_its_system_is_the_field_of_a_lookup(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The signal's sample index is consumed, the instant is produced by the value at each sample.
 
     The field is a node of the graph, not a payload on the edge: it is read back as a space,
@@ -106,6 +118,7 @@ async def test_a_times_dataset_alone_in_its_system_is_the_field_of_a_lookup(
         aexecute, signal.coordinate_system_id, clock.pk, times.coordinate_system_id
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     edge = result.data["createTransformation"]
     assert (edge["kind"], edge["inputAxes"], edge["outputAxes"]) == (
@@ -130,8 +143,8 @@ async def test_a_times_dataset_alone_in_its_system_is_the_field_of_a_lookup(
 
 
 async def test_a_spike_train_dereferences_through_its_own_values(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A spike train's values ARE its times: a FIELD whose `field` is the input's own system.
 
     mikro's label mask, over time. `spike` is consumed, `t` is produced by the value at each
@@ -150,6 +163,7 @@ async def test_a_spike_train_dereferences_through_its_own_values(
         input_axes=["spike"],
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     edge = result.data["createTransformation"]
     assert edge["kind"] == "FIELD"
@@ -159,8 +173,8 @@ async def test_a_spike_train_dereferences_through_its_own_values(
 
 
 async def test_a_clock_can_be_created_with_the_lookup_that_times_a_signal(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`createCoordinateSystem` lowers a FIELD registration through the same writer, field and all."""
     ctx = authenticated_context
     signal = await seed.create_dataset(ctx, "Ca", seed.T_AXES, [500], value_unit="a.u.")
@@ -188,6 +202,7 @@ async def test_a_clock_can_be_created_with_the_lookup_that_times_a_signal(
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     (edge,) = result.data["createCoordinateSystem"]["registrations"]
     assert edge == {
@@ -201,8 +216,8 @@ async def test_a_clock_can_be_created_with_the_lookup_that_times_a_signal(
 
 
 async def test_a_system_only_a_lens_lives_in_cannot_be_a_field(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A lens is a selection over a dataset and owns no array, so there is nothing to sample."""
     ctx = authenticated_context
     signal, times, clock = await _signal_times_clock(ctx)
@@ -224,8 +239,8 @@ async def test_a_system_only_a_lens_lives_in_cannot_be_a_field(
 
 
 async def test_a_system_two_datasets_share_cannot_be_a_field(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Rule R3, which is this service's and not mikro's: a times dataset lives alone.
 
     Co-sampled datasets may share one sample grid here -- every recording of one simulation
@@ -259,7 +274,9 @@ async def test_a_system_two_datasets_share_cannot_be_a_field(
     )
 
 
-async def test_an_empty_space_cannot_be_a_field(aexecute, authenticated_context):
+async def test_an_empty_space_cannot_be_a_field(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A clock holds nothing, so standing in it dereferences nothing."""
     signal, _, clock = await _signal_times_clock(authenticated_context)
     other_clock = await seed.create_world(authenticated_context, "another clock")
@@ -276,8 +293,8 @@ async def test_an_empty_space_cannot_be_a_field(aexecute, authenticated_context)
 
 
 async def test_a_field_edge_must_account_for_its_endpoints(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """output == (input - consumed) + produced. The axes it does not consume pass through.
 
     A (sweep, t) signal consuming `t` and producing `t` implies (sweep, t) -- `sweep` survives
@@ -308,8 +325,8 @@ async def test_a_field_edge_must_account_for_its_endpoints(
 
 
 async def test_a_scalar_field_produces_exactly_one_axis(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """No value axis means scalar, and a scalar value is one coordinate.
 
     The elision is deliberate -- a times dataset is a plain (t) array and giving it a length-1
@@ -349,8 +366,8 @@ async def test_a_scalar_field_produces_exactly_one_axis(
 
 
 async def test_a_metric_kind_is_refused_over_an_index_space(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Spike 3 x 2 = spike 6 is not a wrong number, it is a meaningless one.
 
     ABLATION: this is exactly what the rank check waves through -- `scale: [2.0]` has one
@@ -382,7 +399,9 @@ async def test_a_metric_kind_is_refused_over_an_index_space(
 # --- inversion and condensation -------------------------------------------------------------------
 
 
-async def test_a_field_is_never_walked_backwards(aexecute, authenticated_context):
+async def test_a_field_is_never_walked_backwards(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Two spikes may share an instant and an instant between samples has no sample, so the reverse is not a function.
 
     The `_INVERTIBLE_KINDS` gate gives this for free, knowing nothing about time -- which is
@@ -393,6 +412,7 @@ async def test_a_field_is_never_walked_backwards(aexecute, authenticated_context
         aexecute, signal.coordinate_system_id, clock.pk, times.coordinate_system_id
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     edge = await models.Transformation.objects.prefetch_related("children").aget(
         pk=created.data["createTransformation"]["id"]
     )
@@ -406,8 +426,8 @@ async def test_a_field_is_never_walked_backwards(aexecute, authenticated_context
 
 
 async def test_a_field_places_its_input_without_condensing(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Reachable, and through no single matrix: the two questions every gate here asks.
 
     `is_placeable_in(require_affine=False)` is what `createExperiment` asks, and admits the
@@ -419,6 +439,7 @@ async def test_a_field_places_its_input_without_condensing(
         aexecute, signal.coordinate_system_id, clock.pk, times.coordinate_system_id
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     edge = await models.Transformation.objects.prefetch_related("children").aget(
         pk=created.data["createTransformation"]["id"]
     )
@@ -456,8 +477,8 @@ async def test_a_field_places_its_input_without_condensing(
 
 
 async def test_dereferencing_a_mask_does_not_pin_it_forever(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Timing a spike train off its own values must not make the spike train undeletable.
 
     `field` is PROTECT, which is right for a *separate* array: deleting a times dataset's space
@@ -477,6 +498,7 @@ async def test_dereferencing_a_mask_does_not_pin_it_forever(
 
     result = await _lookup(aexecute, grid.pk, clock.pk, grid.pk, input_axes=["spike"])
     assert not result.errors, result.errors
+    assert result.data is not None
     edge_id = result.data["createTransformation"]["id"]
 
     # Stored as null -- the input is its own field, by definition...
@@ -494,8 +516,8 @@ async def test_dereferencing_a_mask_does_not_pin_it_forever(
 
 
 async def test_a_separate_field_array_is_protected_from_deletion(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The fence: PROTECT still does its job for an array that is NOT its edge's input.
 
     Deleting a times dataset's space would leave a lookup claiming a map it cannot produce --
@@ -507,6 +529,7 @@ async def test_a_separate_field_array_is_protected_from_deletion(
         aexecute, signal.coordinate_system_id, clock.pk, times.coordinate_system_id
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     times_system = await sync_to_async(lambda: times.coordinate_system)()
 
     # The dataset may move out; the frame its values were expressed in may not go with it.

@@ -7,12 +7,15 @@ and every walk that answers for a table or a dataset now answers for a model too
 """
 
 import pytest
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core.models import (
     ModEnvironment,
     NeuronModel,
     Transformation,
 )
+from tests.fixture_types import AExecute, NeuronModelFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -48,25 +51,26 @@ query ($coordinateSystem: ID!) {
 """
 
 
-def _config(v_init="-67 mV"):
+def _config(v_init: str = "-67 mV") -> dict[str, object]:
     return {"cells": [], "vInit": v_init, "temperature": "36 degC"}
 
 
-async def _env(context, name):
+async def _env(context: HttpContext, name: str) -> ModEnvironment:
     return await ModEnvironment.objects.acreate(
         name=name, organization=context.request.organization
     )
 
 
 async def test_a_created_model_owns_a_space_with_one_index_axis(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     env = await _env(authenticated_context, "env-space")
     res = await aexecute(
         CREATE_NEURON_MODEL,
         {"input": {"name": "Solo", "environment": str(env.id), "config": _config()}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
 
     system = res.data["createNeuronModel"]["coordinateSystem"]
     assert system is not None
@@ -81,8 +85,8 @@ async def test_a_created_model_owns_a_space_with_one_index_axis(
 
 
 async def test_derived_from_records_the_parent_as_an_unmappable_edge(
-    aexecute, make_neuron_model
-):
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     parent = await make_neuron_model(name="Ancestor")
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -101,6 +105,7 @@ async def test_derived_from_records_the_parent_as_an_unmappable_edge(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
 
     edges = res.data["createNeuronModel"]["derivedFrom"]
     assert len(edges) == 1
@@ -109,8 +114,8 @@ async def test_derived_from_records_the_parent_as_an_unmappable_edge(
 
 
 async def test_parent_sugar_and_derived_from_produce_the_same_edge(
-    aexecute, make_neuron_model
-):
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     parent = await make_neuron_model(name="SugarParent")
 
     sugared = await aexecute(
@@ -138,7 +143,8 @@ async def test_parent_sugar_and_derived_from_produce_the_same_edge(
     assert not sugared.errors, sugared.errors
     assert not explicit.errors, explicit.errors
 
-    def shape(res):
+    def shape(res: ExecutionResult) -> list[tuple[str, str]]:
+        assert res.data is not None
         return [
             (edge["kind"], edge["output"]["id"])
             for edge in res.data["createNeuronModel"]["derivedFrom"]
@@ -147,7 +153,9 @@ async def test_parent_sugar_and_derived_from_produce_the_same_edge(
     assert shape(sugared) == shape(explicit)
 
 
-async def test_naming_the_parent_twice_is_refused(aexecute, make_neuron_model):
+async def test_naming_the_parent_twice_is_refused(
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     # The sugar and the explicit entry could disagree about order, and order is priority here.
     parent = await make_neuron_model(name="DoubleNamed")
     res = await aexecute(
@@ -168,8 +176,10 @@ async def test_naming_the_parent_twice_is_refused(aexecute, make_neuron_model):
 
 
 async def test_environment_is_inherited_through_the_derivation(
-    aexecute, authenticated_context, make_neuron_model
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    make_neuron_model: NeuronModelFactory,
+) -> None:
     # Inheritance used to ride on the `parent` column. It now reads the first NEURON_MODEL
     # source, which is the primary parent whichever way it was written.
     env = await _env(authenticated_context, "inherited-env")
@@ -192,8 +202,8 @@ async def test_environment_is_inherited_through_the_derivation(
 
 
 async def test_derived_into_is_the_other_end_of_derived_from(
-    aexecute, make_neuron_model
-):
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     parent = await make_neuron_model(name="Upstream")
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -211,6 +221,7 @@ async def test_derived_into_is_the_other_end_of_derived_from(
 
     back = await aexecute(MODEL_LINEAGE, {"id": str(parent.id)})
     assert not back.errors, back.errors
+    assert back.data is not None
     # Read off the same edges, never a stored back-reference that could disagree with them.
     assert [node["name"] for node in back.data["neuronModel"]["derivedInto"]] == [
         "Downstream"
@@ -218,7 +229,9 @@ async def test_derived_into_is_the_other_end_of_derived_from(
     assert back.data["neuronModel"]["derivedFrom"] == []
 
 
-async def test_a_model_is_a_node_of_the_lineage_graph(aexecute, make_neuron_model):
+async def test_a_model_is_a_node_of_the_lineage_graph(
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     parent = await make_neuron_model(name="GraphRoot")
     res = await aexecute(
         CREATE_NEURON_MODEL,
@@ -238,6 +251,7 @@ async def test_a_model_is_a_node_of_the_lineage_graph(aexecute, make_neuron_mode
         LINEAGE_GRAPH, {"coordinateSystem": str(parent.coordinate_system_id)}
     )
     assert not graph.errors, graph.errors
+    assert graph.data is not None
     names = {
         node["name"]
         for node in graph.data["lineageGraph"]["nodes"]
@@ -251,8 +265,8 @@ async def test_a_model_is_a_node_of_the_lineage_graph(aexecute, make_neuron_mode
 
 
 async def test_recreating_an_identical_config_does_not_duplicate_the_space_or_the_edge(
-    aexecute, make_neuron_model
-):
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     # createNeuronModel dedups on the config hash, so an unchanged re-create lands on a row that
     # already has a space and already has its edges. Minting again would abandon the old space
     # (PROTECT makes it undeletable) and write_derivation_edges does not dedup, so a second
@@ -267,9 +281,11 @@ async def test_recreating_an_identical_config_does_not_duplicate_the_space_or_th
     }
     first = await aexecute(CREATE_NEURON_MODEL, payload)
     assert not first.errors, first.errors
+    assert first.data is not None
 
     second = await aexecute(CREATE_NEURON_MODEL, payload)
     assert not second.errors, second.errors
+    assert second.data is not None
 
     assert (
         first.data["createNeuronModel"]["id"] == second.data["createNeuronModel"]["id"]

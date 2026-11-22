@@ -5,12 +5,12 @@ No database required."""
 from elektro_server.schema import schema
 
 
-def test_schema_builds():
+def test_schema_builds() -> None:
     sdl = schema.as_str()
     assert sdl
 
 
-def test_datalayer_scalars_registered():
+def test_datalayer_scalars_registered() -> None:
     # BigFileLike is referenced by core mutations, so it must be emitted via the
     # StrawberryConfig.scalar_map wiring. An array reference is mikro's ArrayLike: the data
     # layer is mikro's by name, and the old TraceLike is gone with `fromTraceLike`.
@@ -23,7 +23,7 @@ def test_datalayer_scalars_registered():
         assert scalar_name in sdl, f"{scalar_name} missing from schema"
 
 
-def test_datalayer_mutations_exposed():
+def test_datalayer_mutations_exposed() -> None:
     sdl = schema.as_str()
     # Every datalayer action must be wired into the Mutation type. Each store
     # type exposes upload (request + finish) and read access; media/zarr/parquet

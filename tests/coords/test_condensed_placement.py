@@ -29,12 +29,14 @@ silently. Every stepped lens is such an edge.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
 
 from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
 from tests.coords._helpers import add_layer, create_experiment
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -75,15 +77,18 @@ _MICRON_YX = [
 
 
 async def _view(
-    aexecute, experiment: models.Experiment, query: str = AS_AFFINE
-) -> dict:  # noqa: ANN001 - the conftest fixture
+    aexecute: AExecute, experiment: models.Experiment, query: str = AS_AFFINE
+) -> dict:
     result = await aexecute(query, {"id": str(experiment.pk)})
     assert not result.errors, result.errors
+    assert result.data is not None
     (view,) = result.data["experiment"]["layers"]
     return view
 
 
-async def _register(aexecute, input_id: int, output_id: int, transform: dict) -> str:  # noqa: ANN001
+async def _register(
+    aexecute: AExecute, input_id: int, output_id: int, transform: dict
+) -> str:
     result = await aexecute(
         CREATE_TRANSFORM,
         {
@@ -95,20 +100,22 @@ async def _register(aexecute, input_id: int, output_id: int, transform: dict) ->
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return str(result.data["createTransformation"]["id"])
 
 
 def _apply(matrix: list[list[float]], point: list[float]) -> list[float]:
     """Push a point through an M x (N+1) matrix, the way a client would."""
     return [
-        sum(factor * value for factor, value in zip(row[:-1], point)) + row[-1]
+        sum(factor * value for factor, value in zip(row[:-1], point, strict=True))
+        + row[-1]
         for row in matrix
     ]
 
 
 async def test_a_partial_registration_condenses_over_the_axes_it_names(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The ordinary case: a BY_DIMENSION on (y,x) into a (z,y,x) world, and no row for z.
 
     This is the shape `create_identity_registration` writes for every ordinary registration
@@ -148,8 +155,8 @@ async def test_a_partial_registration_condenses_over_the_axes_it_names(
 
 
 async def test_strict_refuses_the_partial_map_and_names_the_axes_it_cannot_reach(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`strict: true` is for a client that needs a total map and would rather be told than guess.
 
     The default is the partial answer, because the partial answer is the truth. Strict is the
@@ -177,8 +184,8 @@ async def test_strict_refuses_the_partial_map_and_names_the_axes_it_cannot_reach
 
 
 async def test_a_total_registration_reports_total_and_composes_every_axis(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The other side of `total`: a registration naming every world axis has a row for each.
 
     Without this, a change that made `total` always false would still pass the test above.
@@ -209,8 +216,8 @@ async def test_a_total_registration_reports_total_and_composes_every_axis(
 
 
 async def test_a_stepped_lens_carries_its_crop_and_its_subsample(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The SEQUENCE bug, pinned: a wrapper's map lives on its children, not in its params.
 
     `create_lens_edge` writes a SEQUENCE for a *stepped* lens -- scale on child 0, offset on
@@ -252,8 +259,8 @@ async def test_a_stepped_lens_carries_its_crop_and_its_subsample(
 
 
 async def test_a_path_walked_backwards_is_inverted_rather_than_refused(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A step flagged `inverted` is undone, which is the whole thing clients could not do.
 
     Direction is always forward on the *row*, never on the walk: the registration here was
@@ -295,7 +302,9 @@ async def test_a_path_walked_backwards_is_inverted_rather_than_refused(
     assert _apply(affine["matrix"], [100.0, 200.0]) == approx([5.0, 10.0])
 
 
-async def test_a_field_step_errors_and_names_the_edge(aexecute, authenticated_context):
+async def test_a_field_step_errors_and_names_the_edge(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A path that exists and does not condense is an error, never a null.
 
     Null already means two things -- unregistered, or unmappable -- and `placement` is what
@@ -341,8 +350,8 @@ async def test_a_field_step_errors_and_names_the_edge(aexecute, authenticated_co
 
 
 async def test_an_unregistered_layer_is_null_exactly_as_its_path_is(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Null when and only when `pathToWorld` is null, and `placement` still says which gap it is."""
     ctx = authenticated_context
     dataset = await seed.create_array_dataset(ctx, "Unplaced")
@@ -360,8 +369,8 @@ async def test_an_unregistered_layer_is_null_exactly_as_its_path_is(
 
 
 async def test_an_unmappable_layer_is_null_too_and_placement_tells_it_apart(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The second reason for a null, which is a fact to badge rather than a gap to close."""
     ctx = authenticated_context
     source = await seed.create_dataset(ctx, "Source", seed.YX_AXES, [64, 64])
@@ -387,8 +396,8 @@ async def test_an_unmappable_layer_is_null_too_and_placement_tells_it_apart(
 
 
 async def test_as_affine_condenses_the_very_path_that_path_to_world_reports(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The two fields must never be able to disagree: same universe, same walk, same tie-break.
 
     A composed answer that came from a *different* path than the one the client can inspect

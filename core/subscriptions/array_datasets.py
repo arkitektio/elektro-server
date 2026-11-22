@@ -21,7 +21,7 @@ class ArrayDatasetEvent:
 
 
 async def array_datasets(
-    self,  # noqa: ANN001 - strawberry's root value
+    self: object,  # strawberry's root value
     info: Info,
     folder: strawberry.ID | None = None,
 ) -> AsyncGenerator[ArrayDatasetEvent, None]:

@@ -15,7 +15,7 @@ class FileEvent:
 
 
 async def files(
-    self,
+    self: object,
     info: Info,
     folder: strawberry.ID | None = None,
 ) -> AsyncGenerator[FileEvent, None]:

@@ -13,10 +13,12 @@ view that looks through it, because there is only one copy of the fact.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import enums, models
 from tests import seed
 from tests.coords._helpers import add_layer, create_experiment
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -42,14 +44,17 @@ mutation Refine($input: UpdateTransformationInput!) {
 """
 
 
-async def _view(aexecute, experiment: models.Experiment) -> dict:  # noqa: ANN001 - the conftest fixture
+async def _view(aexecute: AExecute, experiment: models.Experiment) -> dict:
     result = await aexecute(VIEW_VALIDITY, {"id": str(experiment.pk)})
     assert not result.errors, result.errors
+    assert result.data is not None
     (view,) = result.data["experiment"]["layers"]
     return view
 
 
-async def test_an_assumed_placement_reads_unknown(aexecute, authenticated_context):
+async def test_an_assumed_placement_reads_unknown(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """An edge a client admits it guessed reads UNKNOWN, and the view surfaces it.
 
     The server writes UNKNOWN nowhere: it fabricates no placements, so the badge exists for
@@ -78,6 +83,7 @@ async def test_an_assumed_placement_reads_unknown(aexecute, authenticated_contex
         },
     )
     assert not registered.errors, registered.errors
+    assert registered.data is not None
     assert registered.data["createTransformation"]["validity"] == "UNKNOWN"
     await add_layer(ctx, experiment, lens)
 
@@ -85,8 +91,8 @@ async def test_an_assumed_placement_reads_unknown(aexecute, authenticated_contex
 
 
 async def test_an_authored_registration_reads_manual_and_validating_it_needs_no_layer_write(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """MANUAL when someone authors the edge; VALIDATED the moment the edge says so.
 
     The second half is the point of the move: validating a registration touches the
@@ -114,6 +120,7 @@ async def test_an_authored_registration_reads_manual_and_validating_it_needs_no_
         },
     )
     assert not registered.errors, registered.errors
+    assert registered.data is not None
     assert registered.data["createTransformation"]["validity"] == "MANUAL", (
         "an edge that arrived through the API was authored by someone"
     )
@@ -126,12 +133,15 @@ async def test_an_authored_registration_reads_manual_and_validating_it_needs_no_
         REFINE, {"input": {"id": edge_id, "validity": "VALIDATED"}}
     )
     assert not refined.errors, refined.errors
+    assert refined.data is not None
     assert refined.data["updateTransformation"]["validity"] == "VALIDATED"
 
     assert (await _view(aexecute, experiment))["placementValidity"] == "VALIDATED"
 
 
-async def test_the_weakest_edge_on_the_path_wins(aexecute, authenticated_context):
+async def test_the_weakest_edge_on_the_path_wins(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Two hops, two validities: the view reads the weaker one, and fixing it lifts the view.
 
     A **sliced** lens in an experiment over the dataset's physical space walks two edges: the
@@ -186,7 +196,7 @@ async def test_the_weakest_edge_on_the_path_wins(aexecute, authenticated_context
     )
 
 
-async def test_the_layer_carries_no_placement_columns():
+async def test_the_layer_carries_no_placement_columns() -> None:
     """A view's validity is derived: it is no stored column, and the derived field wears its own name."""
     from elektro_server.schema import schema
 

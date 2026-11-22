@@ -106,8 +106,10 @@ def _column(table_id: str, name: str) -> "models.Column | None":
 
 
 def _check_route(
-    entry, root: "models.TableDataset | None", what: str
-) -> "models.Column":  # noqa: ANN001 - a picker model
+    entry: picker_models.ColorByModel | picker_models.FilterByModel,
+    root: "models.TableDataset | None",
+    what: str,
+) -> "models.Column":
     """The column an entry names, refused unless its ``joinPath`` leads from ``root`` to its table.
 
     Walked forward: every step stands in the table the previous one reached and names a column

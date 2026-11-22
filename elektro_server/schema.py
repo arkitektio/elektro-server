@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 import kante
 import strawberry
@@ -14,11 +14,14 @@ from arkitekt_service.graphql import (
 )
 from authentikate.strawberry import AuthExtension, AuthSubscribeExtension
 from authentikate.strawberry.extension import AuthentikateExtension
+from django.db.models import QuerySet
 from kante.types import Info
 from koherent.strawberry.extension import KoherentExtension
 from strawberry import ID as StrawberryID
 from strawberry.schema.config import StrawberryConfig
+from strawberry.types.field import StrawberryField
 from strawberry_django.fields.field import StrawberryDjangoField
+from strawberry_django.mutations.fields import DjangoMutationBase
 from strawberry_django.optimizer import DjangoOptimizerExtension
 
 from core import filters as core_filters
@@ -46,7 +49,7 @@ ID = Annotated[
 ]
 
 
-def field(scope: str = "elektro_read", **kwargs):
+def field(scope: str = "elektro_read", **kwargs: Any) -> Any:  # noqa: ANN401 -- as strawberry_django.field: the value of `x: T = field()`
     "A field an app needs ``scope`` for (``elektro_read``, unless it says otherwise)."
     return strawberry_django.field(extensions=[AuthExtension(scopes=[scope])], **kwargs)
 
@@ -59,7 +62,7 @@ class CreatedByCallerField(StrawberryDjangoField):
     ``get_queryset``, which the parent runs.
     """
 
-    def get_queryset(self, queryset, info, **kwargs):
+    def get_queryset(self, queryset: QuerySet, info: Info, **kwargs: Any) -> QuerySet:
         # Narrow before the parent paginates: a sliced queryset can no longer be filtered.
         return super().get_queryset(
             queryset.filter(creator=info.context.request.user), info, **kwargs
@@ -325,8 +328,8 @@ def mutation(
     scope: str = "elektro_write",
     roles: list[str] | None = None,
     guests: bool = False,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> DjangoMutationBase:
     """A write: an app needs ``scope`` for it, a member one of ``roles`` (``elektro_editor`` unless it says
     otherwise; ``elektro_admin`` holds every role).
 
@@ -344,14 +347,14 @@ def mutation(
     )
 
 
-def access_mutation(**kwargs):
+def access_mutation(**kwargs: Any) -> DjangoMutationBase:
     """A mutation that hands out read credentials: a read, for whoever may see what it reads."""
     return kante.django_mutation(
         extensions=[AuthExtension(scopes=["elektro_read"])], **kwargs
     )
 
 
-def upload_mutation(**kwargs):
+def upload_mutation(**kwargs: Any) -> DjangoMutationBase:
     """A mutation that hands out (or finishes) upload credentials: gated by ``datalayer.upload_roles``.
 
     Holding any one of the configured roles is enough (``elektro_editor`` when none are configured). Read
@@ -364,7 +367,7 @@ def upload_mutation(**kwargs):
     )
 
 
-def subscription(**kwargs):
+def subscription(**kwargs: Any) -> StrawberryField:
     """A subscription: what it streams is read, so an app needs ``elektro_read`` for it."""
     return strawberry.subscription(
         extensions=[AuthSubscribeExtension(scopes=["elektro_read"])], **kwargs

@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.fixture_types import BackendStack
+
 REPO = Path(__file__).resolve().parent.parent
 
 
@@ -204,7 +206,7 @@ print("migrated", len(tables), "tables")
 """
 
 
-def test_the_migrations_actually_run(backend_stack) -> None:  # noqa: ANN001 - the dokker stack fixture
+def test_the_migrations_actually_run(backend_stack: BackendStack) -> None:
     """``makemigrations --check`` proves the migration matches the models; this proves it *executes*.
 
     On a real Postgres, from nothing, the way a fresh deployment's ``manage.py migrate`` does.

@@ -11,7 +11,9 @@ from django.contrib.postgres.search import (
     TrigramSimilarity,
 )
 from django.db.models import F, FloatField, Q, QuerySet, Value
+from django.db.models.expressions import BaseExpression
 from django.db.models.functions import Coalesce, Greatest
+from kante.types import Info
 from strawberry import auto
 from strawberry_django.filters import FilterLookup
 
@@ -23,7 +25,7 @@ from embeddings.search import hybrid_search
 class IDFilterMixin:
     ids: list[strawberry.ID] | None
 
-    def filter_ids(self, queryset, info):
+    def filter_ids(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.ids is None:
             return queryset
         return queryset.filter(id__in=self.ids)
@@ -34,12 +36,12 @@ class CreatedAtFilterMixin:
     created_before: datetime.datetime | None
     created_after: datetime.datetime | None
 
-    def filter_created_before(self, queryset, info):
+    def filter_created_before(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.created_before is None:
             return queryset
         return queryset.filter(created_at__lt=self.created_before)
 
-    def filter_created_after(self, queryset, info):
+    def filter_created_after(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.created_after is None:
             return queryset
         return queryset.filter(created_at__gt=self.created_after)
@@ -57,12 +59,12 @@ class CreatorFilterMixin:
     created_by: strawberry.ID | None
     mine: bool | None
 
-    def filter_created_by(self, queryset, info):
+    def filter_created_by(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.created_by is None:
             return queryset
         return queryset.filter(creator_id=self.created_by)
 
-    def filter_mine(self, queryset, info):
+    def filter_mine(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.mine is None:
             return queryset
         user = info.context.request.user
@@ -97,21 +99,21 @@ class ProvenanceFilterMixin:
     created_with: str | None
     created_by_agent: bool | None
 
-    def filter_provenance_task(self, queryset, info):
+    def filter_provenance_task(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.provenance_task is None:
             return queryset
         return queryset.filter(
             provenance_entries__task__task_id=self.provenance_task
         ).distinct()
 
-    def filter_provenance_root_task(self, queryset, info):
+    def filter_provenance_root_task(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.provenance_root_task is None:
             return queryset
         return queryset.filter(
             provenance_entries__task__root_task_id=self.provenance_root_task
         ).distinct()
 
-    def filter_created_with(self, queryset, info):
+    def filter_created_with(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.created_with is None:
             return queryset
         # A change can be attributed to a client directly (on the history row)
@@ -121,7 +123,7 @@ class ProvenanceFilterMixin:
             | Q(provenance_entries__task__agent_client_id=self.created_with)
         ).distinct()
 
-    def filter_created_by_agent(self, queryset, info):
+    def filter_created_by_agent(self, queryset: QuerySet, info: Info) -> QuerySet:
         if self.created_by_agent is None:
             return queryset
         if self.created_by_agent:
@@ -157,7 +159,7 @@ class SearchFilterMixin:
     # Overridden per filter. Empty list disables search gracefully.
     SEARCH_FIELDS: ClassVar[list[str]] = ["name"]
 
-    def filter_search(self, queryset, info):
+    def filter_search(self, queryset: QuerySet, info: Info) -> QuerySet:
         if not self.search:
             return queryset
         term = self.search.strip()
@@ -215,7 +217,7 @@ class ExperimentFilter(
     name: FilterLookup[str] | None
     world: strawberry.ID | None = None
 
-    def filter_world(self, queryset, info):
+    def filter_world(self, queryset: QuerySet, info: Info) -> QuerySet:
         """Experiments composing over this space. Several may share one world."""
         if self.world is None:
             return queryset
@@ -332,8 +334,6 @@ class MechanismOrder:
 # in that mode an explicit `null` reaches a resolver instead of being skipped. mikro's
 # `uninhabited` is `condition if value else ~condition`, which would read `uninhabited: null`
 # as "inhabited only" -- so every resolver below states what null means: no constraint.
-
-from kante.types import Info  # noqa: E402
 
 from core.logic import descriptor_filter  # noqa: E402
 from core.logic import graph as graph_logic  # noqa: E402
@@ -606,7 +606,7 @@ class LensFilter(IdsFilterMixin):
 from core.inputs.coords import BoundingBoxInput, CoordinateInput  # noqa: E402
 
 
-def _systems_drawn_over_dataset(dataset_id: strawberry.ID):  # noqa: ANN202 - a values() queryset
+def _systems_drawn_over_dataset(dataset_id: strawberry.ID) -> QuerySet:
     """The collection systems whose derivation edge lands in this dataset, or in a lens of it.
 
     A subquery rather than a join: `Transformation.input`/`output` are declared
@@ -626,7 +626,7 @@ def _systems_drawn_over_dataset(dataset_id: strawberry.ID):  # noqa: ANN202 - a 
     )
 
 
-def _systems_drawn_over_system(system_id: strawberry.ID):  # noqa: ANN202 - a values() queryset
+def _systems_drawn_over_system(system_id: strawberry.ID) -> QuerySet:
     """The collection systems with an edge landing in this space: a clock, a world, a sample grid."""
     return models.Transformation.objects.filter(
         parent__isnull=True,
@@ -1567,7 +1567,9 @@ class ValueUnitFilter(IdsFilterMixin):
         return Q(**{f"{prefix}anchor_id": value})
 
 
-def _annotate_once(queryset: QuerySet, alias: str, expression) -> QuerySet:
+def _annotate_once(
+    queryset: QuerySet, alias: str, expression: BaseExpression
+) -> QuerySet:
     """Add an annotation unless the alias is already taken by an identical one.
 
     An alias is global to the queryset while a filter is not: `AND`/`OR` recurse with
@@ -1582,7 +1584,7 @@ def _annotate_once(queryset: QuerySet, alias: str, expression) -> QuerySet:
     return queryset.annotate(**{alias: expression})
 
 
-def _derived_dataset_ids(source_id: strawberry.ID | None = None):
+def _derived_dataset_ids(source_id: strawberry.ID | None = None) -> QuerySet:
     """The ids of every dataset that was derived, or only those derived from one source.
 
     `graph_logic.derivation_edges` expressed as a query, and it has to agree with it.
@@ -1797,7 +1799,7 @@ class TableDatasetFilter(
         )
 
 
-def _systems_derived_from_dataset(dataset_id: strawberry.ID):
+def _systems_derived_from_dataset(dataset_id: strawberry.ID) -> QuerySet:
     """The collection systems whose derivation edge lands in this dataset.
 
     A subquery rather than a join: `Transformation.input`/`output` are declared

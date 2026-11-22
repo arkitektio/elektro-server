@@ -9,9 +9,11 @@ for an edge's endpoints *and* its axis order got an error instead of either.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -29,7 +31,9 @@ query {{
 """
 
 
-async def _sequence(ctx) -> tuple[models.CoordinateSystem, models.CoordinateSystem]:  # noqa: ANN001
+async def _sequence(
+    ctx: HttpContext,
+) -> tuple[models.CoordinateSystem, models.CoordinateSystem]:
     source = await seed.create_world(ctx, "Source", seed.ZYX_WORLD_AXES)
     target = await seed.create_world(ctx, "Target", seed.ZYX_WORLD_AXES)
 
@@ -63,13 +67,14 @@ def _edges(data: dict) -> list[dict]:
     "query", [TOP_LEVEL, CHILDREN], ids=["edge", "child of a sequence"]
 )
 async def test_an_edge_reads_its_endpoints_and_their_axis_order_together(
-    aexecute, authenticated_context, query: str
-):
+    aexecute: AExecute, authenticated_context: HttpContext, query: str
+) -> None:
     source, target = await _sequence(authenticated_context)
 
     result = await aexecute(query)
 
     assert not result.errors, result.errors
+    assert result.data is not None
     edges = _edges(result.data)
     assert edges, "the query reached an edge"
     for edge in edges:

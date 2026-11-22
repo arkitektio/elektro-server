@@ -22,10 +22,12 @@ square two-axis case is what tells the rank rules from the singularity rules.
 """
 
 import datetime
+from collections.abc import Sequence
 
 import pytest
 from asgiref.sync import sync_to_async
 from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import enums, models
 from core.input_unions import parse_union_member
@@ -36,6 +38,7 @@ from core.inputs.coords import (
 )
 from core.logic import graph as graph_logic
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -71,16 +74,19 @@ async def _yx_dataset(
     return await seed.create_dataset(ctx, name, seed.YX_AXES, [64, 64])
 
 
-async def _world(aexecute, name: str, axes: list[dict]) -> str:  # noqa: ANN001 - the conftest fixture
+async def _world(aexecute: AExecute, name: str, axes: list[dict]) -> str:
     """A space of the given axes, with nothing registered into it."""
     result = await aexecute(
         CREATE_CS, {"input": {"name": name, "axes": axes, "registrations": []}}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return str(result.data["createCoordinateSystem"]["id"])
 
 
-async def _space_world(aexecute, name: str, axes=("z", "y", "x")) -> str:  # noqa: ANN001
+async def _space_world(
+    aexecute: AExecute, name: str, axes: Sequence[str] = ("z", "y", "x")
+) -> str:
     """A world of the named SPACE axes, with nothing registered into it."""
     return await _world(
         aexecute,
@@ -89,7 +95,7 @@ async def _space_world(aexecute, name: str, axes=("z", "y", "x")) -> str:  # noq
     )
 
 
-async def _dataset_and_world(aexecute, ctx: HttpContext) -> tuple[str, str]:  # noqa: ANN001
+async def _dataset_and_world(aexecute: AExecute, ctx: HttpContext) -> tuple[str, str]:
     """A y/x dataset's sample grid, and a y/x world with nothing registered into it."""
     dataset = await _yx_dataset(ctx)
     return str(dataset.coordinate_system_id), await _world(
@@ -97,14 +103,18 @@ async def _dataset_and_world(aexecute, ctx: HttpContext) -> tuple[str, str]:  # 
     )
 
 
-async def _create(aexecute, input_id: str, output_id: str, transform: dict):  # noqa: ANN001, ANN202
+async def _create(
+    aexecute: AExecute, input_id: str, output_id: str, transform: dict
+) -> ExecutionResult:
     return await aexecute(
         CREATE_TRANSFORM,
         {"input": {"input": input_id, "output": output_id, "transform": transform}},
     )
 
 
-async def _update(aexecute, edge_id: str, **params):  # noqa: ANN001, ANN202
+async def _update(
+    aexecute: AExecute, edge_id: str, **params: object
+) -> ExecutionResult:
     return await aexecute(UPDATE_TRANSFORM, {"input": {"id": edge_id, **params}})
 
 
@@ -199,8 +209,8 @@ async def _update(aexecute, edge_id: str, **params):  # noqa: ANN001, ANN202
     ],
 )
 async def test_a_parameter_that_contradicts_the_kind_is_an_error_not_a_drop(
-    aexecute, authenticated_context, transform: dict, phrase: str
-):
+    aexecute: AExecute, authenticated_context: HttpContext, transform: dict, phrase: str
+) -> None:
     """Every mismatch is named after both the kind and the field, and nothing is written."""
     grid, world = await _dataset_and_world(aexecute, authenticated_context)
     before = await models.Transformation.objects.acount()
@@ -246,8 +256,8 @@ async def test_a_parameter_that_contradicts_the_kind_is_an_error_not_a_drop(
     ],
 )
 async def test_a_map_that_collapses_an_axis_is_refused(
-    aexecute, authenticated_context, transform: dict, phrase: str
-):
+    aexecute: AExecute, authenticated_context: HttpContext, transform: dict, phrase: str
+) -> None:
     """The value rules, at the API altitude. Only a collapse -- never a merely odd number."""
     grid, world = await _dataset_and_world(aexecute, authenticated_context)
     before = await models.Transformation.objects.acount()
@@ -262,8 +272,8 @@ async def test_a_map_that_collapses_an_axis_is_refused(
 
 
 async def test_a_refinement_cannot_collapse_an_axis_either(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`updateTransformation` gates values exactly as creation does, and nearly did not.
 
     It is the one write that reaches neither gate on its own: its parameters arrive flat --
@@ -277,6 +287,7 @@ async def test_a_refinement_cannot_collapse_an_axis_either(
         aexecute, grid, world, {"kind": "SCALE", "scale": [0.5, 0.5]}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     edge_id = result.data["createTransformation"]["id"]
 
     result = await _update(aexecute, edge_id, scale=[0.0, 0.5])
@@ -292,8 +303,8 @@ async def test_a_refinement_cannot_collapse_an_axis_either(
 
 
 async def test_a_mirrored_axis_and_an_offset_of_zero_are_left_alone(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The boundary of the rule above: a negative factor is a flip, and zero is an offset.
 
     A sign flip cannot produce a stored `min > max` -- `form_interval` takes min/max per
@@ -314,8 +325,8 @@ async def test_a_mirrored_axis_and_an_offset_of_zero_are_left_alone(
 
 
 async def test_a_per_axis_edge_cannot_cross_a_rank_boundary(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A scale carries one number per input axis, so its matrix is square at that rank.
 
     Only the *input* rank was checked, so a two-entry scale from a (y,x) grid into a
@@ -381,8 +392,8 @@ async def test_a_per_axis_edge_cannot_cross_a_rank_boundary(
 
 
 async def test_a_scale_edge_also_gets_a_field_named_as_not_its_own(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`field` is the FIELD member's alone; on any other kind it is a named stray."""
     grid, world = await _dataset_and_world(aexecute, authenticated_context)
     result = await _create(
@@ -394,8 +405,8 @@ async def test_a_scale_edge_also_gets_a_field_named_as_not_its_own(
 
 
 async def test_wrapper_kinds_are_not_in_the_creatable_enum(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """SEQUENCE is unrepresentable in TransformInput, not merely refused.
 
     The ingest builds it together with its children; a client naming it gets an enum coercion
@@ -409,8 +420,8 @@ async def test_wrapper_kinds_are_not_in_the_creatable_enum(
 
 
 async def test_a_registration_entry_is_validated_like_a_transformation(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`registrations` lowers through the same union, so the same strays are refused."""
     dataset = await _yx_dataset(authenticated_context)
 
@@ -444,8 +455,8 @@ async def test_a_registration_entry_is_validated_like_a_transformation(
 
 
 async def test_an_omitted_transform_registers_an_identity(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Omitting `transform` on a registration entry means IDENTITY, as the docs promise."""
     dataset = await _yx_dataset(authenticated_context)
 
@@ -460,6 +471,7 @@ async def test_an_omitted_transform_registers_an_identity(
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     edge = await models.Transformation.objects.aget(
         input_id=dataset.coordinate_system_id,
@@ -470,8 +482,8 @@ async def test_an_omitted_transform_registers_an_identity(
 
 
 async def test_each_member_persists_exactly_its_own_shape(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The row holds what the kind reads: params for the metric kinds, axes only for the axis kinds."""
     grid, world = await _dataset_and_world(aexecute, authenticated_context)
 
@@ -479,6 +491,7 @@ async def test_each_member_persists_exactly_its_own_shape(
         aexecute, grid, world, {"kind": "SCALE", "scale": [0.5, 0.5]}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     edge = await models.Transformation.objects.aget(
         pk=result.data["createTransformation"]["id"]
     )
@@ -494,6 +507,7 @@ async def test_each_member_persists_exactly_its_own_shape(
         {"kind": "MAP_AXIS", "inputAxes": ["y", "x"], "outputAxes": ["x", "y"]},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     edge = await models.Transformation.objects.aget(
         pk=result.data["createTransformation"]["id"]
     )
@@ -515,6 +529,7 @@ async def test_each_member_persists_exactly_its_own_shape(
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     edge = await models.Transformation.objects.aget(
         pk=result.data["createTransformation"]["id"]
     )
@@ -526,6 +541,7 @@ async def test_each_member_persists_exactly_its_own_shape(
         aexecute, grid, world, {"kind": "UNMAPPABLE", "reason": "one row per object"}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     edge = await models.Transformation.objects.aget(
         pk=result.data["createTransformation"]["id"]
     )
@@ -535,7 +551,9 @@ async def test_each_member_persists_exactly_its_own_shape(
 # --- refinement: the one write with no union in front of it -------------------------------------
 
 
-async def test_a_refinement_must_match_the_edges_kind(aexecute, authenticated_context):
+async def test_a_refinement_must_match_the_edges_kind(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`updateTransformation` gates parameters exactly as creation does.
 
     Before this gate a stray `affine` merged onto any edge was stored, never read by
@@ -547,6 +565,7 @@ async def test_a_refinement_must_match_the_edges_kind(aexecute, authenticated_co
         aexecute, grid, world, {"kind": "SCALE", "scale": [0.5, 0.5]}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     edge_id = result.data["createTransformation"]["id"]
 
     result = await _update(aexecute, edge_id, translation=[1.0, 1.0])
@@ -578,8 +597,8 @@ def _build_sequence(ctx: HttpContext, grid: str, world: str) -> models.Transform
 
 
 async def test_a_wrapper_refuses_refinement_toward_its_children(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A SEQUENCE's parameters live on its children, and the update mutation says so."""
     grid, world = await _dataset_and_world(aexecute, authenticated_context)
     wrapper = await sync_to_async(_build_sequence)(authenticated_context, grid, world)
@@ -619,8 +638,8 @@ async def test_a_wrapper_refuses_refinement_toward_its_children(
     ],
 )
 async def test_a_singular_map_is_refused_though_no_row_of_it_is_zero(
-    aexecute, authenticated_context, transform: dict, phrase: str
-):
+    aexecute: AExecute, authenticated_context: HttpContext, transform: dict, phrase: str
+) -> None:
     """A projection written as a full matrix: no zero factor, no zero row, and no inverse."""
     grid, world = await _dataset_and_world(aexecute, authenticated_context)
     before = await models.Transformation.objects.acount()
@@ -635,8 +654,8 @@ async def test_a_singular_map_is_refused_though_no_row_of_it_is_zero(
 
 
 async def test_a_rank_changing_affine_is_still_accepted(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The negative of the singularity rule, and why it reads the shape rather than the kind.
 
     An AFFINE is rectangular *by design* -- `assert_edge_rank` admits M x (N+1) between
@@ -664,8 +683,8 @@ async def test_a_rank_changing_affine_is_still_accepted(
 
 
 async def test_a_rotation_between_spaces_of_different_rank_is_refused(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A rotation is an element of one space's orthogonal group; there is no such thing between two.
 
     `_PER_AXIS_KINDS` holds only SCALE and TRANSLATION, so a ROTATION carrying a whole
@@ -693,8 +712,8 @@ async def test_a_rotation_between_spaces_of_different_rank_is_refused(
 
 
 async def test_a_map_axis_between_different_axis_sets_is_refused(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A permutation relabels; it does not reshape -- and the read path could only say so with a stack dataset.
 
     This used to pass every write check and then raise `NonAffineTransformError` from inside
@@ -731,8 +750,8 @@ async def test_a_map_axis_between_different_axis_sets_is_refused(
 
 
 async def test_the_logic_layer_holds_the_same_line_for_internal_callers(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """The writers below the API refuse what the union makes unrepresentable above it.
 
     The parse layer is the API's gate; these are the same checks in
@@ -857,7 +876,7 @@ async def test_the_logic_layer_holds_the_same_line_for_internal_callers(
     await sync_to_async(check)()
 
 
-async def test_a_derivation_may_state_any_creatable_kind():
+async def test_a_derivation_may_state_any_creatable_kind() -> None:
     """The derivation subset is gone: one union, and MAP_AXIS/FIELD parse like any member.
 
     This is the parse every ``TransformInput.to_pydantic`` runs -- derivations included,
@@ -878,7 +897,7 @@ async def test_a_derivation_may_state_any_creatable_kind():
     assert isinstance(member, FieldTransformInputModel)
 
 
-async def test_the_union_is_published_for_codegen():
+async def test_the_union_is_published_for_codegen() -> None:
     """The SDL carries the members, their annotations, and the flat unions they describe.
 
     The member inputs are referenced by no field -- dropping them from `types=[...]`
@@ -946,8 +965,8 @@ async def test_the_union_is_published_for_codegen():
 
 
 async def test_a_sequence_child_answers_to_its_wrappers_rank(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A wrapper child has no endpoints, and that used to mean no rank check at all.
 
     `updateTransformation` guarded `assert_edge_rank` with `if transformation.input and
@@ -1045,8 +1064,8 @@ def _system_with_axes(
     ids=["rank-differs", "names-differ"],
 )
 async def test_a_by_dimension_child_answers_to_the_named_subset_not_the_whole_space(
-    aexecute, authenticated_context, world_axes: list[str]
-):
+    aexecute: AExecute, authenticated_context: HttpContext, world_axes: list[str]
+) -> None:
     """The anti-regression test, and the reason the fix reads the *parent's* kind.
 
     A BY_DIMENSION applies its children to the axes it names: `_sub_matrix` composes them at
@@ -1107,8 +1126,8 @@ async def test_a_by_dimension_child_answers_to_the_named_subset_not_the_whole_sp
 
 
 async def test_an_identity_child_still_dies_before_the_rank_check(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Guard ordering, pinned: the parameter gate runs before the rank gate.
 
     `updatable_params("IDENTITY")` is empty, so an IDENTITY child is refused for taking a
@@ -1152,8 +1171,8 @@ async def test_an_identity_child_still_dies_before_the_rank_check(
 
 
 async def test_a_per_axis_edge_between_differently_ordered_spaces_is_refused(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A SCALE binds its i-th number to the i-th axis of each system, so their orders are the whole of what the numbers mean.
 
     `(z,y,x)` into `(x,y,z)` was accepted and the factor meant for z landed on x -- no error at
@@ -1181,8 +1200,8 @@ async def test_a_per_axis_edge_between_differently_ordered_spaces_is_refused(
 
 
 async def test_a_name_changing_affine_is_still_accepted(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The anti-over-fix test. AFFINE must NOT get the name rule.
 
     `_forms_from_matrix` labels an affine's rows by the output axes and its columns by the
@@ -1208,8 +1227,8 @@ async def test_a_name_changing_affine_is_still_accepted(
 
 
 async def test_a_rotation_between_differently_named_spaces_of_equal_rank_is_refused(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """ROTATION's line in the name rule, on its own, so it can be reverted on its own.
 
     ROTATION is the one entry in `_NAME_ORDERED_KINDS` that carries a whole matrix rather than
@@ -1246,8 +1265,8 @@ _SPACE = enums.AxisTypeChoices.SPACE.value
 
 
 async def test_a_by_dimension_child_is_not_refused_for_an_index_axis_its_parent_left_alone(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The INDEX guard follows the same subset rule as the three checks below it.
 
     `_METRIC_KINDS` refuses arithmetic on an INDEX axis, and rightly: the distance between
@@ -1282,8 +1301,8 @@ async def test_a_by_dimension_child_is_not_refused_for_an_index_axis_its_parent_
 
 
 async def test_an_index_axis_the_edge_does_act_on_is_still_refused(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The negative of the rule above: narrowing the scan to the subset must not disarm it.
 
     Same shape, but the wrapper names `object_id` -- so the child's first number really
@@ -1315,7 +1334,7 @@ async def test_an_index_axis_the_edge_does_act_on_is_still_refused(
 # --- the deleted kind, units, axis kinds and epochs ---------------------------------------------
 
 
-async def test_the_deleted_kind_is_gone_from_both_enums():
+async def test_the_deleted_kind_is_gone_from_both_enums() -> None:
     """BIJECTION is removed, not merely uncreatable.
 
     Pinned on the *storage* enum as well as the published one. An inverse that cannot be
@@ -1332,8 +1351,8 @@ async def test_the_deleted_kind_is_gone_from_both_enums():
 
 
 async def test_a_number_free_edge_may_not_relate_two_different_units(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """An IDENTITY between a micrometre space and a nanometre one is a claim that they are equal.
 
     It used to be accepted, because the IDENTITY branch compared axis *names* and nothing on the
@@ -1381,7 +1400,9 @@ async def test_a_number_free_edge_may_not_relate_two_different_units(
     )
 
 
-async def test_a_correspondence_may_not_cross_axis_kinds(authenticated_context):
+async def test_a_correspondence_may_not_cross_axis_kinds(
+    authenticated_context: HttpContext,
+) -> None:
     """`inputAxes: ["c"] -> outputAxes: ["z"]` maps a channel index onto a position. It is refused.
 
     The named-subset rules establish that the axes exist and pair one for one; none of them looked
@@ -1438,8 +1459,8 @@ async def test_a_correspondence_may_not_cross_axis_kinds(authenticated_context):
 
 
 async def test_two_clocks_anchored_differently_are_related_only_by_a_stated_offset(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """`epoch` says `wall_clock = epoch + t * unit`, and nothing ever read it.
 
     So a path across two spaces with different epochs treated their `t = 0` as the same instant:

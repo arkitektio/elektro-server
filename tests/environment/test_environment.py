@@ -8,6 +8,7 @@ Mutation type, so there is no `deleteMechanism` field to test here.
 import pytest
 
 from core.models import Mechanism, ModEnvironment
+from tests.fixture_types import AExecute, BigFileStoreFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -19,7 +20,9 @@ mutation ($input: CreateModEnvironmentInput!) {
 """
 
 
-async def test_create_mod_environment(aexecute, bigfile_store):
+async def test_create_mod_environment(
+    aexecute: AExecute, bigfile_store: BigFileStoreFactory
+) -> None:
     store = await bigfile_store()
     res = await aexecute(
         CREATE_MOD_ENVIRONMENT,
@@ -32,6 +35,7 @@ async def test_create_mod_environment(aexecute, bigfile_store):
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createModEnvironment"]["name"] == "Env"
     env = await ModEnvironment.objects.aget(name="Env")
     assert await Mechanism.objects.filter(environment=env, name="mech1").aexists()
@@ -40,7 +44,7 @@ async def test_create_mod_environment(aexecute, bigfile_store):
 # --- negatives ---------------------------------------------------------------
 
 
-async def test_create_mod_environment_unknown_store(aexecute):
+async def test_create_mod_environment_unknown_store(aexecute: AExecute) -> None:
     res = await aexecute(
         CREATE_MOD_ENVIRONMENT,
         {"input": {"name": "Bad", "zipFile": "999999", "mechanisms": []}},

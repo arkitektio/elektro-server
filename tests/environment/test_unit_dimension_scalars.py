@@ -19,27 +19,27 @@ class DModel(BaseModel):
 
 
 @pytest.mark.parametrize("unit", ["mV", "S/cm2", "second", "mS/cm2", "dimensionless"])
-def test_unit_accepts_valid_units(unit):
+def test_unit_accepts_valid_units(unit: str) -> None:
     assert UModel(u=unit).u == unit  # given spelling preserved
 
 
-def test_unit_rejects_unknown_unit():
+def test_unit_rejects_unknown_unit() -> None:
     with pytest.raises(ValidationError):
         UModel(u="notaunit")
 
 
-def test_unit_rejects_a_quantity():
+def test_unit_rejects_a_quantity() -> None:
     # A magnitude-bearing quantity is not a unit.
     with pytest.raises(ValidationError):
         UModel(u="5 mV")
 
 
-def test_unit_rejects_a_dimension():
+def test_unit_rejects_a_dimension() -> None:
     with pytest.raises(ValidationError):
         UModel(u="[length]")
 
 
-def test_unit_rejects_empty():
+def test_unit_rejects_empty() -> None:
     with pytest.raises(ValidationError):
         UModel(u="   ")
 
@@ -47,22 +47,22 @@ def test_unit_rejects_empty():
 # --- Dimension ---------------------------------------------------------------
 
 
-def test_dimension_accepts_bracket_syntax():
+def test_dimension_accepts_bracket_syntax() -> None:
     assert DModel(d="[length]").d == "[length]"
 
 
-def test_dimension_canonicalizes_and_is_order_stable():
+def test_dimension_canonicalizes_and_is_order_stable() -> None:
     # A unit expression is reduced to its (canonical, order-stable) dimensionality,
     # and equal dimensions render identically regardless of input spelling.
     assert DModel(d="S/cm2").d == parse_dimension("mS/cm**2")
     assert DModel(d="mV").d == parse_dimension("volt")
 
 
-def test_dimension_dimensionless_sentinel():
+def test_dimension_dimensionless_sentinel() -> None:
     assert DModel(d="dimensionless").d == "dimensionless"
 
 
-def test_dimension_rejects_bogus():
+def test_dimension_rejects_bogus() -> None:
     with pytest.raises(ValidationError):
         DModel(d="[bogus]")
 
@@ -73,22 +73,22 @@ def test_dimension_rejects_bogus():
 @pytest.mark.parametrize(
     "spelling", ["a.u.", "A.U.", "arbitrary units", "arbitrary_unit", "arb"]
 )
-def test_unit_accepts_arbitrary(spelling):
+def test_unit_accepts_arbitrary(spelling: str) -> None:
     assert UModel(u=spelling).u == "a.u."  # canonicalized
 
 
-def test_dimension_of_arbitrary_is_bracket_arbitrary():
+def test_dimension_of_arbitrary_is_bracket_arbitrary() -> None:
     assert DModel(d="a.u.").d == "[arbitrary]"
     assert DModel(d="[arbitrary]").d == "[arbitrary]"  # idempotent
 
 
-def test_bare_au_is_still_astronomical_unit_not_arbitrary():
+def test_bare_au_is_still_astronomical_unit_not_arbitrary() -> None:
     # "au" is pint's astronomical unit; it must NOT be hijacked as arbitrary.
     assert UModel(u="au").u == "au"
     assert DModel(d="au").d != "[arbitrary]"
 
 
-def test_generic_quantity_arbitrary_value():
+def test_generic_quantity_arbitrary_value() -> None:
     from kanne_server import quantities as pqq
 
     class G(BaseModel):
@@ -104,7 +104,7 @@ def test_generic_quantity_arbitrary_value():
 # --- None passes through (optional fields) -----------------------------------
 
 
-def test_optional_none_passes():
+def test_optional_none_passes() -> None:
     class M(BaseModel):
         u: pq.Unit | None = None
         d: pq.Dimension | None = None

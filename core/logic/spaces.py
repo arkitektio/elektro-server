@@ -7,13 +7,15 @@ those to an orphan sweep; here the delete mutations sweep the spaces they just e
 the sampling law and the offsets that touched them go in the same request.
 """
 
+from collections.abc import Iterable
+
 from django.db.models import Q
 
 from core import models
 from core.logic import graph as graph_logic
 
 
-def sweep_empty_systems(system_ids) -> list[int]:  # noqa: ANN001 - any iterable of ids
+def sweep_empty_systems(system_ids: Iterable[int | None]) -> list[int]:
     """Delete, among these systems, the ones that are now nobody's: nothing lives in them and nothing is laid out over them.
 
     Called by a delete *after* the data is gone, with the systems that data lived in or was

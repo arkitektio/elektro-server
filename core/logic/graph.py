@@ -2843,7 +2843,9 @@ def residents_exist(system: "models.CoordinateSystem") -> bool:
     return any(getattr(system, relation).exists() for relation in RESIDENT_RELATIONS)
 
 
-def collection_in(system: "models.CoordinateSystem"):
+def collection_in(
+    system: "models.CoordinateSystem",
+) -> "models.TableDataset | models.AnnotationCollection | models.SparseDataset | models.NeuronModel | None":
     """The mesh / table / annotation collection living in this space, if one does.
 
     Only the seeding and keying paths ask, and they ask once per space rather than once per
@@ -3292,7 +3294,7 @@ def categorized_dataset_ids(dataset_ids: "Iterable[int]") -> set[int]:
 
 
 def adjacency_of(
-    edges,
+    edges: "Iterable[models.Transformation]",
     *,
     at: dict[str, int] | None = None,
     admit_scoped: bool = False,

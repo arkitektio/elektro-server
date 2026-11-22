@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from core.types.file_link import FileLink
     from core.types.folder import Folder
     from core.types.layers import ExperimentLayer
+    from core.types.sparse_dataset import SparseDataset
+    from core.types.table_dataset import TableDataset
 
 
 @kante.django_type(

@@ -13,6 +13,7 @@ from graphql import (
     GraphQLList,
     GraphQLNonNull,
     GraphQLObjectType,
+    GraphQLType,
     Undefined,
 )
 from kante.context import HttpContext
@@ -28,7 +29,7 @@ from tests.seed import (
 )
 
 
-def _unwrap(graphql_type):
+def _unwrap(graphql_type: GraphQLType) -> GraphQLType:
     while isinstance(graphql_type, (GraphQLNonNull, GraphQLList)):
         graphql_type = graphql_type.of_type
     return graphql_type
@@ -72,6 +73,7 @@ async def _ids(field: str, ctx: HttpContext, args: str = "") -> list[str]:
         f"query {{ {field}{args} {{ id }} }}", context_value=ctx
     )
     assert not result.errors, (field, result.errors)
+    assert result.data is not None
     return [row["id"] for row in result.data[field]]
 
 
@@ -83,8 +85,10 @@ def test_the_field_discovery_finds_the_folder_lists() -> None:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_list_fields_hide_the_other_org(
-    db, authenticated_context: HttpContext, same_user_other_org_context: HttpContext
-):
+    db: None,
+    authenticated_context: HttpContext,
+    same_user_other_org_context: HttpContext,
+) -> None:
     await _seed(authenticated_context)
 
     # Sanity: the seeding org sees its own rows, so an empty list below means scoped, not broken.
@@ -102,8 +106,10 @@ async def test_list_fields_hide_the_other_org(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_pinned_and_mine_stay_in_the_acting_org(
-    db, authenticated_context: HttpContext, same_user_other_org_context: HttpContext
-):
+    db: None,
+    authenticated_context: HttpContext,
+    same_user_other_org_context: HttpContext,
+) -> None:
     await _seed(authenticated_context)
 
     assert await _ids("folders", authenticated_context, "(filters: {pinned: true})")
@@ -117,8 +123,8 @@ async def test_pinned_and_mine_stay_in_the_acting_org(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_my_fields_only_list_the_callers_rows(
-    db, authenticated_context: HttpContext, bot_context: HttpContext
-):
+    db: None, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     mine = await create_folder(authenticated_context, "Mine")
     theirs = await create_folder(bot_context, "Theirs")
     my_file = await create_file(authenticated_context, "mine.nwb", mine)
@@ -134,11 +140,11 @@ async def test_my_fields_only_list_the_callers_rows(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mutation", ["createFolder", "ensureFolder", "updateFolder"])
 async def test_folder_parent_must_be_in_the_acting_org(
-    db,
+    db: None,
     mutation: str,
     authenticated_context: HttpContext,
     same_user_other_org_context: HttpContext,
-):
+) -> None:
     parent = await create_folder(authenticated_context, "Org A Parent")
     own = await create_folder(same_user_other_org_context, "Org B Folder")
     extra = f', id: "{own.pk}"' if mutation == "updateFolder" else ""
@@ -160,8 +166,8 @@ async def test_folder_parent_must_be_in_the_acting_org(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_rename_without_parent_keeps_the_parent(
-    db, authenticated_context: HttpContext
-):
+    db: None, authenticated_context: HttpContext
+) -> None:
     parent = await create_folder(authenticated_context, "Parent")
     child = await create_folder(authenticated_context, "Child", parent=parent)
 
@@ -179,8 +185,10 @@ async def test_rename_without_parent_keeps_the_parent(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_children_do_not_cross_orgs(
-    db, authenticated_context: HttpContext, same_user_other_org_context: HttpContext
-):
+    db: None,
+    authenticated_context: HttpContext,
+    same_user_other_org_context: HttpContext,
+) -> None:
     """Even a cross-org row already in the database (written before the fix) stays out of `children`."""
     parent = await create_folder(authenticated_context, "Org A Parent")
     await create_folder(same_user_other_org_context, "Org B Child", parent=parent)
@@ -191,4 +199,5 @@ async def test_children_do_not_cross_orgs(
         context_value=authenticated_context,
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["children"] == []

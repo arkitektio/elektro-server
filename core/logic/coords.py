@@ -282,7 +282,7 @@ def specs_for_axes(
             f"{len(axes)} axes for a {len(shape)}-dimensional shape: a dataset's spec is read off its axes and their extents together."
         )
 
-    extended = [axis for axis, extent in zip(axes, shape) if extent > 1]
+    extended = [axis for axis, extent in zip(axes, shape, strict=True) if extent > 1]
     count = len(spatial_axes(extended))
     specs = [_SPATIAL_SPEC_BY_COUNT.get(count, enums.ArrayDatasetSpec.HYPERVOLUME)]
     present = {axis.type for axis in extended}
@@ -501,11 +501,11 @@ def invert_matrix(matrix: Sequence[Sequence[float]]) -> list[list[float]]:
                 continue
             rows[index] = [
                 value - factor * other
-                for value, other in zip(rows[index], rows[column])
+                for value, other in zip(rows[index], rows[column], strict=True)
             ]
             result[index] = [
                 value - factor * other
-                for value, other in zip(result[index], result[column])
+                for value, other in zip(result[index], result[column], strict=True)
             ]
 
     return result
@@ -618,7 +618,7 @@ def permutation_matrix(
     ``output_axes[k]``; an axis it does not name is one it leaves where it was.
     """
     n = len(axis_order)
-    mapping = dict(zip(input_axes, output_axes))
+    mapping = dict(zip(input_axes, output_axes, strict=False))
 
     matrix = [[0.0] * (n + 1) for _ in range(n + 1)]
     matrix[n][n] = 1.0

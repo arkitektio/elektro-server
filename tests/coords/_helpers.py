@@ -14,13 +14,23 @@ Three things the ported tests need and ``tests/seed.py`` does not give them:
 """
 
 import threading
+from collections.abc import Sequence
+from types import TracebackType
+from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 from django.db.backends import utils as db_utils
 from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import models
+from core.inputs.coords import AxisInputModel
 from tests import seed
+from tests.fixture_types import AExecute, GraphQLData, ZarrStoreFactory
+
+if TYPE_CHECKING:
+    # django-stubs' names for what a cursor takes; they exist only in the stubs.
+    from django.db.backends.utils import _ExecuteParameters, _ExecuteQuery
 
 
 class QueryCounter:
@@ -32,19 +42,27 @@ class QueryCounter:
     """
 
     def __init__(self) -> None:
-        self.queries: list[str] = []
+        self.queries: list[_ExecuteQuery] = []
         self._lock = threading.Lock()
 
     def __enter__(self) -> "QueryCounter":
         self._execute = db_utils.CursorWrapper.execute
         self._executemany = db_utils.CursorWrapper.executemany
 
-        def execute(inner, sql, params=None):  # noqa: ANN001, ANN202
+        def execute(
+            inner: db_utils.CursorWrapper,
+            sql: "_ExecuteQuery",
+            params: "_ExecuteParameters | None" = None,
+        ) -> object:
             with self._lock:
                 self.queries.append(sql)
             return self._execute(inner, sql, params)
 
-        def executemany(inner, sql, param_list):  # noqa: ANN001, ANN202
+        def executemany(
+            inner: db_utils.CursorWrapper,
+            sql: "_ExecuteQuery",
+            param_list: "Sequence[_ExecuteParameters]",
+        ) -> object:
             with self._lock:
                 self.queries.append(sql)
             return self._executemany(inner, sql, param_list)
@@ -53,7 +71,12 @@ class QueryCounter:
         db_utils.CursorWrapper.executemany = executemany
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         db_utils.CursorWrapper.execute = self._execute
         db_utils.CursorWrapper.executemany = self._executemany
 
@@ -62,8 +85,8 @@ class QueryCounter:
 
 
 async def counted(
-    aexecute, query: str, variables: dict | None = None
-) -> tuple[dict, int]:  # noqa: ANN001 - the conftest fixture
+    aexecute: AExecute, query: str, variables: dict | None = None
+) -> tuple[GraphQLData, int]:
     """The query's data and the number of SQL statements one fresh request costs.
 
     Warmed once and measured on a second, separate request: the first execution of a
@@ -75,6 +98,7 @@ async def counted(
     with QueryCounter() as counter:
         result = await aexecute(query, variables)
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data, len(counter)
 
 
@@ -145,17 +169,17 @@ mutation Derive($input: CreateArrayDatasetInput!) {
 
 
 async def derive(
-    aexecute,
-    zarr_store,
+    aexecute: AExecute,
+    zarr_store: ZarrStoreFactory,
     name: str,
     *,
-    axes: list,
+    axes: Sequence[AxisInputModel],
     shape: list[int],
-    lens=None,
+    lens: models.Lens | None = None,
     entries: list[dict] | None = None,
     transform: dict | None = None,
     value_relation: str | None = None,
-):  # noqa: ANN001, ANN201
+) -> ExecutionResult:
     """Create a dataset through the real mutation, stating what it was computed from: mikro's ``_derive``.
 
     Either one ``lens`` plus its ``transform`` dict (and optional ``value_relation``), or
@@ -193,9 +217,10 @@ async def derive(
     )
 
 
-async def derived_dataset(result) -> models.ArrayDataset:  # noqa: ANN001 - an ExecutionResult of `DERIVE`
+async def derived_dataset(result: ExecutionResult) -> models.ArrayDataset:
     """The dataset a successful :func:`derive` made."""
     assert not result.errors, result.errors
+    assert result.data is not None
     return await models.ArrayDataset.objects.select_related("coordinate_system").aget(
         pk=result.data["createArrayDataset"]["id"]
     )

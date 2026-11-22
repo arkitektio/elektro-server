@@ -8,15 +8,29 @@ no ``owner`` argument here. What is the same is the store straddle -- see
 :func:`core.mutations.delete.delete_flagging_stores`.
 """
 
+from collections.abc import Callable
+from typing import TypeVar
+
 import strawberry
+from django.db.models import Model
 from kante.types import Info
 
 from core import scoping
 from core.guards import enforce_delete
 from core.mutations.delete import delete_flagging_stores
 
+_M = TypeVar("_M", bound=Model)
 
-def make_delete(model, input_type, guard=None):  # noqa: ANN001, ANN201 - a resolver factory
+#: What a delete factory returns: a resolver ``(info, input) -> the deleted id``. Its
+#: parameters are typed by the ``input_type`` it was built for, so they are left open here.
+DeleteResolver = Callable[..., strawberry.ID]
+
+
+def make_delete(
+    model: type[_M],
+    input_type: type,
+    guard: Callable[[_M], None] | None = None,
+) -> DeleteResolver:
     """Build a delete resolver: fetch org-scoped by id, guard, delete, flag orphaned stores.
 
     ``guard`` is a callable raising when the row must not be deleted *at all*, whoever asks
@@ -38,7 +52,11 @@ def make_delete(model, input_type, guard=None):  # noqa: ANN001, ANN201 - a reso
     return resolve
 
 
-def make_owned_space_delete(model, input_type, guard=None):  # noqa: ANN001, ANN201 - a resolver factory
+def make_owned_space_delete(
+    model: type[_M],
+    input_type: type,
+    guard: Callable[[_M], None] | None = None,
+) -> DeleteResolver:
     """:func:`make_delete` for a container that owns its space, which it sweeps after itself.
 
     elektro's own (divergence 7 in ``core/DESIGN.md``). A table or sparse dataset owns its
@@ -65,7 +83,7 @@ def make_owned_space_delete(model, input_type, guard=None):  # noqa: ANN001, ANN
     return resolve
 
 
-def make_pin(model, input_type, return_type):  # noqa: ANN001, ANN201 - a resolver factory
+def make_pin(model: type[_M], input_type: type, return_type: type) -> Callable[..., _M]:
     """Build a pin resolver toggling the request user on the pinned_by M2M."""
 
     def resolve(info: Info, input: input_type) -> return_type:

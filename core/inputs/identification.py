@@ -36,7 +36,12 @@ import strawberry
 from pydantic import BaseModel, ConfigDict, Field
 
 from core import enums
-from core.input_unions import parse_union_member, prose_errors, union_memberships
+from core.input_unions import (
+    PydanticInputDecorator,
+    parse_union_member,
+    prose_errors,
+    union_memberships,
+)
 
 _NAME_DESCRIPTION = "What to call the edge this authors, in a graph a person has to read. Defaults to `<source> -> <dataset>`. Only meaningful for the kinds that author one"
 
@@ -162,8 +167,8 @@ class IdentificationInput:
 
 
 def _identification_member(
-    model: type, key: "enums.IdentificationKind", description: str
-):  # noqa: ANN202 - a decorator factory
+    model: type[BaseModel], key: "enums.IdentificationKind", description: str
+) -> PydanticInputDecorator:
     """Publish one member input of the IdentificationInput union."""
     return kante.pydantic_input(
         model,

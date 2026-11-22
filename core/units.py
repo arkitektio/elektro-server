@@ -13,6 +13,7 @@ and any custom ``KANNE["definitions"]``. This mirrors
 """
 
 import re
+from collections.abc import Mapping
 
 from kanne_server.registry import get_registry
 from kanne_server.scalars import (
@@ -46,7 +47,7 @@ def _normalize_neuron_unit(expression: str) -> str:
     return normalized
 
 
-def _render_dimensionality(dims) -> str:
+def _render_dimensionality(dims: Mapping[str, float]) -> str:
     """Deterministic string form of a pint dimensionality mapping.
 
     ``str(UnitsContainer)`` is not order-stable (it depends on the registry's
@@ -60,7 +61,7 @@ def _render_dimensionality(dims) -> str:
     if not positive and not negative:
         return DIMENSIONLESS
 
-    def term(dim: str, exp) -> str:
+    def term(dim: str, exp: float) -> str:
         exp = abs(exp)
         return dim if exp == 1 else f"{dim} ** {exp:g}"
 

@@ -5,17 +5,24 @@ with the roles they hold in each; the guest token is minted per test. A full mem
 puts objects in a collaboration; what each needs to be seen comes along, and what is part of it is in it.
 """
 
+from collections.abc import Callable, Iterator, Mapping
+from typing import TypeAlias
+
 import pytest
 from arkitekt_service.collaborations import items as collaboration_items
 from arkitekt_service.collaborations.models import Collaboration
 from asgiref.sync import sync_to_async
 from authentikate import settings as authentikate_settings
+from django.db.models import Model
 from kante.context import HttpContext, UniversalRequest
+from pytest_django.fixtures import SettingsWrapper
 from strawberry.http.temporal_response import TemporalResponse
+from strawberry.types import ExecutionResult
 
 from core import models
 from elektro_server.schema import schema
 from tests import seed
+from tests.fixture_types import GraphQLData, SimulationChain, SimulationChainFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -63,11 +70,17 @@ def _context(token: str) -> HttpContext:
     )
 
 
+#: ``guest``: mint a context presenting a guest's token granted ``{collaboration: roles}``.
+GuestFactory: TypeAlias = Callable[[Mapping[Collaboration, list[str]]], HttpContext]
+
+
 @pytest.fixture
-def guest(db, authenticated_context, settings):
+def guest(
+    db: None, authenticated_context: HttpContext, settings: SettingsWrapper
+) -> Iterator[GuestFactory]:
     """``guest({collaboration: roles})``: a context presenting a guest's token granted those collaborations on instance "1"."""
 
-    def mint(collaborations: dict) -> HttpContext:
+    def mint(collaborations: Mapping[Collaboration, list[str]]) -> HttpContext:
         granted = {
             str(collaboration.pk): roles
             for collaboration, roles in collaborations.items()
@@ -91,20 +104,21 @@ def guest(db, authenticated_context, settings):
     authentikate_settings.cached_settings = None
 
 
-async def _run(ctx: HttpContext, query: str, **variables):
+async def _run(ctx: HttpContext, query: str, **variables: object) -> ExecutionResult:
     return await schema.execute(
         query, context_value=ctx, variable_values=variables or None
     )
 
 
-async def _member(query: str, **variables) -> dict:
+async def _member(query: str, **variables: object) -> GraphQLData:
     """Run ``query`` as the full member, as a request of its own, and hand back its data."""
     result = await _run(_context("test"), query, **variables)
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data
 
 
-async def _collaboration(ctx: HttpContext, *objects) -> Collaboration:
+async def _collaboration(ctx: HttpContext, *objects: Model) -> Collaboration:
     """A collaboration of the organization holding ``objects``, as a full member puts them in."""
 
     def make() -> Collaboration:
@@ -124,7 +138,7 @@ async def _experiment(name: str) -> models.Experiment:
     return await models.Experiment.objects.aget(pk=created["createExperiment"]["id"])
 
 
-async def _trace(experiment: models.Experiment, chain) -> None:  # noqa: ANN001 - make_simulation_chain's namespace
+async def _trace(experiment: models.Experiment, chain: SimulationChain) -> None:
     """The run's clock placed on the experiment's world at zero, and a trace of its recording."""
     await _member(
         CLOCK_OFFSET,
@@ -140,20 +154,23 @@ async def _trace(experiment: models.Experiment, chain) -> None:  # noqa: ANN001 
     )
 
 
-def _refused(result, reason: str) -> None:
+def _refused(result: ExecutionResult, reason: str) -> None:
     assert result.errors, "it was let through"
-    assert result.errors[0].extensions.get("reason") == reason, result.errors
+    extensions = result.errors[0].extensions
+    assert extensions is not None, result.errors
+    assert extensions.get("reason") == reason, result.errors
 
 
 async def test_a_guest_reads_the_experiment_in_their_collaboration_and_nothing_else(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: GuestFactory
+) -> None:
     shared = await _experiment("Shared")
     other = await _experiment("Other")  # the newest: first in the default ordering
     ctx = guest({await _collaboration(authenticated_context, shared): []})
 
     listed = await _run(ctx, "{ experiments { id } }")
     assert not listed.errors, listed.errors
+    assert listed.data is not None
     assert [e["id"] for e in listed.data["experiments"]] == [str(shared.pk)]
     # Narrowed in the query, not only dropped afterwards: the first page is the shared one.
     paged = await _run(ctx, "{ experiments(pagination: {limit: 1}) { id } }")
@@ -165,8 +182,10 @@ async def test_a_guest_reads_the_experiment_in_their_collaboration_and_nothing_e
 
 
 async def test_an_experiment_in_a_collaboration_renders_for_a_guest(
-    authenticated_context, guest, make_simulation_chain
-):
+    authenticated_context: HttpContext,
+    guest: GuestFactory,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     chain = await make_simulation_chain()
     experiment = await _experiment("Paired pulse")
     await _trace(experiment, chain)
@@ -174,6 +193,7 @@ async def test_an_experiment_in_a_collaboration_renders_for_a_guest(
 
     result = await _run(ctx, RENDER, id=str(experiment.pk))
     assert not result.errors, result.errors
+    assert result.data is not None
     rendered = result.data["experiment"]
     assert rendered["world"]["id"] == str(experiment.world_id)
     (layer,) = rendered["layers"]
@@ -194,8 +214,10 @@ async def test_an_experiment_in_a_collaboration_renders_for_a_guest(
 
 
 async def test_a_layer_added_later_brings_what_it_draws(
-    authenticated_context, guest, make_simulation_chain
-):
+    authenticated_context: HttpContext,
+    guest: GuestFactory,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     chain = await make_simulation_chain()
     experiment = await _experiment("Growing")
     ctx = guest({await _collaboration(authenticated_context, experiment): []})
@@ -203,14 +225,17 @@ async def test_a_layer_added_later_brings_what_it_draws(
 
     result = await _run(ctx, RENDER, id=str(experiment.pk))
     assert not result.errors, result.errors
+    assert result.data is not None
     (layer,) = result.data["experiment"]["layers"]
     assert layer["lens"]["dataset"]["id"] == str(chain.recording.pk)
     assert len(layer["pathToWorld"]) == 2
 
 
 async def test_an_edge_out_of_a_shared_space_authored_later_comes_along(
-    authenticated_context, guest, make_simulation_chain
-):
+    authenticated_context: HttpContext,
+    guest: GuestFactory,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     chain = await make_simulation_chain()
     session = await seed.create_clock(authenticated_context, "session")
     elsewhere = await seed.create_clock(authenticated_context, "elsewhere")
@@ -229,6 +254,7 @@ async def test_an_edge_out_of_a_shared_space_authored_later_comes_along(
     edge = "query ($id: ID!) { transformation(id: $id) { id output { id } } }"
     seen = await _run(ctx, edge, id=synced["createClockOffset"]["id"])
     assert not seen.errors, seen.errors
+    assert seen.data is not None
     assert seen.data["transformation"]["output"]["id"] == str(session.pk), (
         "with the space it leads to"
     )
@@ -238,8 +264,10 @@ async def test_an_edge_out_of_a_shared_space_authored_later_comes_along(
 
 
 async def test_what_is_in_no_collaboration_is_left_out(
-    authenticated_context, guest, make_simulation_chain
-):
+    authenticated_context: HttpContext,
+    guest: GuestFactory,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     chain = await make_simulation_chain()
     experiment = await _experiment("Shared")
     await _trace(experiment, chain)
@@ -262,8 +290,10 @@ async def test_what_is_in_no_collaboration_is_left_out(
 
 
 async def test_a_shared_neuron_model_shows_none_of_the_runs_that_simulate_it(
-    authenticated_context, guest, make_simulation_chain
-):
+    authenticated_context: HttpContext,
+    guest: GuestFactory,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     chain = await make_simulation_chain()
     sibling = await models.NeuronModel.objects.acreate(
         name="Sibling",
@@ -278,6 +308,7 @@ async def test_a_shared_neuron_model_shows_none_of_the_runs_that_simulate_it(
         "{ neuronModels { id } modEnvironments { id mechanisms { id } } arrayDatasets { id } coordinateAnchors { id } }",
     )
     assert not shared.errors, shared.errors
+    assert shared.data is not None
     assert [m["id"] for m in shared.data["neuronModels"]] == [
         str(chain.neuron_model.pk)
     ], f"not the sibling {sibling.pk} on the same mod environment"
@@ -290,8 +321,10 @@ async def test_a_shared_neuron_model_shows_none_of_the_runs_that_simulate_it(
 
 
 async def test_an_editor_in_the_collaboration_draws_there_and_only_there(
-    authenticated_context, guest, make_simulation_chain
-):
+    authenticated_context: HttpContext,
+    guest: GuestFactory,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     chain = await make_simulation_chain()
     canvas = await _experiment("Canvas")
     await _trace(canvas, chain)
@@ -311,6 +344,7 @@ async def test_an_editor_in_the_collaboration_draws_there_and_only_there(
         },
     )
     assert not drawn.errors, drawn.errors
+    assert drawn.data is not None
     collection = drawn.data["createAnnotation"]["collection"]["id"]
     again = await _run(
         ctx,
@@ -333,6 +367,7 @@ async def test_an_editor_in_the_collaboration_draws_there_and_only_there(
         id=str(canvas.pk),
     )
     assert not surface.errors, surface.errors
+    assert surface.data is not None
     assert surface.data["experiment"]["annotationCollection"]["id"] == collection
     (drawing,) = [
         layer
@@ -355,8 +390,8 @@ async def test_an_editor_in_the_collaboration_draws_there_and_only_there(
 
 
 async def test_a_viewer_draws_nothing_and_no_guest_does_anything_else(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: GuestFactory
+) -> None:
     canvas = await _experiment("Canvas")
     collaboration = await _collaboration(authenticated_context, canvas)
 
@@ -379,8 +414,8 @@ async def test_a_viewer_draws_nothing_and_no_guest_does_anything_else(
 
 
 async def test_a_member_puts_an_experiment_in_a_collaboration_and_takes_it_out(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: GuestFactory
+) -> None:
     experiment = await _experiment("Handed over")
     created = await _member(
         'mutation { createCollaboration(input: {name: "Review"}) { id } }'
@@ -415,7 +450,7 @@ def _type_line(sdl: str, name: str) -> str:
     return next(line for line in sdl.splitlines() if line.startswith(f"type {name} "))
 
 
-async def test_the_schema_says_what_each_type_is_and_who_may_draw():
+async def test_the_schema_says_what_each_type_is_and_who_may_draw() -> None:
     sdl = str(schema)
     assert '@identified(by: "@elektro/experiment")' in _type_line(sdl, "Experiment")
     create = next(
@@ -429,8 +464,10 @@ async def test_the_schema_says_what_each_type_is_and_who_may_draw():
 
 
 async def test_an_anchor_and_a_run_hung_on_a_shared_dataset_later_come_along(
-    authenticated_context, guest, make_simulation_chain
-):
+    authenticated_context: HttpContext,
+    guest: GuestFactory,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     chain = await make_simulation_chain()
     ctx = guest({await _collaboration(authenticated_context, chain.recording): []})
 
@@ -457,6 +494,7 @@ async def test_an_anchor_and_a_run_hung_on_a_shared_dataset_later_come_along(
         id=str(chain.recording.pk),
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     hung = [
         anchor
         for anchor in result.data["arrayDataset"]["anchors"]

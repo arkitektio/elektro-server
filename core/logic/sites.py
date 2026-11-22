@@ -15,7 +15,9 @@ from urllib.parse import quote, unquote
 from django.db.models import Q
 
 from core import models
+from core.base_models.type.cell import CellModel
 from core.base_models.type.model import ModelConfigModel
+from core.base_models.type.topology import SectionModel
 
 
 def cells_of(model: "models.NeuronModel") -> dict[str, dict]:
@@ -157,7 +159,7 @@ def parse_compound_id(value: str, *, parts: int) -> tuple[str, ...]:
     return tuple(unquote(part) for part in split)
 
 
-def cell_of(model: "models.NeuronModel", cell_id: str):  # noqa: ANN201 - a stamped CellModel
+def cell_of(model: "models.NeuronModel", cell_id: str) -> CellModel:
     """The stamped cell ``cell_id`` of ``model``'s config, or a refusal naming the cells it has."""
     config = config_of(model)
     for cell in config.cells:
@@ -168,7 +170,9 @@ def cell_of(model: "models.NeuronModel", cell_id: str):  # noqa: ANN201 - a stam
     )
 
 
-def section_of(model: "models.NeuronModel", cell_id: str, section_id: str):  # noqa: ANN201 - a stamped SectionModel
+def section_of(
+    model: "models.NeuronModel", cell_id: str, section_id: str
+) -> SectionModel:
     """The stamped section ``section_id`` of cell ``cell_id``, or a refusal naming the sections it has."""
     cell = cell_of(model, cell_id)
     for section in cell.topology.sections:

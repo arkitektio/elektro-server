@@ -24,11 +24,15 @@ clock, and these datasets are placed by a registration of their source instead.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import enums, models
+from core.creation import CreationContext
 from core.logic import graph as graph_logic
 from tests import seed
 from tests.coords._helpers import add_layer, create_experiment, derive, derived_dataset
+from tests.fixture_types import AExecute, GraphQLData, ZarrStoreFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -93,7 +97,9 @@ _AFFINE_3D = [
 _TC_SHAPE = [1000, 4]
 
 
-async def _register(aexecute, dataset: models.ArrayDataset, world_id) -> None:  # noqa: ANN001
+async def _register(
+    aexecute: AExecute, dataset: models.ArrayDataset, world_id: int
+) -> None:
     """Register a (c, y, x) dataset into a (z, y, x) world, by an affine someone measured."""
     registered = await aexecute(
         REGISTER,
@@ -108,22 +114,25 @@ async def _register(aexecute, dataset: models.ArrayDataset, world_id) -> None:  
     assert not registered.errors, registered.errors
 
 
-async def _view(aexecute, experiment: models.Experiment) -> dict:  # noqa: ANN001
+async def _view(aexecute: AExecute, experiment: models.Experiment) -> GraphQLData:
     result = await aexecute(PLACEMENT, {"id": str(experiment.pk)})
     assert not result.errors, result.errors
+    assert result.data is not None
     (view,) = result.data["experiment"]["layers"]
     return view
 
 
-async def _children(aexecute, dataset: models.ArrayDataset) -> list[dict]:  # noqa: ANN001
+async def _children(aexecute: AExecute, dataset: models.ArrayDataset) -> list[dict]:
     result = await aexecute(DERIVED_DATASETS, {"id": str(dataset.pk)})
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["arrayDataset"]["derivedDatasets"]
 
 
-async def _names(aexecute, filters: dict) -> set[str]:  # noqa: ANN001
+async def _names(aexecute: AExecute, filters: dict) -> set[str]:
     result = await aexecute(DATASETS, {"filters": filters})
     assert not result.errors, result.errors
+    assert result.data is not None
     return {dataset["name"] for dataset in result.data["arrayDatasets"]}
 
 
@@ -131,7 +140,9 @@ def _identity(lens: models.Lens) -> dict:
     return {"kind": "LENS", "lens": str(lens.pk), "transform": {"kind": "IDENTITY"}}
 
 
-async def _two_sources(ctx):  # noqa: ANN001, ANN202
+async def _two_sources(
+    ctx: HttpContext,
+) -> tuple[models.ArrayDataset, models.Lens, models.ArrayDataset, models.Lens]:
     """Two acquired datasets with a full lens each -- the parents of every fusion below."""
     left = await seed.create_array_dataset(ctx, "Left")
     left_lens = await seed.create_lens(ctx, left)
@@ -140,7 +151,9 @@ async def _two_sources(ctx):  # noqa: ANN001, ANN202
     return left, left_lens, right, right_lens
 
 
-async def _fuse(aexecute, zarr_store, name: str, entries: list[dict]):  # noqa: ANN001, ANN202
+async def _fuse(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, name: str, entries: list[dict]
+) -> ExecutionResult:
     return await derive(
         aexecute,
         zarr_store,
@@ -155,8 +168,8 @@ async def _fuse(aexecute, zarr_store, name: str, entries: list[dict]):  # noqa: 
 
 
 async def test_a_derived_dataset_walks_to_world_through_its_source(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """The path runs through the source's systems, not around them.
 
     The placement search partitions its edge universe per dataset, so before the lineage
@@ -211,8 +224,8 @@ async def test_a_derived_dataset_walks_to_world_through_its_source(
 
 
 async def test_an_unregistered_derived_dataset_is_placed_through_its_source(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """When nothing is registered yet the view is UNREGISTERED -- and registering the SOURCE fixes it.
 
     Nothing fabricates a placement. The honest fix is the one a client authors about the data
@@ -263,8 +276,8 @@ async def test_an_unregistered_derived_dataset_is_placed_through_its_source(
 
 
 async def test_the_derivation_edge_is_readable_on_the_dataset(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`derivedFrom` is the edge itself, so a client can compose it -- not a label about it."""
     ctx = authenticated_context
     source = await seed.create_array_dataset(ctx, "Source")
@@ -277,9 +290,11 @@ async def test_the_derivation_edge_is_readable_on_the_dataset(
         shape=[3, 64, 64],
     )
     assert not derived.errors, derived.errors
+    assert derived.data is not None
 
     result = await aexecute(DERIVED, {"id": derived.data["createArrayDataset"]["id"]})
     assert not result.errors, result.errors
+    assert result.data is not None
 
     (edge,) = result.data["arrayDataset"]["derivedFrom"]
     assert edge["kind"] == "IDENTITY"
@@ -292,12 +307,13 @@ async def test_the_derivation_edge_is_readable_on_the_dataset(
     # An acquired dataset was derived from nothing, and says so.
     plain = await aexecute(DERIVED, {"id": str(source.pk)})
     assert not plain.errors, plain.errors
+    assert plain.data is not None
     assert plain.data["arrayDataset"]["derivedFrom"] == []
 
 
 async def test_the_derivation_is_readable_from_the_source_as_well(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`derivedDatasets` answers "what came out of this" -- the same edges, read backwards.
 
     A source cannot otherwise be asked what was made from it: `derivedFrom` only points
@@ -324,6 +340,7 @@ async def test_the_derivation_is_readable_from_the_source_as_well(
         shape=[3, 32, 64],
     )
     assert not derived.errors, derived.errors
+    assert derived.data is not None
     child_id = derived.data["createArrayDataset"]["id"]
 
     assert [child["id"] for child in await _children(aexecute, source)] == [child_id]
@@ -334,6 +351,7 @@ async def test_the_derivation_is_readable_from_the_source_as_well(
         {"id": str(lens.pk)},
     )
     assert not from_lens.errors, from_lens.errors
+    assert from_lens.data is not None
     assert [child["name"] for child in from_lens.data["lens"]["derivedDatasets"]] == [
         "Sorted"
     ]
@@ -341,12 +359,13 @@ async def test_the_derivation_is_readable_from_the_source_as_well(
     # A leaf produced nothing, and says so rather than echoing its own parent back.
     leaf = await aexecute(DERIVED_DATASETS, {"id": child_id})
     assert not leaf.errors, leaf.errors
+    assert leaf.data is not None
     assert leaf.data["arrayDataset"]["derivedDatasets"] == []
 
 
 async def test_a_fusion_is_a_child_of_every_source_it_named_exactly_once(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """Report every child, not just the ones this source places -- and each child once.
 
     Two traps the naive query falls into. A fusion has several parents but only the first
@@ -365,6 +384,7 @@ async def test_a_fusion_is_a_child_of_every_source_it_named_exactly_once(
         [_identity(primary_lens), _identity(secondary_lens)],
     )
     assert not fusion.errors, fusion.errors
+    assert fusion.data is not None
     fused_id = fusion.data["createArrayDataset"]["id"]
 
     for source in (primary, secondary):
@@ -383,6 +403,7 @@ async def test_a_fusion_is_a_child_of_every_source_it_named_exactly_once(
         [_identity(primary_lens), _identity(other_lens)],
     )
     assert not two_lens_fusion.errors, two_lens_fusion.errors
+    assert two_lens_fusion.data is not None
     assert len(two_lens_fusion.data["createArrayDataset"]["derivedFrom"]) == 2, (
         "the dedup below is only a test if two edges really land in one source"
     )
@@ -394,8 +415,8 @@ async def test_a_fusion_is_a_child_of_every_source_it_named_exactly_once(
 
 
 async def test_an_unmappable_child_is_still_a_child(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """The inverse is kind-blind, exactly as `derivedFrom` is.
 
     "This came from that, and the geometry did not survive" is a derivation -- the one the
@@ -422,8 +443,8 @@ async def test_an_unmappable_child_is_still_a_child(
 
 
 async def test_a_calibrated_dataset_is_not_its_own_child(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A sampling law runs sample grid -> clock, and looks exactly like a derivation leaving this dataset's space.
 
     It is nothing of the sort: a dataset is not computed from itself, and a clock is nobody's
@@ -453,8 +474,8 @@ async def test_a_calibrated_dataset_is_not_its_own_child(
 
 
 async def test_a_projection_drops_an_axis_as_by_dimension(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """A mean over channels is a rank change, and BY_DIMENSION is how a rank change is stated."""
     ctx = authenticated_context
     source = await seed.create_dataset(ctx, "Probe", seed.TC_AXES, _TC_SHAPE)
@@ -469,6 +490,7 @@ async def test_a_projection_drops_an_axis_as_by_dimension(
         transform={"kind": "BY_DIMENSION", "inputAxes": ["t"], "outputAxes": ["t"]},
     )
     assert not derived.errors, derived.errors
+    assert derived.data is not None
 
     (edge,) = derived.data["createArrayDataset"]["derivedFrom"]
     assert edge["kind"] == "BY_DIMENSION"
@@ -479,8 +501,8 @@ async def test_a_projection_drops_an_axis_as_by_dimension(
 
 
 async def test_identity_is_not_a_rank_claim_in_disguise(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """IDENTITY says the two grids ARE the same. Between different axes that is a lie.
 
     IDENTITY carries no parameters, so no rank check would otherwise look at it. A projection
@@ -513,8 +535,8 @@ async def test_identity_is_not_a_rank_claim_in_disguise(
 
 
 async def test_a_categorized_derivation_states_it_on_the_edge(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`valueRelation` is the other axis of a derivation edge: what happened to the *numbers*.
 
     The spatial kind says where a spike sorting's samples sit (IDENTITY); CATEGORIZED says what
@@ -536,6 +558,7 @@ async def test_a_categorized_derivation_states_it_on_the_edge(
         value_relation="CATEGORIZED",
     )
     assert not sorted_.errors, sorted_.errors
+    assert sorted_.data is not None
     assert (
         sorted_.data["createArrayDataset"]["derivedFrom"][0]["valueRelation"]
         == "CATEGORIZED"
@@ -551,6 +574,7 @@ async def test_a_categorized_derivation_states_it_on_the_edge(
         value_relation="TRANSFORMED",
     )
     assert not filtered.errors, filtered.errors
+    assert filtered.data is not None
     assert (
         filtered.data["createArrayDataset"]["derivedFrom"][0]["valueRelation"]
         == "TRANSFORMED"
@@ -571,8 +595,8 @@ async def test_a_categorized_derivation_states_it_on_the_edge(
 
 
 async def test_a_derivation_may_be_a_map_axis(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """A transposed dataset states its derivation as the pure permutation it is.
 
     `derivedFrom` carries the same union every authored edge does, so a MAP_AXIS is stated
@@ -602,6 +626,7 @@ async def test_a_derivation_may_be_a_map_axis(
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     (reported,) = result.data["createArrayDataset"]["derivedFrom"]
     assert reported["kind"] == "MAP_AXIS"
@@ -617,8 +642,8 @@ async def test_a_derivation_may_be_a_map_axis(
 
 
 async def test_a_map_axis_cannot_put_a_channel_in_correspondence_with_time(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """A channel index is not an instant. mikro's version of the test above pairs `x -> y`, two SPACE axes; the
     electrophysiology analogue of "transposed" tempts one to write `c -> t`, which is a different and meaningless claim."""
     ctx = authenticated_context
@@ -648,7 +673,7 @@ async def test_a_map_axis_cannot_put_a_channel_in_correspondence_with_time(
     )
 
 
-async def test_a_derivation_may_be_a_field(authenticated_context):
+async def test_a_derivation_may_be_a_field(authenticated_context: HttpContext) -> None:
     """A FIELD derivation writes through the same guards a registration FIELD does.
 
     Written through the writer directly: at ingest a self-field is unrepresentable (the
@@ -704,8 +729,8 @@ async def test_a_derivation_may_be_a_field(authenticated_context):
 
 
 async def test_derived_from_and_not_derived_filters(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`notDerived` lists the roots -- `graph_logic.derivation_edges` as a query.
 
     So it inherits that function's rule: an edge landing in a space nothing lives in is not a
@@ -756,8 +781,8 @@ async def test_derived_from_and_not_derived_filters(
 
 
 async def test_derivation_filters_are_kind_blind(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """An UNMAPPABLE child still came from here: reporting it is the whole point of the kind."""
     ctx = authenticated_context
     source = await seed.create_array_dataset(ctx, "Acquired")
@@ -778,8 +803,8 @@ async def test_derivation_filters_are_kind_blind(
 
 
 async def test_derived_from_reports_every_parent_of_a_fusion(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """A fusion has two real parents, and both are roots -- not only the one that places it."""
     ctx = authenticated_context
     _, lens_a, _, lens_b = await _two_sources(ctx)
@@ -797,8 +822,8 @@ async def test_derived_from_reports_every_parent_of_a_fusion(
 
 
 async def test_a_fusion_records_every_parent_in_declared_order(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`derivedFrom` is the declared list, not a pk lottery: swap the input and the order swaps."""
     left, left_lens, right, right_lens = await _two_sources(authenticated_context)
 
@@ -807,6 +832,7 @@ async def test_a_fusion_records_every_parent_in_declared_order(
             aexecute, zarr_store, name, [_identity(first), _identity(second)]
         )
         assert not result.errors, result.errors
+        assert result.data is not None
         return result.data["createArrayDataset"]["id"]
 
     fused_id = await fuse("Fused", left_lens, right_lens)
@@ -822,6 +848,7 @@ async def test_a_fusion_records_every_parent_in_declared_order(
     ):
         result = await aexecute(DERIVED, {"id": dataset_id})
         assert not result.errors, result.errors
+        assert result.data is not None
         assert [
             edge["output"]["id"] for edge in result.data["arrayDataset"]["derivedFrom"]
         ] == expected, (
@@ -830,8 +857,8 @@ async def test_a_fusion_records_every_parent_in_declared_order(
 
 
 async def test_a_duplicate_source_is_refused(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """One entry per source: a second entry for the same lens is two claims about one relation."""
     _, left_lens, _, _ = await _two_sources(authenticated_context)
 
@@ -852,8 +879,8 @@ async def test_a_duplicate_source_is_refused(
 
 
 async def test_an_unmappable_entry_may_not_hide_a_mappable_parent(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """The primary is the placing parent, so an UNMAPPABLE first entry ahead of a mappable one is refused.
 
     The walks refuse an UNMAPPABLE primary -- that is its contract -- so a mappable parent
@@ -899,8 +926,8 @@ async def test_an_unmappable_entry_may_not_hide_a_mappable_parent(
 
 
 async def test_an_all_unmappable_fusion_is_a_root_and_its_layer_is_refused_as_unmappable(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """History from several sources, geometry from none: the data is its own root, and its view reads UNMAPPABLE.
 
     Not UNREGISTERED: there is no missing registration to author, and the badge must not send
@@ -940,8 +967,8 @@ async def test_an_all_unmappable_fusion_is_a_root_and_its_layer_is_refused_as_un
 
 
 async def test_the_lineage_is_the_primary_chain_and_history_keeps_every_parent(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`lineage_ancestors` is the fact tree's chain; `derivation_edges` is the full history.
 
     A fusion owes both parents historically, but it *sits* where its primary sits: the
@@ -972,8 +999,8 @@ async def test_the_lineage_is_the_primary_chain_and_history_keeps_every_parent(
 
 
 async def test_a_fusion_places_through_either_parent(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """A fusion reaches the world through *whichever* parent is registered.
 
     Every derivation edge is walkable, rivals and all, so a fusion sits wherever a parent of
@@ -1017,7 +1044,9 @@ async def test_a_fusion_places_through_either_parent(
 # --- which of two routes --------------------------------------------------------------------------
 
 
-def _best_path(source_pk: int, target_pk: int):  # noqa: ANN202
+def _best_path(
+    source_pk: int, target_pk: int
+) -> list[tuple[models.Transformation, bool]] | None:
     """Every top-level edge, fetched the way the real universe fetches them, then searched.
 
     `adjacency_of` reads both endpoints and their axes (through `is_reverse_traversable` ->
@@ -1032,7 +1061,7 @@ def _best_path(source_pk: int, target_pk: int):  # noqa: ANN202
     return graph_logic._bfs_path(graph_logic.adjacency_of(edges), source_pk, target_pk)
 
 
-def _yx_space(ctx, name: str) -> models.CoordinateSystem:  # noqa: ANN001
+def _yx_space(ctx: CreationContext, name: str) -> models.CoordinateSystem:
     made = models.CoordinateSystem.objects.create(
         name=name, creator=ctx.user, organization=ctx.organization
     )
@@ -1040,7 +1069,9 @@ def _yx_space(ctx, name: str) -> models.CoordinateSystem:  # noqa: ANN001
     return made
 
 
-async def test_a_validated_route_beats_a_shorter_unknown_one(authenticated_context):
+async def test_a_validated_route_beats_a_shorter_unknown_one(
+    authenticated_context: HttpContext,
+) -> None:
     """The rival case the tie-break exists to settle, now actually settled.
 
     The walk used to be an unweighted BFS: fewest hops, ties by edge pk, and `validity` never
@@ -1101,8 +1132,8 @@ async def test_a_validated_route_beats_a_shorter_unknown_one(authenticated_conte
 
 
 async def test_among_equally_known_routes_the_shortest_still_wins(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """Validity is the first key, not the only one: hops still break its ties."""
     ctx = seed._creation(authenticated_context)
     source, midpoint, world = [

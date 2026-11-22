@@ -22,11 +22,13 @@ then refuses (or hide one it would accept).
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
 from tests.coords._helpers import create_experiment
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -45,12 +47,12 @@ query Datasets($space: ID!) {
 
 
 def _derivation(
-    ctx,
+    ctx: HttpContext,
     child: models.ArrayDataset,
     parent: models.ArrayDataset,
     kind: str,
     value_relation: str | None = None,
-) -> models.Transformation:  # noqa: ANN001
+) -> models.Transformation:
     """A derivation edge child -> parent (input = the child's grid, output = the parent's).
 
     IDENTITY between two c/y/x datasets is a real in-place derivation; UNMAPPABLE records
@@ -66,16 +68,18 @@ def _derivation(
     )
 
 
-async def _lens_ids(aexecute, space_id, **narrowing) -> set[str]:  # noqa: ANN001
+async def _lens_ids(aexecute: AExecute, space_id: int, **narrowing: object) -> set[str]:
     """The ids the `lenses` picker returns for a space, optionally narrowed."""
     result = await aexecute(LENSES, {"space": str(space_id), **narrowing})
     assert not result.errors, result.errors
+    assert result.data is not None
     return {lens["id"] for lens in result.data["lenses"]}
 
 
-async def _dataset_ids(aexecute, space_id) -> set[str]:  # noqa: ANN001
+async def _dataset_ids(aexecute: AExecute, space_id: int) -> set[str]:
     result = await aexecute(DATASETS, {"space": str(space_id)})
     assert not result.errors, result.errors
+    assert result.data is not None
     return {dataset["id"] for dataset in result.data["arrayDatasets"]}
 
 
@@ -94,8 +98,8 @@ def _assert_all_placeable(space: models.CoordinateSystem, lens_ids: set[str]) ->
 
 
 async def test_batched_helper_agrees_with_per_candidate_predicate(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """The filter's batched set matches ``is_placeable_in`` object for object.
 
     Unsliced and sliced lenses over a registered and an unregistered dataset -- the one gap
@@ -134,8 +138,8 @@ async def test_batched_helper_agrees_with_per_candidate_predicate(
 
 
 async def test_a_registered_datasets_lenses_are_placeable(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Every lens of a registered dataset -- even a fresh, never-viewed one -- is offered; none of an unregistered dataset's are."""
     ctx = authenticated_context
     placed = await seed.create_array_dataset(ctx, "Placed")
@@ -160,8 +164,8 @@ async def test_a_registered_datasets_lenses_are_placeable(
 
 
 async def test_unmappable_is_excluded_but_a_mappable_descendant_is_placeable(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """A mappable derived dataset rides its parent's registration to world; an UNMAPPABLE one does not.
 
     Registering only the root, a lens of the IDENTITY-derived child is placeable (the
@@ -204,8 +208,8 @@ async def test_unmappable_is_excluded_but_a_mappable_descendant_is_placeable(
 
 
 async def test_two_scenes_over_one_world_share_the_placeable_set(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """One truth per space: the placeable set is the world's, so every experiment over it agrees.
 
     The registration is a fact about the space, not a per-experiment endorsement -- there is
@@ -230,8 +234,8 @@ async def test_two_scenes_over_one_world_share_the_placeable_set(
 
 
 async def test_array_dataset_placeable_in_agrees_with_its_lenses(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A dataset is offered exactly when one of its lenses is: same set, one hop up.
 
     Both read `placeable_lens_dataset_ids`, so the picker cannot offer a dataset whose
@@ -259,8 +263,8 @@ async def test_array_dataset_placeable_in_agrees_with_its_lenses(
 
 
 async def test_a_derived_dataset_is_placeable_through_its_source(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The descendant closure reaches datasets too: a child is offered on its parent's registration.
 
     And an UNMAPPABLE derivation is where that stops -- the walk refuses the edge, so the
@@ -285,8 +289,8 @@ async def test_a_derived_dataset_is_placeable_through_its_source(
 
 
 async def test_derived_only_keeps_the_segmentation_and_drops_the_registered_image(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`derivedOnly` is the descendant closure without its seeds: what rode a parent's registration here."""
     ctx = authenticated_context
     source = await seed.create_array_dataset(ctx, "Source")
@@ -313,8 +317,8 @@ async def test_derived_only_keeps_the_segmentation_and_drops_the_registered_imag
 
 
 async def test_derived_only_drops_a_dataset_that_is_registered_as_well_as_derived(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Registered *and* derived is still registered: it does not need its lineage to be placeable.
 
     The rule is "needed a lineage tree to get here", not "has a lineage". `_derivation_descendants`

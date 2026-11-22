@@ -4,6 +4,7 @@ import pytest
 from kante.context import HttpContext
 
 from core.models import Folder
+from tests.fixture_types import AExecute
 from tests.seed import create_file, create_folder
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -16,20 +17,21 @@ QUERY = """
 
 
 async def test_file_exposes_its_folder(
-    aexecute, authenticated_context: HttpContext
+    aexecute: AExecute, authenticated_context: HttpContext
 ) -> None:
     folder = await create_folder(authenticated_context, "Recordings")
     await create_file(authenticated_context, "cell01.abf", folder)
 
     result = await aexecute(QUERY, {"filters": {}})
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["files"] == [
         {"name": "cell01.abf", "folder": {"id": str(folder.pk), "name": "Recordings"}}
     ]
 
 
 async def test_deleting_the_folder_unfiles_the_file(
-    aexecute, authenticated_context: HttpContext
+    aexecute: AExecute, authenticated_context: HttpContext
 ) -> None:
     folder = await create_folder(authenticated_context, "Recordings")
     await create_file(authenticated_context, "cell01.abf", folder)
@@ -37,4 +39,5 @@ async def test_deleting_the_folder_unfiles_the_file(
 
     result = await aexecute(QUERY, {"filters": {}})
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["files"] == [{"name": "cell01.abf", "folder": None}]

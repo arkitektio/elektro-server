@@ -10,9 +10,10 @@ through an object store -- to get a well-formed dataset: a level carries its ``s
 itself, which is all the graph ever reads of it, so no store is needed at all.
 """
 
+import datetime
 import uuid
 
-from arkitekt_datalayer.models import SparseStore, sparse_layout_path
+from arkitekt_datalayer.models import ParquetStore, SparseStore, sparse_layout_path
 from asgiref.sync import sync_to_async
 from kante.context import HttpContext
 
@@ -38,6 +39,9 @@ from core.models import (
     File,
     Folder,
     Lens,
+    SparseDataset,
+    TableDataset,
+    Transformation,
     ValueUnit,
 )
 
@@ -237,7 +241,7 @@ async def create_dataset(
     )
 
 
-async def create_folder(ctx: HttpContext, name: str, **kwargs) -> Folder:
+async def create_folder(ctx: HttpContext, name: str, **kwargs: object) -> Folder:
     return await Folder.objects.acreate(
         name=name,
         creator=kwargs.pop("creator", ctx.request.user),
@@ -248,7 +252,7 @@ async def create_folder(ctx: HttpContext, name: str, **kwargs) -> Folder:
 
 
 async def create_file(
-    ctx: HttpContext, name: str, folder: Folder | None = None, **kwargs
+    ctx: HttpContext, name: str, folder: Folder | None = None, **kwargs: object
 ) -> File:
     return await File.objects.acreate(
         name=name,
@@ -322,23 +326,26 @@ async def create_lens(
 
 
 def _seed_world_sync(
-    ctx: HttpContext, name: str, axes: list, epoch
-) -> CoordinateSystem:  # noqa: ANN001 - datetime | None
+    ctx: HttpContext, name: str, axes: list, epoch: datetime.datetime | None
+) -> CoordinateSystem:
     return coordinate_system_logic.create_world_space(
         name=f"{name}/world", axes=axes, epoch=epoch, ctx=_creation(ctx)
     )
 
 
 async def create_world(
-    ctx: HttpContext, name: str = "World", axes: list | None = None, epoch=None
-) -> CoordinateSystem:  # noqa: ANN001
+    ctx: HttpContext,
+    name: str = "World",
+    axes: list | None = None,
+    epoch: datetime.datetime | None = None,
+) -> CoordinateSystem:
     """An ownerless shared space. Defaults to a clock in seconds."""
     return await sync_to_async(_seed_world_sync)(ctx, name, axes or CLOCK_AXES, epoch)
 
 
 def _register_into_world_sync(
     ctx: HttpContext, world: CoordinateSystem, source: CoordinateSystem
-):
+) -> Transformation:
     """One explicit MANUAL registration: the identity on the axis names shared with the world.
 
     Nothing fabricates a placement, so a test that wants a placed source authors the
@@ -362,7 +369,7 @@ async def register_into_world(
     dataset: ArrayDataset | None = None,
     *,
     system: CoordinateSystem | None = None,
-):
+) -> Transformation:
     """Register a dataset's sample grid (or an explicit system) into a world."""
     source = (
         system
@@ -387,7 +394,7 @@ RASTER_AXES = [
 
 def _seed_table_dataset_sync(
     ctx: HttpContext, name: str, columns: list[dict], folder: Folder | None
-) -> "TableDataset":
+) -> TableDataset:
     from arkitekt_datalayer.models import ParquetStore
 
     from core.models import Column, TableDataset
@@ -456,7 +463,7 @@ async def create_table_dataset(
     name: str = "Events",
     columns: list[dict] | None = None,
     folder: Folder | None = None,
-) -> "TableDataset":
+) -> TableDataset:
     """A table dataset, ORM-built. Defaults to an event table: a TIME column in seconds and a label.
 
     ``columns`` are dicts with ``name`` and optionally ``axis_type`` (an ``enums.AxisType``, which
@@ -482,9 +489,9 @@ def _seed_sparse_dataset_sync(
     name: str,
     axes: list,
     shape: list[int],
-    units: "TableDataset | None",
+    units: TableDataset | None,
     folder: Folder | None,
-) -> "SparseDataset":
+) -> SparseDataset:
     from arkitekt_datalayer.models import SparseStore
 
     from core.models import SparseArray, SparseAxisReference, SparseDataset
@@ -535,24 +542,29 @@ async def create_sparse_dataset(
     name: str = "Raster",
     axes: list | None = None,
     shape: list[int] | None = None,
-    units: "TableDataset | None" = None,
+    units: TableDataset | None = None,
     folder: Folder | None = None,
-) -> "SparseDataset":
+) -> SparseDataset:
     """A sparse dataset, ORM-built. Defaults to a spike raster: (unit, t), 8 units by 30 000 samples."""
     return await sync_to_async(_seed_sparse_dataset_sync)(
         ctx, name, axes or RASTER_AXES, shape or [8, 30000], units, folder
     )
 
 
-def _seed_clock_sync(ctx: HttpContext, name: str, unit: str, epoch) -> CoordinateSystem:  # noqa: ANN001 - datetime | None
+def _seed_clock_sync(
+    ctx: HttpContext, name: str, unit: str, epoch: datetime.datetime | None
+) -> CoordinateSystem:
     from core.logic import clocks
 
     return clocks.create_clock(name=name, unit=unit, epoch=epoch, ctx=_creation(ctx))
 
 
 async def create_clock(
-    ctx: HttpContext, name: str = "clock", unit: str = "second", epoch=None
-) -> CoordinateSystem:  # noqa: ANN001
+    ctx: HttpContext,
+    name: str = "clock",
+    unit: str = "second",
+    epoch: datetime.datetime | None = None,
+) -> CoordinateSystem:
     """A clock: one TIME axis in ``unit``, optionally anchored to a wall-clock epoch. A session's clock."""
     return await sync_to_async(_seed_clock_sync)(ctx, name, unit, epoch)
 
@@ -563,7 +575,7 @@ def _sampling_law_sync(
     clock: CoordinateSystem,
     rate: str,
     t_start: str,
-):
+) -> Transformation:
     from core.logic import clocks
     from kanne_server import scalars as quantities
 
@@ -584,14 +596,14 @@ async def time_on(
     clock: CoordinateSystem,
     rate: str = "30 kHz",
     t_start: str = "0 s",
-):  # noqa: ANN201
+) -> Transformation:
     """Time a grid's samples on a clock with a sampling law."""
     return await sync_to_async(_sampling_law_sync)(ctx, grid, clock, rate, t_start)
 
 
 def _offset_sync(
     ctx: HttpContext, source: CoordinateSystem, target: CoordinateSystem, offset: str
-):
+) -> Transformation:
     from core.logic import clocks
     from kanne_server import scalars as quantities
 
@@ -608,7 +620,7 @@ async def offset_onto(
     source: CoordinateSystem,
     target: CoordinateSystem,
     offset: str = "0 s",
-):  # noqa: ANN201
+) -> Transformation:
     """Place one clock (or an event table's space) on another with an offset edge."""
     return await sync_to_async(_offset_sync)(ctx, source, target, offset)
 
@@ -622,7 +634,7 @@ def _seed_parquet_store_sync(
     key: str,
     columns: list[tuple[str, str]] | None = None,
     populated: bool = True,
-):
+) -> ParquetStore:
     """A parquet store carrying what `fill_info` would have read off the file.
 
     The same move `_seed_fabriks_store_sync` makes, and now necessary for the same reason: since
@@ -656,7 +668,7 @@ async def create_parquet_store(
     key: str,
     columns: list[tuple[str, str]] | None = None,
     populated: bool = True,
-):
+) -> ParquetStore:
     """A finished parquet store, ready to be registered as a table dataset."""
     return await sync_to_async(_seed_parquet_store_sync)(
         ctx, key=key, columns=columns, populated=populated

@@ -14,9 +14,12 @@ one of the two. A value unit is the one spoke a table refuses: its units are its
 import pytest
 from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute, NeuronModelFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -75,8 +78,12 @@ RIG = {"mode": "VOLTAGE_CLAMP", "holdingPotential": "-70 mV", "devices": []}
 
 
 async def _create(
-    aexecute, ctx, name: str, columns: list[dict], anchors: list[dict] | None = None
-):
+    aexecute: AExecute,
+    ctx: HttpContext,
+    name: str,
+    columns: list[dict],
+    anchors: list[dict] | None = None,
+) -> ExecutionResult:
     payload = await seed.table_input(ctx, name, columns)
     if anchors is not None:
         payload["anchors"] = anchors
@@ -84,8 +91,10 @@ async def _create(
 
 
 async def test_a_table_anchor_pins_spokes_to_its_coordinate_columns(
-    aexecute, authenticated_context, make_neuron_model
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    make_neuron_model: NeuronModelFactory,
+) -> None:
     """Anchors stated at create land on the table with the dataset side empty."""
     neuron_model = await make_neuron_model()
     result = await _create(
@@ -107,6 +116,7 @@ async def test_a_table_anchor_pins_spokes_to_its_coordinate_columns(
         ],
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     table_id = int(result.data["createTableDataset"]["id"])
 
     anchors = [
@@ -132,8 +142,11 @@ async def test_a_table_anchor_pins_spokes_to_its_coordinate_columns(
 
 
 async def test_a_table_reads_its_anchors_back(
-    aexecute, authenticated_context, other_org_context, make_neuron_model
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+    make_neuron_model: NeuronModelFactory,
+) -> None:
     """`TableDataset.anchors` and the `coordinateAnchors` list both serve them, within the tenant."""
     neuron_model = await make_neuron_model()
     result = await _create(
@@ -151,10 +164,12 @@ async def test_a_table_reads_its_anchors_back(
         ],
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     table_id = result.data["createTableDataset"]["id"]
 
     read = await aexecute(TABLE_ANCHORS, {"id": table_id})
     assert not read.errors, read.errors
+    assert read.data is not None
     [anchor] = read.data["tableDataset"]["anchors"]
     assert anchor["coordinates"] == {"trial": 1}
     assert anchor["table"] == {"id": table_id}
@@ -166,6 +181,7 @@ async def test_a_table_reads_its_anchors_back(
 
     listed = await aexecute(LIST_ANCHORS, {"table": table_id})
     assert not listed.errors, listed.errors
+    assert listed.data is not None
     assert [entry["coordinates"] for entry in listed.data["coordinateAnchors"]] == [
         {"trial": 1}
     ]
@@ -174,10 +190,13 @@ async def test_a_table_reads_its_anchors_back(
         LIST_ANCHORS, {"table": table_id}, context=other_org_context
     )
     assert not foreign.errors, foreign.errors
+    assert foreign.data is not None
     assert foreign.data["coordinateAnchors"] == []
 
 
-async def test_an_anchor_must_name_a_coordinate_column(aexecute, authenticated_context):
+async def test_an_anchor_must_name_a_coordinate_column(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A key that is not one of the table's axis-typed columns is refused, and nothing is written."""
     result = await _create(
         aexecute,
@@ -197,8 +216,8 @@ async def test_an_anchor_must_name_a_coordinate_column(aexecute, authenticated_c
 
 
 async def test_a_table_without_coordinate_columns_only_takes_global_anchors(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The synthetic `object` axis is not a column: nothing can be pinned along it."""
     refused = await _create(
         aexecute,
@@ -223,13 +242,16 @@ async def test_a_table_without_coordinate_columns_only_takes_global_anchors(
         anchors=[{"axisAnchors": [], "label": {"label": "whole table"}}],
     )
     assert not accepted.errors, accepted.errors
+    assert accepted.data is not None
     anchor = await models.CoordinateAnchor.objects.aget(
         table_id=accepted.data["createTableDataset"]["id"]
     )
     assert anchor.coordinates == {}
 
 
-async def test_a_value_unit_is_array_only(aexecute, authenticated_context):
+async def test_a_value_unit_is_array_only(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A table's units are its columns'; a value-unit spoke on it would be a second copy."""
     result = await _create(
         aexecute,
@@ -244,11 +266,12 @@ async def test_a_value_unit_is_array_only(aexecute, authenticated_context):
 
 
 async def test_metadata_is_attached_to_an_existing_table_on_one_anchor(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`createCoordinateAnchor` get-or-creates on (table, coordinates) and replaces a restated spoke."""
     created = await _create(aexecute, authenticated_context, "Later", UNITS)
     assert not created.errors, created.errors
+    assert created.data is not None
     table_id = created.data["createTableDataset"]["id"]
 
     first = await aexecute(
@@ -264,6 +287,7 @@ async def test_metadata_is_attached_to_an_existing_table_on_one_anchor(
         },
     )
     assert not first.errors, first.errors
+    assert first.data is not None
     second = await aexecute(
         CREATE_ANCHOR,
         {
@@ -278,6 +302,7 @@ async def test_metadata_is_attached_to_an_existing_table_on_one_anchor(
         },
     )
     assert not second.errors, second.errors
+    assert second.data is not None
 
     assert (
         first.data["createCoordinateAnchor"]["id"]
@@ -310,8 +335,8 @@ async def test_metadata_is_attached_to_an_existing_table_on_one_anchor(
 
 
 async def test_metadata_is_attached_to_an_existing_array_dataset_too(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The same mutation serves an array dataset, checked against its axes."""
     dataset = await seed.create_array_dataset(authenticated_context, "Array")
 
@@ -355,8 +380,8 @@ async def test_metadata_is_attached_to_an_existing_array_dataset_too(
 
 
 async def test_deleting_the_table_takes_its_anchors_with_it(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """An anchor is part of its table: cascade, spokes included."""
     created = await _create(
         aexecute,
@@ -366,6 +391,7 @@ async def test_deleting_the_table_takes_its_anchors_with_it(
         anchors=[{"axisAnchors": [], "label": {"label": "gone"}}],
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     table_id = created.data["createTableDataset"]["id"]
     assert (
         await models.ChannelLabel.objects.filter(anchor__table_id=table_id).acount()
@@ -381,23 +407,26 @@ async def test_deleting_the_table_takes_its_anchors_with_it(
     )
 
 
-async def test_an_anchor_has_exactly_one_container(aexecute, authenticated_context):
+async def test_an_anchor_has_exactly_one_container(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The database refuses an anchor with neither container or both, and fills the organization itself."""
     dataset = await seed.create_array_dataset(authenticated_context, "Constrained")
     created = await _create(aexecute, authenticated_context, "Constrained", UNITS)
     assert not created.errors, created.errors
+    assert created.data is not None
     table = await models.TableDataset.objects.aget(
         pk=created.data["createTableDataset"]["id"]
     )
     organization = authenticated_context.request.organization
 
-    def neither():
+    def neither() -> None:
         with transaction.atomic():
             models.CoordinateAnchor.objects.create(
                 coordinates={}, organization=organization
             )
 
-    def both():
+    def both() -> None:
         with transaction.atomic():
             models.CoordinateAnchor.objects.create(
                 dataset=dataset, table=table, coordinates={}

@@ -17,11 +17,16 @@ It replaces ``SpikeTrain``: one unit's spike times are one row of the raster, an
 attributes (depth, channel, quality) are a row of the table identifying the unit axis.
 """
 
+from collections.abc import Sequence
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -61,25 +66,26 @@ UNITS = [
 ]
 
 
-async def _units(aexecute, ctx) -> str:  # noqa: ANN001
+async def _units(aexecute: AExecute, ctx: HttpContext) -> str:
     """A sorter's unit table: one row per unit, keyed by its INDEX column."""
     created = await aexecute(
         "mutation ($input: CreateTableDatasetInput!) { createTableDataset(input: $input) { id } }",
         {"input": await seed.table_input(ctx, "units", UNITS)},
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     return created.data["createTableDataset"]["id"]
 
 
 async def _raster(
-    aexecute,
-    ctx,
+    aexecute: AExecute,
+    ctx: HttpContext,
     *,
     units: str | None = None,
     axes: list | None = None,
-    shape=(12, 30000),
+    shape: Sequence[int] = (12, 30000),
     name: str = "sorted spikes",
-):  # noqa: ANN001, ANN201
+) -> ExecutionResult:
     store = await seed.create_sparse_store(
         ctx, f"{name.replace(' ', '-')}-store", axes=(0, 1), shape=list(shape)
     )
@@ -98,11 +104,12 @@ async def _raster(
 
 
 async def test_a_raster_has_a_unit_axis_and_a_time_axis(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     units = await _units(aexecute, authenticated_context)
     res = await _raster(aexecute, authenticated_context, units=units)
     assert not res.errors, res.errors
+    assert res.data is not None
     raster = res.data["createSparseDataset"]
 
     assert raster["axisNames"] == ["unit", "t"] and raster["shape"] == [12, 30000]
@@ -121,8 +128,8 @@ async def test_a_raster_has_a_unit_axis_and_a_time_axis(
 
 
 async def test_the_type_defaults_to_index_so_a_mikro_client_is_unaffected(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     units = await _units(aexecute, authenticated_context)
     res = await _raster(
         aexecute,
@@ -133,13 +140,16 @@ async def test_the_type_defaults_to_index_so_a_mikro_client_is_unaffected(
         ],
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [
         axis["type"]
         for axis in res.data["createSparseDataset"]["coordinateSystem"]["axes"]
     ] == ["INDEX", "INDEX"]
 
 
-async def test_a_time_axis_is_identified_by_nothing(aexecute, authenticated_context):
+async def test_a_time_axis_is_identified_by_nothing(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     units = await _units(aexecute, authenticated_context)
     res = await _raster(
         aexecute,
@@ -158,8 +168,8 @@ async def test_a_time_axis_is_identified_by_nothing(aexecute, authenticated_cont
 
 
 async def test_one_time_axis_and_at_least_one_index_axis(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     two_clocks = await _raster(
         aexecute,
         authenticated_context,
@@ -178,8 +188,8 @@ async def test_one_time_axis_and_at_least_one_index_axis(
 
 
 async def test_an_index_axis_still_needs_an_identification(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     res = await _raster(
         aexecute,
         authenticated_context,
@@ -189,8 +199,8 @@ async def test_an_index_axis_still_needs_an_identification(
 
 
 async def test_a_sampling_law_places_the_raster_on_its_clock(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The same edge an analog signal gets: t = sample / 30 kHz + 2 s, on the session clock."""
     units = await _units(aexecute, authenticated_context)
     raster = (await _raster(aexecute, authenticated_context, units=units)).data[
@@ -210,6 +220,7 @@ async def test_a_sampling_law_places_the_raster_on_its_clock(
         },
     )
     assert not timed.errors, timed.errors
+    assert timed.data is not None
     law = timed.data["createSamplingLaw"]
     assert (law["kind"], law["inputAxes"], law["outputAxes"]) == (
         "BY_DIMENSION",
@@ -223,6 +234,7 @@ async def test_a_sampling_law_places_the_raster_on_its_clock(
         IN_VIEW, {"id": str(session.pk), "region": {"min": [0.0], "max": [10.0]}}
     )
     assert not seen.errors, seen.errors
+    assert seen.data is not None
     sources = [
         (hit["source"]["__typename"], hit["source"].get("name"))
         for hit in seen.data["coordinateSystem"]["inView"]
@@ -232,7 +244,9 @@ async def test_a_sampling_law_places_the_raster_on_its_clock(
     )
 
 
-async def test_a_raster_is_drawn_as_a_spikes_layer(aexecute, authenticated_context):
+async def test_a_raster_is_drawn_as_a_spikes_layer(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     units = await _units(aexecute, authenticated_context)
     raster = (await _raster(aexecute, authenticated_context, units=units)).data[
         "createSparseDataset"
@@ -288,6 +302,7 @@ async def test_a_raster_is_drawn_as_a_spikes_layer(aexecute, authenticated_conte
         },
     )
     assert not layer.errors, layer.errors
+    assert layer.data is not None
     drawn = layer.data["createSpikesLayer"]
     assert (
         drawn["kind"],
@@ -324,8 +339,8 @@ async def test_a_raster_is_drawn_as_a_spikes_layer(aexecute, authenticated_conte
 
 
 async def test_a_mask_can_still_key_the_units_of_a_raster(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The TIME axis is optional for the FIELD (`self_placed_axes`): passed through here, by name, because the assignment is per sample.
 
     The ephys case is a per-sample unit-assignment array (which unit each channel-sample belongs to), keying the raster's units.
@@ -366,8 +381,8 @@ async def test_a_mask_can_still_key_the_units_of_a_raster(
 
 
 async def test_deleting_a_raster_takes_its_space_its_law_and_its_layers(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     units = await _units(aexecute, authenticated_context)
     raster = (await _raster(aexecute, authenticated_context, units=units)).data[
         "createSparseDataset"
@@ -420,8 +435,8 @@ async def test_deleting_a_raster_takes_its_space_its_law_and_its_layers(
 
 
 async def test_the_unit_table_cannot_be_deleted_under_the_raster(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     units = await _units(aexecute, authenticated_context)
     assert not (await _raster(aexecute, authenticated_context, units=units)).errors
     res = await aexecute(
@@ -433,8 +448,8 @@ async def test_the_unit_table_cannot_be_deleted_under_the_raster(
 
 
 async def test_a_per_channel_assignment_keys_the_units_and_leaves_time_alone(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """No `t` on the source at all: the raster's samples are placed by its own sampling law, so the edge need not mention them."""
     per_channel = await seed.create_array_dataset(
         authenticated_context,
@@ -473,8 +488,8 @@ async def test_a_per_channel_assignment_keys_the_units_and_leaves_time_alone(
 
 
 async def test_deleting_a_raster_flags_its_store_through_the_layouts(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A sparse store is referenced by the *layouts* (`SparseArray.store`), which cascade with the dataset -- the fast-delete shape `stores_orphaned_by` has to walk."""
     import io
 
@@ -500,7 +515,8 @@ async def test_deleting_a_raster_flags_its_store_through_the_layouts(
         sum(count for _, count in await sync_to_async(storage.referrers_of)(store)) == 4
     ), "two layouts per raster, two rasters"
 
-    async def delete(created) -> None:  # noqa: ANN001
+    async def delete(created: ExecutionResult) -> None:
+        assert created.data is not None
         res = await aexecute(
             "mutation ($input: DeleteSparseDatasetInput!) { deleteSparseDataset(input: $input) }",
             {"input": {"id": created.data["createSparseDataset"]["id"]}},

@@ -9,10 +9,13 @@ was written as, and that the placement read back is the one that was stated.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
+from strawberry.types import ExecutionResult
 
 from core.logic import clocks
 from core.models import (
+    ArrayDataset,
     CoordinateSystem,
     Experiment,
     ExperimentLayer,
@@ -20,6 +23,7 @@ from core.models import (
     Transformation,
 )
 from tests import seed
+from tests.fixture_types import AExecute, GraphQLData, SimulationChainFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -37,19 +41,16 @@ LAYER_FIELDS = """
     ... on TraceLayer { duration lens { id shape slices { axis start stop } dataset { id } } }
 """
 
-EXPERIMENT = (
-    """
-query ($id: ID!) {
-  experiment(id: $id) {
+EXPERIMENT = f"""
+query ($id: ID!) {{
+  experiment(id: $id) {{
     id
     name
-    world { id name epoch axes { name type unit } registrations { kind input { name } } }
-    layers { %s }
-  }
-}
+    world {{ id name epoch axes {{ name type unit }} registrations {{ kind input {{ name }} }} }}
+    layers {{ {LAYER_FIELDS} }}
+  }}
+}}
 """
-    % LAYER_FIELDS
-)
 
 CREATE_EXPERIMENT = """
 mutation ($input: CreateExperimentInput!) {
@@ -59,27 +60,27 @@ mutation ($input: CreateExperimentInput!) {
 
 CREATE_CLOCK_OFFSET = "mutation ($input: CreateClockOffsetInput!) { createClockOffset(input: $input) { id kind } }"
 
-CREATE_TRACE_LAYER = (
-    """
-mutation ($input: CreateTraceLayerInput!) {
-  createTraceLayer(input: $input) { %s asAffine { matrix inputAxes outputAxes total } }
-}
+CREATE_TRACE_LAYER = f"""
+mutation ($input: CreateTraceLayerInput!) {{
+  createTraceLayer(input: $input) {{ {LAYER_FIELDS} asAffine {{ matrix inputAxes outputAxes total }} }}
+}}
 """
-    % LAYER_FIELDS
-)
 
 AS_AFFINE = (
     "query ($id: ID!) { experiment(id: $id) { layers { asAffine { matrix } } } }"
 )
 
 
-async def _experiment(aexecute, name: str, **extra) -> dict:  # noqa: ANN001, ANN003
+async def _experiment(aexecute: AExecute, name: str, **extra: object) -> GraphQLData:
     created = await aexecute(CREATE_EXPERIMENT, {"input": {"name": name, **extra}})
     assert not created.errors, created.errors
+    assert created.data is not None
     return created.data["createExperiment"]
 
 
-async def _place(aexecute, clock, world_id: str, offset: str) -> None:  # noqa: ANN001
+async def _place(
+    aexecute: AExecute, clock: CoordinateSystem, world_id: str, offset: str
+) -> None:
     placed = await aexecute(
         CREATE_CLOCK_OFFSET,
         {"input": {"clock": str(clock.pk), "onto": world_id, "offset": offset}},
@@ -87,14 +88,18 @@ async def _place(aexecute, clock, world_id: str, offset: str) -> None:  # noqa: 
     assert not placed.errors, placed.errors
 
 
-async def _trace(aexecute, experiment_id: str, dataset, **extra) -> "object":  # noqa: ANN001, ANN003
+async def _trace(
+    aexecute: AExecute, experiment_id: str, dataset: ArrayDataset, **extra: object
+) -> ExecutionResult:
     return await aexecute(
         CREATE_TRACE_LAYER,
         {"input": {"experiment": experiment_id, "dataset": str(dataset.pk), **extra}},
     )
 
 
-async def test_create_experiment(aexecute, make_simulation_chain):
+async def test_create_experiment(
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """A run recorded at 10 kHz, laid 50 ms into a fresh timeline: t_world = sample * 0.0001 s + 0.05 s."""
     chain = await make_simulation_chain()
     experiment = await _experiment(aexecute, "Exp")
@@ -107,11 +112,13 @@ async def test_create_experiment(aexecute, make_simulation_chain):
     await _place(aexecute, chain.clock, experiment["world"]["id"], "50 ms")
     recorded = await _trace(aexecute, experiment["id"], chain.recording, name="Vm")
     assert not recorded.errors, recorded.errors
+    assert recorded.data is not None
     injected = await _trace(aexecute, experiment["id"], chain.stimulus)
     assert not injected.errors, injected.errors
 
     res = await aexecute(EXPERIMENT, {"id": experiment["id"]})
     assert not res.errors, res.errors
+    assert res.data is not None
     read = res.data["experiment"]
     assert read["world"]["registrations"] == [
         {"kind": "BY_DIMENSION", "input": {"name": "sim/clock"}}
@@ -166,8 +173,8 @@ async def test_create_experiment(aexecute, make_simulation_chain):
 
 
 async def test_a_window_is_lowered_to_a_lens_in_sample_indices(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """The 10 ms from 5 ms in, of a run recorded at 10 kHz from t = 0: samples 50 to 150."""
     chain = await make_simulation_chain()
     experiment = await _experiment(aexecute, "Windowed")
@@ -179,6 +186,7 @@ async def test_a_window_is_lowered_to_a_lens_in_sample_indices(
         window={"start": "5 ms", "stop": "15 ms"},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     layer = res.data["createTraceLayer"]
 
     assert layer["lens"]["slices"] == [{"axis": "t", "start": 50, "stop": 150}]
@@ -195,8 +203,8 @@ async def test_a_window_is_lowered_to_a_lens_in_sample_indices(
 
 
 async def test_showing_everything_reuses_the_unsliced_lens(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     chain = await make_simulation_chain()
     for name in ("First", "Second"):
         experiment = await _experiment(aexecute, name)
@@ -209,8 +217,8 @@ async def test_showing_everything_reuses_the_unsliced_lens(
 
 
 async def test_refining_the_offset_moves_every_layer_that_looks_through_it(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """Nothing stored a composed path, so there is nothing to go stale."""
     chain = await make_simulation_chain()
     experiment = await _experiment(aexecute, "Movable")
@@ -235,8 +243,10 @@ async def test_refining_the_offset_moves_every_layer_that_looks_through_it(
 
 
 async def test_an_experiment_can_adopt_a_world_it_does_not_own(
-    aexecute, authenticated_context, make_simulation_chain
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     """Two experiments over one world: the clock is placed on the world once, and both see it there."""
     chain = await make_simulation_chain()
     world = await seed.create_world(
@@ -248,6 +258,7 @@ async def test_an_experiment_can_adopt_a_world_it_does_not_own(
     second = await _experiment(aexecute, "B", coordinateSystem=str(world.pk))
     layer = await _trace(aexecute, second["id"], chain.stimulus)
     assert not layer.errors, layer.errors
+    assert layer.data is not None
 
     assert second["world"]["id"] == str(world.pk)
     assert layer.data["createTraceLayer"]["asAffine"]["matrix"][0][-1] == approx(1.0), (
@@ -271,8 +282,8 @@ async def test_an_experiment_can_adopt_a_world_it_does_not_own(
 
 
 async def test_a_layer_over_a_lookup_timed_run_is_placed_without_an_affine_map(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """Deliberately looser than mikro's gate (rfc10), which refuses a layer that does not condense: a timeline can draw samples at looked-up instants."""
     chain = await make_simulation_chain(timing="lookup")
     experiment = await _experiment(aexecute, "CVode")
@@ -299,8 +310,8 @@ async def test_a_layer_over_a_lookup_timed_run_is_placed_without_an_affine_map(
 
 
 async def test_a_window_over_a_lookup_timed_run_is_refused(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     chain = await make_simulation_chain(timing="lookup")
     experiment = await _experiment(aexecute, "NoInverse")
     await _place(aexecute, chain.clock, experiment["world"]["id"], "0 s")
@@ -335,8 +346,8 @@ mutation ($input: CreateExperimentFromCoordinateSystemInput!) {
 
 
 async def test_a_session_clock_is_staged_as_an_experiment(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A recording session built CS-first: a clock, a trace, a spike raster and an event table timed on it, one bootstrap.
 
     The segment's recording sits on its own clock, offset into the session's: the chain of clocks
@@ -364,6 +375,7 @@ async def test_a_session_clock_is_staged_as_an_experiment(
 
     res = await aexecute(BOOTSTRAP, {"input": {"coordinateSystem": str(session.pk)}})
     assert not res.errors, res.errors
+    assert res.data is not None
     staged = res.data["createExperimentFromCoordinateSystem"]
     assert staged["name"] == "session" and staged["world"]["id"] == str(session.pk), (
         "adopted, and named for the space"
@@ -402,8 +414,8 @@ async def test_a_session_clock_is_staged_as_an_experiment(
 
 
 async def test_the_bootstrap_leaves_out_times_datasets_and_what_is_excluded(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ctx = authenticated_context
     session = await seed.create_clock(ctx, "session", unit="second")
     signal = await seed.create_dataset(ctx, "Ca", seed.T_AXES, [50])
@@ -431,6 +443,7 @@ async def test_the_bootstrap_leaves_out_times_datasets_and_what_is_excluded(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     staged = res.data["createExperimentFromCoordinateSystem"]
     assert [(layer["kind"], layer["name"]) for layer in staged["layers"]] == [
         ("TRACE", "Ca")
@@ -443,7 +456,9 @@ async def test_the_bootstrap_leaves_out_times_datasets_and_what_is_excluded(
 # --- negatives ---------------------------------------------------------------
 
 
-async def test_a_clock_has_one_offset_on_another(aexecute, make_simulation_chain):
+async def test_a_clock_has_one_offset_on_another(
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """The bug the per-view offset column allowed: stimulus and response silently laid out apart. Now there is one place to say it."""
     chain = await make_simulation_chain()
     experiment = await _experiment(aexecute, "Misaligned")
@@ -468,8 +483,8 @@ async def test_a_clock_has_one_offset_on_another(aexecute, make_simulation_chain
 
 
 async def test_a_layer_with_no_route_into_the_world_is_refused(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """Nothing is placed by default: an assumed offset of zero cannot be told from a measured one."""
     chain = await make_simulation_chain()
     experiment = await _experiment(aexecute, "Floating")
@@ -482,7 +497,9 @@ async def test_a_layer_with_no_route_into_the_world_is_refused(
     assert not await ExperimentLayer.objects.aexists()
 
 
-async def test_an_offset_is_between_clocks(aexecute, make_simulation_chain):
+async def test_an_offset_is_between_clocks(
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """A sample grid's TIME axis has no unit: placing a grid is a sampling law's job, not an offset's."""
     chain = await make_simulation_chain()
     experiment = await _experiment(aexecute, "Grid")
@@ -499,7 +516,7 @@ async def test_an_offset_is_between_clocks(aexecute, make_simulation_chain):
     assert res.errors and "is not a clock" in str(res.errors[0])
 
 
-async def test_create_trace_layer_unknown_dataset(aexecute):
+async def test_create_trace_layer_unknown_dataset(aexecute: AExecute) -> None:
     experiment = await _experiment(aexecute, "ExpBad")
     res = await aexecute(
         CREATE_TRACE_LAYER,
@@ -508,14 +525,14 @@ async def test_create_trace_layer_unknown_dataset(aexecute):
     assert res.errors
 
 
-async def test_create_experiment_missing_name(aexecute):
+async def test_create_experiment_missing_name(aexecute: AExecute) -> None:
     res = await aexecute(CREATE_EXPERIMENT, {"input": {}})
     assert res.errors
 
 
 async def test_a_trace_layer_draws_a_lens_or_a_dataset_but_not_both(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     chain = await make_simulation_chain()
     experiment = await _experiment(aexecute, "Both")
     res = await _trace(aexecute, experiment["id"], chain.recording, lens="1")
@@ -523,8 +540,8 @@ async def test_a_trace_layer_draws_a_lens_or_a_dataset_but_not_both(
 
 
 async def test_an_adopted_world_needs_a_time_or_a_space_axis(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A timeline (a clock) or a place (a probe's space); a spectrum alone is neither."""
     spectrum = await seed.create_world(
         authenticated_context,
@@ -548,8 +565,11 @@ async def test_an_adopted_world_needs_a_time_or_a_space_axis(
 
 
 async def test_another_organization_cannot_draw_this_ones_recordings_or_adopt_its_world(
-    aexecute, authenticated_context, make_simulation_chain, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    make_simulation_chain: SimulationChainFactory,
+    other_org_context: HttpContext,
+) -> None:
     chain = await make_simulation_chain()
     world = await seed.create_world(authenticated_context, "mine", axes=seed.CLOCK_AXES)
 
@@ -557,6 +577,7 @@ async def test_another_organization_cannot_draw_this_ones_recordings_or_adopt_it
         CREATE_EXPERIMENT, {"input": {"name": "Theirs"}}, context=other_org_context
     )
     assert not theirs.errors, theirs.errors
+    assert theirs.data is not None
     stolen = await aexecute(
         CREATE_TRACE_LAYER,
         {

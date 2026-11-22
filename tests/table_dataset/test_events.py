@@ -7,9 +7,11 @@ with a stop column). Hand-drawn marks stay annotations; the two are different ki
 """
 
 import pytest
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute, GraphQLData
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -57,15 +59,20 @@ STIMULI = [
 ]
 
 
-async def _table(aexecute, ctx, name: str, columns: list[dict], **extra) -> dict:  # noqa: ANN001, ANN003
+async def _table(
+    aexecute: AExecute, ctx: HttpContext, name: str, columns: list[dict]
+) -> GraphQLData:
     created = await aexecute(
-        CREATE_TABLE, {"input": await seed.table_input(ctx, name, columns, **extra)}
+        CREATE_TABLE, {"input": await seed.table_input(ctx, name, columns)}
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     return created.data["createTableDataset"]
 
 
-async def _session(aexecute, ctx, table: dict, offset: str = "0 s") -> str:  # noqa: ANN001
+async def _session(
+    aexecute: AExecute, ctx: HttpContext, table: dict, offset: str = "0 s"
+) -> str:
     """A session clock, the table's space placed on it, and an experiment over the clock."""
     session = await seed.create_clock(ctx, "session")
     space = await models.CoordinateSystem.objects.aget(
@@ -77,12 +84,13 @@ async def _session(aexecute, ctx, table: dict, offset: str = "0 s") -> str:  # n
         {"input": {"name": "E", "coordinateSystem": str(session.pk)}},
     )
     assert not experiment.errors, experiment.errors
+    assert experiment.data is not None
     return experiment.data["createExperiment"]["id"]
 
 
 async def test_a_time_column_makes_a_table_placeable_on_a_clock(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     trials = await _table(aexecute, authenticated_context, "trials", TRIALS)
     assert trials["coordinateSystem"]["axes"] == [
         {"name": "start", "type": "TIME", "unit": "second"}
@@ -102,6 +110,7 @@ async def test_a_time_column_makes_a_table_placeable_on_a_clock(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     layer = res.data["createEventsLayer"]
     assert (
         layer["kind"],
@@ -121,8 +130,8 @@ async def test_a_time_column_makes_a_table_placeable_on_a_clock(
 
 
 async def test_a_stop_column_ends_an_interval_in_the_same_unit_of_time(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     trials = await _table(
         aexecute,
         authenticated_context,
@@ -173,8 +182,8 @@ async def test_a_stop_column_ends_an_interval_in_the_same_unit_of_time(
 
 
 async def test_a_table_with_no_time_column_is_not_an_event_table(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     units = await _table(aexecute, authenticated_context, "stimuli", STIMULI)
     experiment = await aexecute(
         "mutation ($input: CreateExperimentInput!) { createExperiment(input: $input) { id } }",
@@ -192,7 +201,9 @@ async def test_a_table_with_no_time_column_is_not_an_event_table(
     assert res.errors and "no TIME coordinate column" in str(res.errors[0])
 
 
-async def test_events_are_coloured_through_a_reference(aexecute, authenticated_context):
+async def test_events_are_coloured_through_a_reference(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A trial's stimulus id references the stimulus table: colour trials by contrast, one hop away."""
     stimuli = await _table(aexecute, authenticated_context, "stimuli", STIMULI)
     trials = await _table(
@@ -240,6 +251,7 @@ async def test_events_are_coloured_through_a_reference(aexecute, authenticated_c
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     layer = res.data["createEventsLayer"]
     assert layer["colorBys"][0] == {
         "table": stimuli["id"],
@@ -280,8 +292,11 @@ async def test_events_are_coloured_through_a_reference(aexecute, authenticated_c
     ],
 )
 async def test_a_picker_entry_is_checked_against_the_tables(
-    aexecute, authenticated_context, entry, refusal
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    entry: dict[str, object],
+    refusal: str,
+) -> None:
     stimuli = await _table(aexecute, authenticated_context, "stimuli", STIMULI)
     trials = await _table(aexecute, authenticated_context, "trials", TRIALS)
     experiment = await _session(aexecute, authenticated_context, trials)
@@ -300,7 +315,9 @@ async def test_a_picker_entry_is_checked_against_the_tables(
     assert res.errors and refusal in str(res.errors[0]), res.errors
 
 
-async def test_an_active_index_points_at_an_entry(aexecute, authenticated_context):
+async def test_an_active_index_points_at_an_entry(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     trials = await _table(aexecute, authenticated_context, "trials", TRIALS)
     experiment = await _session(aexecute, authenticated_context, trials)
     res = await aexecute(
@@ -317,8 +334,8 @@ async def test_an_active_index_points_at_an_entry(aexecute, authenticated_contex
 
 
 async def test_deleting_an_event_table_sweeps_its_space_and_its_layer(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     trials = await _table(aexecute, authenticated_context, "trials", TRIALS)
     experiment = await _session(aexecute, authenticated_context, trials)
     assert not (
@@ -341,8 +358,8 @@ async def test_deleting_an_event_table_sweeps_its_space_and_its_layer(
 
 
 async def test_a_shared_parquet_store_survives_the_purge_until_its_last_table_goes(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`TableDataset.store` is seen by `stores_orphaned_by`; a flag is a candidate, and the purge's `referrers_of` re-check keeps a store another table still reads."""
     import io
 

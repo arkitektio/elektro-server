@@ -28,8 +28,11 @@ What each source becomes is decided from what it *is*, never from a guess about 
 """
 
 import dataclasses
+import datetime
+from typing import TypeAlias, cast
 
 from django.db import transaction
+from kante.context import Organization
 
 from core import enums, models
 from core.creation import CreationContext
@@ -52,22 +55,37 @@ _AXIS = enums.AxisTypeChoices
 #: summing two voltages' pixels (mikro's ADDITIVE, right for fluorescence) means nothing here.
 _DEFAULT_BLENDING = enums.BlendingChoices.NORMAL.value
 
+#: What a layer draws: the row its source FK (:data:`SOURCE_FIELD`) points at.
+LayerSource: TypeAlias = (
+    models.Lens
+    | models.SparseDataset
+    | models.TableDataset
+    | models.AnnotationCollection
+)
+#: What a bootstrap finds in a space: an array dataset stands for the whole lens it draws through.
+BootstrapSource: TypeAlias = (
+    models.ArrayDataset
+    | models.SparseDataset
+    | models.TableDataset
+    | models.AnnotationCollection
+)
 
-def source_label(source) -> str:  # noqa: ANN001 - a lens, sparse dataset, table dataset or collection
+
+def source_label(source: LayerSource) -> str:
     """What to call a layer's source in a refusal."""
     if isinstance(source, models.Lens):
         return f"lens {source.pk} over '{source.dataset.name}'"
     return f"'{getattr(source, 'name', source.pk)}'"
 
 
-def source_system_of(source) -> "models.CoordinateSystem | None":  # noqa: ANN001
+def source_system_of(source: LayerSource) -> "models.CoordinateSystem | None":
     """The space a layer over ``source`` would draw in: :func:`graph_logic.layer_source_system`'s answer, before the layer exists."""
     if isinstance(source, models.Lens):
         return graph_logic.lens_source_system(source)
     return getattr(source, "coordinate_system", None)
 
 
-def assert_reaches(world: "models.CoordinateSystem", source) -> None:  # noqa: ANN001
+def assert_reaches(world: "models.CoordinateSystem", source: LayerSource) -> None:
     """Refuse a layer whose data has no route into the world. Deliberately looser than mikro's gate: a FIELD route counts."""
     system = source_system_of(source)
     if system is None:
@@ -84,7 +102,7 @@ def assert_reaches(world: "models.CoordinateSystem", source) -> None:  # noqa: A
     )
 
 
-def assert_kind(kind: str, source) -> None:  # noqa: ANN001
+def assert_kind(kind: str, source: LayerSource) -> None:
     """Refuse a source a kind cannot draw, naming what it can."""
     if kind in enums.LENS_BACKED_KINDS:
         expected = models.Lens
@@ -105,17 +123,20 @@ def assert_kind(kind: str, source) -> None:  # noqa: ANN001
             f"Sparse dataset {source_label(source)} has no TIME axis, so it is not a spike raster: there is no sample axis to draw a tick along. "
             "A raster is created with one INDEX axis (the units) and one TIME axis (the samples)."
         )
-    if kind in (_KIND.EVENTS.value, _KIND.SERIES.value) and time_column(source) is None:
+    # Past the isinstance check above, the kind decides the model: a checker cannot see that.
+    table = cast("models.TableDataset", source)
+    lens = cast("models.Lens", source)
+    if kind in (_KIND.EVENTS.value, _KIND.SERIES.value) and time_column(table) is None:
         raise ValueError(
             f"Table {source_label(source)} has no TIME coordinate column, so its rows have no instant to be drawn at. Declare the column holding each row's time with `axisType: TIME`."
         )
     if kind == _KIND.POINT.value:
-        if time_column(source) is not None:
+        if time_column(table) is not None:
             raise ValueError(
                 f"Table {source_label(source)} has a TIME coordinate column: its rows are events, not places. A point layer draws a table placed in space -- a channel map, "
                 "units at their positions -- whose coordinate columns are SPACE only."
             )
-        if len(space_columns(source)) < 2:
+        if len(space_columns(table)) < 2:
             raise ValueError(
                 f"Table {source_label(source)} has fewer than two SPACE coordinate columns, so a row is not a point in a plane. Declare its x and y columns with `axisType: SPACE`."
             )
@@ -123,13 +144,13 @@ def assert_kind(kind: str, source) -> None:  # noqa: ANN001
         _KIND.TRACE.value,
         _KIND.HEATMAP.value,
         _KIND.WAVEFORM.value,
-    ) and not lens_axes(source, _AXIS.TIME.value):
+    ) and not lens_axes(lens, _AXIS.TIME.value):
         raise ValueError(
             f"The dataset under {source_label(source)} has no TIME axis, so there is nothing to draw it along. A {kind} layer draws samples over time."
         )
-    if kind == _KIND.WAVEFORM.value and len(lens_axes(source, _AXIS.INDEX.value)) != 1:
+    if kind == _KIND.WAVEFORM.value and len(lens_axes(lens, _AXIS.INDEX.value)) != 1:
         raise ValueError(
-            f"The dataset under {source_label(source)} has {len(lens_axes(source, _AXIS.INDEX.value))} INDEX axes, but waveform templates have exactly one: the units, "
+            f"The dataset under {source_label(source)} has {len(lens_axes(lens, _AXIS.INDEX.value))} INDEX axes, but waveform templates have exactly one: the units, "
             "one template each, shaped (unit, [c,] w)."
         )
 
@@ -279,11 +300,11 @@ def create_layer(
     experiment: "models.Experiment",
     *,
     kind: str,
-    source,
+    source: LayerSource,
     order: int | None = None,
     name: str | None = None,
-    **settings,
-) -> "models.ExperimentLayer":  # noqa: ANN001, ANN003
+    **settings: object,
+) -> "models.ExperimentLayer":
     """Write one layer: check the kind can draw the source and that it reaches the world, then append it."""
     assert_kind(kind, source)
     assert_reaches(experiment.world, source)
@@ -295,19 +316,27 @@ def create_layer(
             f"{source_label(source)} is already drawn in experiment '{experiment.name}'. One layer per collection: style its annotations instead."
         )
     # The one setting each of these kinds cannot draw without, resolved (and checked) here so the
-    # generic `createLayer` gets the same answer as the per-kind mutation.
+    # generic `createLayer` gets the same answer as the per-kind mutation. `assert_kind` above
+    # has made the kind decide the model, and these settings are the columns' strings.
     if kind == _KIND.HEATMAP.value:
-        settings["row_axis"] = resolve_row_axis(source, settings.get("row_axis"))
+        settings["row_axis"] = resolve_row_axis(
+            cast("models.Lens", source), cast("str | None", settings.get("row_axis"))
+        )
     elif kind == _KIND.WAVEFORM.value:
-        settings["unit_axis"] = resolve_unit_axis(source, settings.get("unit_axis"))
+        settings["unit_axis"] = resolve_unit_axis(
+            cast("models.Lens", source), cast("str | None", settings.get("unit_axis"))
+        )
     elif kind == _KIND.SERIES.value:
-        value = settings.get("value_column") or _series_value_column(source)
+        table = cast("models.TableDataset", source)
+        value = cast(
+            "str | None", settings.get("value_column")
+        ) or _series_value_column(table)
         if value is None:
             raise ValueError(
                 f"A series layer draws one numeric column of {source_label(source)} over time, and the table has no single such column to default to: name the `valueColumn`."
             )
-        assert_numeric_column(source, value, "valueColumn")
-        start = time_column(source)
+        assert_numeric_column(table, value, "valueColumn")
+        start = time_column(table)
         if start is not None and value == start.name:
             raise ValueError(
                 f"`valueColumn` is '{value}', the table's TIME column: a series draws a value *against* time, not time against itself."
@@ -326,7 +355,7 @@ def create_layer(
     )
 
 
-def _default_name(source) -> str | None:  # noqa: ANN001
+def _default_name(source: LayerSource) -> str | None:
     if isinstance(source, models.Lens):
         return source.dataset.name
     return getattr(source, "name", None)
@@ -339,7 +368,7 @@ def create_experiment(
     description: str | None = None,
     world: "models.CoordinateSystem | None" = None,
     axes: list | None = None,
-    epoch=None,  # noqa: ANN001 - a datetime
+    epoch: datetime.datetime | None = None,
 ) -> "models.Experiment":
     """Create an experiment over a world: an adopted existing system, or one minted for convenience.
 
@@ -407,8 +436,8 @@ def _times_systems() -> "set[int]":
 
 
 def candidates(
-    system: "models.CoordinateSystem", organization, policy: Policy
-) -> "list[tuple[str, object]]":  # noqa: ANN001 - an Organization
+    system: "models.CoordinateSystem", organization: Organization, policy: Policy
+) -> "list[tuple[str, BootstrapSource]]":
     """What a bootstrap over ``system`` would draw, as ``(kind, source)`` in layer order: arrays, rasters, tables, annotations.
 
     The loose reachable set -- the same one ``inView`` reads, FIELD routes included, clock chains
@@ -420,7 +449,7 @@ def candidates(
     if not reachable:
         return []
     fields = _times_systems()
-    sources: list = [
+    sources: list[BootstrapSource] = [
         *models.ArrayDataset.objects.filter(
             coordinate_system_id__in=reachable, organization=organization
         )
@@ -452,7 +481,9 @@ def candidates(
     return found
 
 
-def kind_for(source, *, raster_derived: "set[int] | None" = None) -> str | None:  # noqa: ANN001
+def kind_for(
+    source: BootstrapSource, *, raster_derived: "set[int] | None" = None
+) -> str | None:
     """How a bootstrap draws a source, or None when it is nothing a timeline or a place draws.
 
     ``raster_derived`` is the batched answer to "which array grids have a derivation edge into a
@@ -546,8 +577,10 @@ def value_window(dataset: "models.ArrayDataset") -> tuple[float | None, float | 
     return low, high
 
 
-def _defaults_for(kind: str, source) -> dict:  # noqa: ANN001
+def _defaults_for(kind: str, source: BootstrapSource) -> dict[str, object]:
     """The render settings a bootstrapped layer starts with -- read off recorded facts, or defaulted."""
+    # :func:`kind_for` chose the kind off the model, so the kind decides it here.
+    table = cast("models.TableDataset", source)
     if kind == _KIND.SPIKES.value:
         return {
             "tick_height": 0.8,
@@ -555,19 +588,19 @@ def _defaults_for(kind: str, source) -> dict:  # noqa: ANN001
         }
     if kind == _KIND.EVENTS.value:
         label = (
-            source.columns.filter(role=enums.ColumnRoleChoices.LABEL.value)
+            table.columns.filter(role=enums.ColumnRoleChoices.LABEL.value)
             .order_by("order")
             .first()
         )
         return {
             "label_column": label.name if label is not None else None,
-            "stop_column": _stop_column(source),
+            "stop_column": _stop_column(table),
         }
     if kind == _KIND.SERIES.value:
-        return {"value_column": _series_value_column(source)}
+        return {"value_column": _series_value_column(table)}
     if kind in (_KIND.TRACE.value, _KIND.HEATMAP.value):
-        low, high = value_window(source)
-        defaults = {"clim_min": low, "clim_max": high}
+        low, high = value_window(cast("models.ArrayDataset", source))
+        defaults: dict[str, object] = {"clim_min": low, "clim_max": high}
         if kind == _KIND.HEATMAP.value:
             defaults["colormap"] = enums.ColorMapChoices.VIRIDIS.value
         return defaults
@@ -625,10 +658,15 @@ def bootstrap_experiment_from_system(
                 ):
                     continue
             settings = _defaults_for(kind, source)
+            # Only an array dataset is drawn as either, and it became its whole lens above.
             if kind == _KIND.HEATMAP.value:
-                settings["row_axis"] = resolve_row_axis(target, None)
+                settings["row_axis"] = resolve_row_axis(
+                    cast("models.Lens", target), None
+                )
             if kind == _KIND.WAVEFORM.value:
-                settings["unit_axis"] = resolve_unit_axis(target, None)
+                settings["unit_axis"] = resolve_unit_axis(
+                    cast("models.Lens", target), None
+                )
             create_layer(experiment, kind=kind, source=target, order=order, **settings)
             order += 1
     return experiment

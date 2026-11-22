@@ -21,11 +21,13 @@ behaviour of an unplaced view is what is pinned, and no creating mutation would 
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
 from tests.coords._helpers import add_layer, create_experiment, derive, derived_dataset
+from tests.fixture_types import AExecute, ZarrStoreFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -71,8 +73,8 @@ _AFFINE_3D = [
 
 
 async def _experiment_with_registered_source(
-    aexecute, ctx, source: models.ArrayDataset
-) -> models.Experiment:  # noqa: ANN001
+    aexecute: AExecute, ctx: HttpContext, source: models.ArrayDataset
+) -> models.Experiment:
     """An experiment whose (z, y, x) world the (c, y, x) source is registered into, by an affine someone measured."""
     experiment = await create_experiment(ctx, "Exp")
     registered = await aexecute(
@@ -89,15 +91,16 @@ async def _experiment_with_registered_source(
     return experiment
 
 
-async def _views(aexecute, experiment: models.Experiment) -> list[dict]:  # noqa: ANN001
+async def _views(aexecute: AExecute, experiment: models.Experiment) -> list[dict]:
     result = await aexecute(PLACEMENT, {"id": str(experiment.pk)})
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["experiment"]["layers"]
 
 
 async def test_an_unmappable_edge_is_not_a_way_to_world(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """The search will not cross it, so the data it relates has no path -- which is the truth.
 
     ABLATION: un-gate the forward step in `graph.adjacency_of` and the BFS walks straight
@@ -134,8 +137,8 @@ async def test_an_unmappable_edge_is_not_a_way_to_world(
 
 
 async def test_an_unmappable_edge_in_a_scene_is_still_not_a_way_to_world(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Even registered into the experiment's world, the search will not walk it.
 
     This is the case that pins the FORWARD gate specifically. The world's own edges are
@@ -184,8 +187,8 @@ async def test_an_unmappable_edge_in_a_scene_is_still_not_a_way_to_world(
 
 
 async def test_the_lineage_stops_but_the_provenance_does_not(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """Two halves that must not be confused: placement ends here, history does not.
 
     `lineage_ancestors` answers "who places this", and nothing places data across an
@@ -217,6 +220,7 @@ async def test_the_lineage_stops_but_the_provenance_does_not(
 
     result = await aexecute(DERIVED, {"id": str(dataset.pk)})
     assert not result.errors, result.errors
+    assert result.data is not None
 
     edges = result.data["arrayDataset"]["derivedFrom"]
     assert len(edges) == 1, (
@@ -227,8 +231,8 @@ async def test_the_lineage_stops_but_the_provenance_does_not(
 
 
 async def test_an_unmappable_edge_is_still_discoverable(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """Discovery is kind-blind; placement is not. That asymmetry is the design.
 
     A client that gets `pathToWorld: null` needs to find out *why*, and the edge is the
@@ -253,6 +257,7 @@ async def test_an_unmappable_edge_is_still_discoverable(
 
     result = await aexecute(GRAPH, {"id": str(dataset.coordinate_system_id)})
     assert not result.errors, result.errors
+    assert result.data is not None
 
     graph = result.data["coordinateGraph"]
     assert "UNMAPPABLE" in [edge["kind"] for edge in graph["transformations"]]
@@ -263,7 +268,7 @@ async def test_an_unmappable_edge_is_still_discoverable(
     ]
 
 
-def _atlas(ctx, name: str = "Atlas") -> models.CoordinateSystem:  # noqa: ANN001
+def _atlas(ctx: HttpContext, name: str = "Atlas") -> models.CoordinateSystem:
     """A unit-less (c, y, x) space, written as rows."""
     atlas = models.CoordinateSystem.objects.create(
         name=name, organization=ctx.request.organization
@@ -280,7 +285,9 @@ def _atlas(ctx, name: str = "Atlas") -> models.CoordinateSystem:  # noqa: ANN001
     return atlas
 
 
-async def test_a_displacement_field_is_not_walked_backwards(authenticated_context):
+async def test_a_displacement_field_is_not_walked_backwards(
+    authenticated_context: HttpContext,
+) -> None:
     """Rank was never the whole rule; it only looked like it was.
 
     Every kind that was creatable happened to be invertible, so "same number of axes on
@@ -344,7 +351,9 @@ async def test_a_displacement_field_is_not_walked_backwards(authenticated_contex
     assert await sync_to_async(graph_logic.is_reverse_traversable)(scale) is True
 
 
-async def test_a_sequence_is_invertible_only_if_its_children_are(authenticated_context):
+async def test_a_sequence_is_invertible_only_if_its_children_are(
+    authenticated_context: HttpContext,
+) -> None:
     """A wrapper's kind says nothing about whether it can be undone. Its children do.
 
     A set-membership test on the wrapper's own kind -- the obvious implementation -- would
@@ -422,8 +431,8 @@ async def test_a_sequence_is_invertible_only_if_its_children_are(authenticated_c
 
 
 async def test_an_unmappable_edge_does_not_poison_an_roi_box(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """An ROI's box is composed along the walk to intrinsic, and that walk must not take it.
 
     `_edge_towards_intrinsic` picks the first edge out of a system that stays inside the
@@ -467,8 +476,8 @@ async def test_an_unmappable_edge_does_not_poison_an_roi_box(
 
 
 async def test_placement_distinguishes_a_gap_from_an_impossibility(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """PLACED, UNREGISTERED, UNMAPPABLE -- because a null `pathToWorld` meant two things.
 
     One of them is a gap in the data: nobody has registered this yet, and authoring the edge
@@ -509,8 +518,8 @@ async def test_placement_distinguishes_a_gap_from_an_impossibility(
 
 
 async def test_a_fusion_with_one_unmappable_parent_is_a_gap_not_an_impossibility(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """UNMAPPABLE is claimed only when the data reaches nowhere at all.
 
     A fusion whose two parents are related to it differently -- one across an edge that maps
@@ -561,8 +570,8 @@ async def test_a_fusion_with_one_unmappable_parent_is_a_gap_not_an_impossibility
 
 
 async def test_the_write_path_refuses_a_map_on_an_unmappable_edge(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """It carries no parameters, and no rank constrains it. Both halves matter."""
     ctx = authenticated_context
     first = await seed.create_array_dataset(ctx, "Recording")
@@ -587,6 +596,7 @@ async def test_the_write_path_refuses_a_map_on_an_unmappable_edge(
         },
     )
     assert not made.errors, made.errors
+    assert made.data is not None
     assert made.data["createTransformation"]["kind"] == "UNMAPPABLE"
 
     # But it may not carry a map, in the same breath as denying there is one. The parse

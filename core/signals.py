@@ -23,7 +23,12 @@ def array_dataset_channels(
 
 
 @receiver(post_save, sender=models.ArrayDataset)
-def array_dataset_saved(sender, instance=None, created=None, **kwargs):  # noqa: ANN001, ANN201, ANN003 - a django signal receiver
+def array_dataset_saved(
+    sender: type[models.ArrayDataset],
+    instance: models.ArrayDataset,
+    created: bool,
+    **kwargs: object,
+) -> None:
     """Announce a created or updated dataset."""
     signal = (
         channels.ArrayDatasetSignal(create=instance.id)
@@ -36,7 +41,9 @@ def array_dataset_saved(sender, instance=None, created=None, **kwargs):  # noqa:
 
 
 @receiver(pre_delete, sender=models.ArrayDataset)
-def array_dataset_deleted(sender, instance=None, **kwargs):  # noqa: ANN001, ANN201, ANN003 - a django signal receiver
+def array_dataset_deleted(
+    sender: type[models.ArrayDataset], instance: models.ArrayDataset, **kwargs: object
+) -> None:
     """Announce a dataset that is about to be deleted."""
     channels.array_dataset_channel.broadcast(
         channels.ArrayDatasetSignal(delete=instance.id),

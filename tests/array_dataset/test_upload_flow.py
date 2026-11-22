@@ -10,8 +10,10 @@ grant / finish / get_zarr_metadata chain.
 
 import pytest
 from arkitekt_datalayer.models import ZarrStore
+from kante.context import HttpContext
 
 from core.models import DataArray, Folder
+from tests.fixture_types import AExecute, ZarrReader, ZarrUploader
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -58,13 +60,17 @@ mutation ($input: CreateArrayDatasetInput!) {
 
 
 async def test_zarr_upload_to_array_dataset_flow(
-    aexecute, authenticated_context, upload_zarr_to_grant, read_zarr_from_grant
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    upload_zarr_to_grant: ZarrUploader,
+    read_zarr_from_grant: ZarrReader,
+) -> None:
     # 1. Request an upload grant -> server creates the ZarrStore + returns S3 creds.
     grant_res = await aexecute(
         REQUEST_ZARR_UPLOAD, {"input": {"shape": [4, 4], "chunks": [4, 4]}}
     )
     assert not grant_res.errors, grant_res.errors
+    assert grant_res.data is not None
     grant = grant_res.data["requestZarrUpload"]
     assert grant["bucket"] == "zarr"
     assert grant["store"]
@@ -75,6 +81,7 @@ async def test_zarr_upload_to_array_dataset_flow(
     # 3. Finish the upload -> server reads zarr.json and marks the store populated.
     fin = await aexecute(FINISH_ZARR_UPLOAD, {"input": {"storeId": grant["store"]}})
     assert not fin.errors, fin.errors
+    assert fin.data is not None
     assert fin.data["finishZarrUpload"]["id"]
     store = await ZarrStore.objects.aget(id=grant["store"])
     assert store.populated
@@ -104,6 +111,7 @@ async def test_zarr_upload_to_array_dataset_flow(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createArrayDataset"] == {
         "id": res.data["createArrayDataset"]["id"],
         "name": "uploaded",
@@ -121,6 +129,7 @@ async def test_zarr_upload_to_array_dataset_flow(
 
     acc = await aexecute(REQUEST_ZARR_ACCESS, {"input": {"storeId": grant["store"]}})
     assert not acc.errors, acc.errors
+    assert acc.data is not None
     access = acc.data["requestZarrAccess"]
     assert access["bucket"] == "zarr"
 
@@ -141,10 +150,11 @@ mutation ($input: RequestGeneralZarrAccessInput!) {
 """
 
 
-async def test_request_general_zarr_access(aexecute):
+async def test_request_general_zarr_access(aexecute: AExecute) -> None:
     # Org-wide read grant: no store needed, just issues credentials.
     res = await aexecute(REQUEST_GENERAL_ZARR_ACCESS, {"input": {}})
     assert not res.errors, res.errors
+    assert res.data is not None
     grant = res.data["requestGeneralZarrAccess"]
     assert grant["bucket"] == "zarr"
     assert grant["accessKey"]
@@ -153,12 +163,13 @@ async def test_request_general_zarr_access(aexecute):
 # --- negative ----------------------------------------------------------------
 
 
-async def test_finish_zarr_upload_before_upload(aexecute):
+async def test_finish_zarr_upload_before_upload(aexecute: AExecute) -> None:
     # Finish without ever uploading -> no zarr.json -> get_zarr_metadata raises.
     grant_res = await aexecute(
         REQUEST_ZARR_UPLOAD, {"input": {"shape": [4, 4], "chunks": [4, 4]}}
     )
     assert not grant_res.errors, grant_res.errors
+    assert grant_res.data is not None
     grant = grant_res.data["requestZarrUpload"]
 
     fin = await aexecute(FINISH_ZARR_UPLOAD, {"input": {"storeId": grant["store"]}})

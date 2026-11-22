@@ -9,9 +9,12 @@ the spokes are the ones every container shares. A value unit is refused here as 
 import pytest
 from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -49,7 +52,9 @@ SHAPE = [40, 12]
 RIG = {"mode": "VOLTAGE_CLAMP", "holdingPotential": "-70 mV", "devices": []}
 
 
-async def _index_table(aexecute, ctx, name: str, key: str) -> str:
+async def _index_table(
+    aexecute: AExecute, ctx: HttpContext, name: str, key: str
+) -> str:
     """A table one position of an axis identifies a row of: a single INDEX column."""
     result = await aexecute(
         "mutation Create($input: CreateTableDatasetInput!) { createTableDataset(input: $input) { id } }",
@@ -69,10 +74,11 @@ async def _index_table(aexecute, ctx, name: str, key: str) -> str:
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createTableDataset"]["id"]
 
 
-async def _axes(aexecute, ctx, name: str) -> list[dict]:
+async def _axes(aexecute: AExecute, ctx: HttpContext, name: str) -> list[dict]:
     """The matrix's two axes, `unit` and `time`, each identified by a table of its own."""
     units = await _index_table(aexecute, ctx, f"{name} units", "unit_id")
     times = await _index_table(aexecute, ctx, f"{name} times", "time_id")
@@ -82,7 +88,9 @@ async def _axes(aexecute, ctx, name: str) -> list[dict]:
     ]
 
 
-async def _create(aexecute, ctx, name: str, anchors: list[dict] | None = None):
+async def _create(
+    aexecute: AExecute, ctx: HttpContext, name: str, anchors: list[dict] | None = None
+) -> ExecutionResult:
     store = await seed.create_sparse_store(ctx, f"{name}-store", axes=(0,), shape=SHAPE)
     payload: dict = {
         "name": name,
@@ -94,7 +102,9 @@ async def _create(aexecute, ctx, name: str, anchors: list[dict] | None = None):
     return await aexecute(CREATE_SPARSE, {"input": payload})
 
 
-async def test_a_sparse_anchor_pins_spokes_to_its_axes(aexecute, authenticated_context):
+async def test_a_sparse_anchor_pins_spokes_to_its_axes(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Anchors stated at create land on the matrix with the other containers empty."""
     result = await _create(
         aexecute,
@@ -113,6 +123,7 @@ async def test_a_sparse_anchor_pins_spokes_to_its_axes(aexecute, authenticated_c
         ],
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     sparse_id = int(result.data["createSparseDataset"]["id"])
 
     anchors = [
@@ -142,8 +153,10 @@ async def test_a_sparse_anchor_pins_spokes_to_its_axes(aexecute, authenticated_c
 
 
 async def test_a_sparse_dataset_reads_its_anchors_back(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """`SparseDataset.anchors` and the `coordinateAnchors` list both serve them, within the tenant."""
     result = await _create(
         aexecute,
@@ -158,10 +171,12 @@ async def test_a_sparse_dataset_reads_its_anchors_back(
         ],
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     sparse_id = result.data["createSparseDataset"]["id"]
 
     read = await aexecute(SPARSE_ANCHORS, {"id": sparse_id})
     assert not read.errors, read.errors
+    assert read.data is not None
     [anchor] = read.data["sparseDataset"]["anchors"]
     assert anchor["coordinates"] == {"time": 1}
     assert anchor["sparse"] == {"id": sparse_id}
@@ -171,6 +186,7 @@ async def test_a_sparse_dataset_reads_its_anchors_back(
 
     listed = await aexecute(LIST_ANCHORS, {"sparse": sparse_id})
     assert not listed.errors, listed.errors
+    assert listed.data is not None
     assert [entry["coordinates"] for entry in listed.data["coordinateAnchors"]] == [
         {"time": 1}
     ]
@@ -179,12 +195,13 @@ async def test_a_sparse_dataset_reads_its_anchors_back(
         LIST_ANCHORS, {"sparse": sparse_id}, context=other_org_context
     )
     assert not foreign.errors, foreign.errors
+    assert foreign.data is not None
     assert foreign.data["coordinateAnchors"] == []
 
 
 async def test_an_anchor_must_name_an_axis_of_the_matrix(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A key that is not one of the matrix's axes is refused, and nothing is written."""
     result = await _create(
         aexecute,
@@ -202,7 +219,9 @@ async def test_an_anchor_must_name_an_axis_of_the_matrix(
     assert not await models.SparseDataset.objects.filter(name="Mispinned").aexists()
 
 
-async def test_a_value_unit_is_array_only(aexecute, authenticated_context):
+async def test_a_value_unit_is_array_only(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A matrix's values have one unit stated elsewhere; the array-only spoke is refused."""
     result = await _create(
         aexecute,
@@ -216,8 +235,8 @@ async def test_a_value_unit_is_array_only(aexecute, authenticated_context):
 
 
 async def test_metadata_is_attached_to_an_existing_matrix_on_one_anchor(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`createCoordinateAnchor` get-or-creates on (sparse, coordinates) and replaces a restated spoke."""
     matrix = await seed.create_sparse_dataset(authenticated_context, "Later")
     sparse_id = str(matrix.pk)
@@ -236,6 +255,7 @@ async def test_metadata_is_attached_to_an_existing_matrix_on_one_anchor(
         },
     )
     assert not first.errors, first.errors
+    assert first.data is not None
     second = await aexecute(
         CREATE_ANCHOR,
         {
@@ -250,6 +270,7 @@ async def test_metadata_is_attached_to_an_existing_matrix_on_one_anchor(
         },
     )
     assert not second.errors, second.errors
+    assert second.data is not None
 
     assert (
         first.data["createCoordinateAnchor"]["id"]
@@ -296,8 +317,8 @@ async def test_metadata_is_attached_to_an_existing_matrix_on_one_anchor(
 
 
 async def test_deleting_the_matrix_takes_its_anchors_with_it(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """An anchor is part of its matrix: cascade, spokes included."""
     created = await _create(
         aexecute,
@@ -306,6 +327,7 @@ async def test_deleting_the_matrix_takes_its_anchors_with_it(
         anchors=[{"axisAnchors": [], "label": {"label": "gone"}}],
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     sparse_id = created.data["createSparseDataset"]["id"]
     assert (
         await models.ChannelLabel.objects.filter(anchor__sparse_id=sparse_id).acount()
@@ -323,12 +345,14 @@ async def test_deleting_the_matrix_takes_its_anchors_with_it(
     )
 
 
-async def test_an_anchor_has_exactly_one_container(authenticated_context):
+async def test_an_anchor_has_exactly_one_container(
+    authenticated_context: HttpContext,
+) -> None:
     """The database refuses an anchor on a matrix and a dataset at once, and fills the organization itself."""
     dataset = await seed.create_array_dataset(authenticated_context, "Constrained")
     matrix = await seed.create_sparse_dataset(authenticated_context, "Constrained")
 
-    def both():
+    def both() -> None:
         with transaction.atomic():
             models.CoordinateAnchor.objects.create(
                 dataset=dataset, sparse=matrix, coordinates={}

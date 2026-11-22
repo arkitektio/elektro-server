@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import inspect
 import re
-from collections.abc import Callable
-from typing import Any, ClassVar
+from collections.abc import Callable, Mapping
+from typing import ClassVar
 
 import pint
 import strawberry
@@ -110,7 +110,7 @@ _SCALE_PREFIX: dict[int, str] = {
 }
 
 
-def format_quantity(value: Any, reference_unit: str, scale: int) -> str:
+def format_quantity(value: float, reference_unit: str, scale: int) -> str:
     """Render an integer canonical sub-unit count as a compact Pint string.
 
     ``value`` is an integer count of ``reference_unit / scale`` (e.g. picoseconds
@@ -294,14 +294,14 @@ def normalize_compact_units(expression: str) -> str:
     return _COMPACT_EXPONENT_RE.sub(r"\1**\2", expression)
 
 
-def _render_dimensionality(dims: Any) -> str:
+def _render_dimensionality(dims: Mapping[str, float]) -> str:
     """Deterministic string form of a pint dimensionality (matches core.units)."""
     positive = sorted((d, e) for d, e in dims.items() if e > 0)
     negative = sorted((d, e) for d, e in dims.items() if e < 0)
     if not positive and not negative:
         return "dimensionless"
 
-    def term(d: str, e: Any) -> str:
+    def term(d: str, e: float) -> str:
         e = abs(e)
         return d if e == 1 else f"{d} ** {e:g}"
 

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated
 import kante
 import strawberry
 from authentikate.strawberry.types import User
+from django.db.models import QuerySet
 from kante.types import Info
 from koherent.strawberry.types import ProvenanceEntry
 from strawberry import auto
@@ -186,7 +187,9 @@ class Annotation:
         )
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):  # noqa: ANN001, ANN206 - strawberry_django's hook
+    def get_queryset(
+        cls, queryset: QuerySet[models.Annotation], info: Info, **kwargs: object
+    ) -> QuerySet[models.Annotation]:
         """Scope the list to the request's organization, carrying the system along.
 
         Through the required collection FK -- the annotation carries no organization column

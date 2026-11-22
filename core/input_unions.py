@@ -20,13 +20,22 @@ convention settles.
 """
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Any, TypeAlias, TypeVar
 
 import strawberry
 from pydantic import BaseModel, ValidationError
+from strawberry.experimental.pydantic.conversion_types import (
+    StrawberryTypeFromPydantic,
+)
 from strawberry.schema_directive import Location
 
 T = TypeVar("T")
+
+#: The class decorator ``kante.pydantic_input(Model, ...)`` returns: what a factory that
+#: publishes one union member hands back.
+PydanticInputDecorator: TypeAlias = Callable[
+    [type], type[StrawberryTypeFromPydantic[BaseModel]]
+]
 
 #: pydantic prefixes the message of a `ValueError` raised inside a validator with this.
 #: Stripped on the way out: the validator already wrote a full sentence, and the prefix
@@ -180,9 +189,9 @@ def prose_errors(cls: type[T]) -> type[T]:
     ``to_pydantic`` for the same reason -- to route its errors through
     :func:`parse_union_member`.
     """
-    original: Callable = cls.to_pydantic  # type: ignore[attr-defined]
+    original: Callable[..., BaseModel] = cls.to_pydantic  # type: ignore[attr-defined]
 
-    def to_pydantic(self, **kwargs):  # noqa: ANN001, ANN003, ANN202 - a passthrough wrapper
+    def to_pydantic(self: T, **kwargs: Any) -> BaseModel:
         try:
             return original(self, **kwargs)
         except ValidationError as err:

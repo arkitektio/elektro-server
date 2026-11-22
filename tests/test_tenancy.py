@@ -11,15 +11,18 @@ The static ``test`` token is an admin of ``static_org``; the rows below belong t
 
 import pytest
 from asgiref.sync import sync_to_async
+from django.db.models import Model
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
 
 @sync_to_async
-def _theirs(other):
+def _theirs(other: HttpContext) -> dict[str, tuple[str, Model]]:
     """One row of several kinds, all in the other organization."""
     from core.logic import clocks
 
@@ -102,15 +105,12 @@ def _theirs(other):
 
 
 async def test_an_admin_of_one_organization_cannot_delete_another_organizations_rows(
-    aexecute, other_org_context
-):
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     rows = await _theirs(other_org_context)
 
     for mutation, (input_type, row) in rows.items():
-        document = "mutation ($input: %s!) { %s(input: $input) }" % (
-            input_type,
-            mutation,
-        )
+        document = f"mutation ($input: {input_type}!) {{ {mutation}(input: $input) }}"
         res = await aexecute(
             document, {"input": {"id": str(row.pk)}}
         )  # as the admin of static_org
@@ -124,8 +124,8 @@ async def test_an_admin_of_one_organization_cannot_delete_another_organizations_
 
 
 async def test_the_owning_organization_can_still_delete_them(
-    aexecute, other_org_context
-):
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """The scoping must not have made deletes impossible: the creator deletes their own rows."""
     rows = await _theirs(other_org_context)
     for mutation in (
@@ -136,10 +136,7 @@ async def test_the_owning_organization_can_still_delete_them(
         "deleteSparseDataset",
     ):
         input_type, row = rows[mutation]
-        document = "mutation ($input: %s!) { %s(input: $input) }" % (
-            input_type,
-            mutation,
-        )
+        document = f"mutation ($input: {input_type}!) {{ {mutation}(input: $input) }}"
         res = await aexecute(
             document, {"input": {"id": str(row.pk)}}, context=other_org_context
         )
@@ -155,8 +152,10 @@ mutation ($input: CreateNeuronModelInput!) {
 
 
 async def test_two_organizations_can_hold_the_same_model_config(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """One org's create must not match -- and overwrite -- another's row.
 
     `NeuronModel.hash` was `unique=True` *globally* while `create_neuron_model` ran an unscoped
@@ -193,7 +192,9 @@ async def test_two_organizations_can_hold_the_same_model_config(
         context=other_org_context,
     )
     assert not mine.errors, mine.errors
+    assert mine.data is not None
     assert not theirs.errors, theirs.errors
+    assert theirs.data is not None
 
     # Two rows, not one -- and neither name was overwritten by the other's write.
     assert (

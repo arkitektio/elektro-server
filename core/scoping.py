@@ -13,6 +13,7 @@ designated seam — every scoped read funnels through it.
 """
 
 from functools import cache
+from typing import Any, TypeVar
 
 from arkitekt_service.collaborations.guests import object_scope
 from django.core.exceptions import FieldDoesNotExist
@@ -26,6 +27,8 @@ from kante.types import Info
 UNSCOPED_MODELS: frozenset[str] = frozenset()
 
 _MAX_PATH_DEPTH = 3
+
+_M = TypeVar("_M", bound=django_models.Model)
 
 
 def _find_org_path(model: type[django_models.Model], depth: int) -> str | None:
@@ -60,8 +63,8 @@ def organization_path(model: type[django_models.Model]) -> str | None:
 
 
 def scope_queryset(
-    queryset: django_models.QuerySet, info: Info
-) -> django_models.QuerySet:
+    queryset: "django_models.QuerySet[_M]", info: Info
+) -> "django_models.QuerySet[_M]":
     """Narrow an existing ``queryset`` to the request's organization, and, at a root field, for a
     guest of the organization, to what is in their collaborations (``arkitekt_service.collaborations``). Below a
     root field the collaboration gate holds them to it."""
@@ -79,21 +82,17 @@ def scope_queryset(
     )
 
 
-def for_org(model: type[django_models.Model], info: Info) -> django_models.QuerySet:
+def for_org(model: type[_M], info: Info) -> "django_models.QuerySet[_M]":
     """Return ``model``'s queryset limited to the request's organization."""
     return scope_queryset(model.objects.all(), info)
 
 
-def get_for_org(
-    model: type[django_models.Model], info: Info, **kwargs
-) -> django_models.Model:
+def get_for_org(model: type[_M], info: Info, **kwargs: Any) -> _M:
     """``Model.objects.get`` limited to the request's organization."""
     return for_org(model, info).get(**kwargs)
 
 
-def get_in_org_unshared(
-    model: type[django_models.Model], info: Info, **kwargs
-) -> django_models.Model:
+def get_in_org_unshared(model: type[_M], info: Info, **kwargs: Any) -> _M:
     """``Model.objects.get`` limited to the request's organization alone, not to a guest's collaborations.
 
     For a resolver that then checks the collaboration itself (``require_in_collaboration``): what a guest may
@@ -108,8 +107,6 @@ def get_in_org_unshared(
     return queryset.get(**kwargs)
 
 
-async def aget_for_org(
-    model: type[django_models.Model], info: Info, **kwargs
-) -> django_models.Model:
+async def aget_for_org(model: type[_M], info: Info, **kwargs: Any) -> _M:
     """Async ``Model.objects.aget`` limited to the request's organization."""
     return await for_org(model, info).aget(**kwargs)

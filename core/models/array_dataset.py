@@ -13,7 +13,7 @@ electrophysiology rig what ``optikit`` is to a microscope) and its ``OmeMetadata
 values carry a unit (mV, pA) and a pixel's do not.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from arkitekt_datalayer.models import ZarrStore
 from arkitekt_service.service.described import Described
@@ -162,7 +162,7 @@ class ArrayDataset(EmbeddedDescriptionMixin, Described):
         ]
 
     @property
-    def intrinsic_coordinate_system(self):
+    def intrinsic_coordinate_system(self) -> CoordinateSystem:
         """The space this dataset's pixels live in. An alias for `coordinate_system`.
 
         Kept because a great deal of the graph layer says "intrinsic" to mean "the grid the
@@ -307,7 +307,7 @@ class DataArray(models.Model):
         ]
 
     @property
-    def space(self):
+    def space(self) -> CoordinateSystem | None:
         """The coordinate system this level's voxels live in.
 
         Level 0 owns no system: the dataset's INTRINSIC system *is* the level-0 pixel
@@ -319,7 +319,7 @@ class DataArray(models.Model):
         )
 
     @property
-    def to_parent(self):
+    def to_parent(self) -> Transformation | None:
         """The stored edge from this level's voxel space into the dataset's intrinsic space.
 
         None for level 0: its space IS the intrinsic space, and an identity edge between one
@@ -426,7 +426,7 @@ class CoordinateAnchor(models.Model):
             return self.table
         return self.sparse
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Fill ``organization`` from the container so every write path stays a one-liner."""
         if self.organization_id is None and self.container is not None:
             self.organization_id = self.container.organization_id
@@ -735,7 +735,7 @@ class Lens(Described):
         )
 
     @property
-    def space(self):
+    def space(self) -> CoordinateSystem | None:
         """The coordinate system this lens' selection is expressed in.
 
         A lens with no slices selects everything, so its space is the dataset's
@@ -749,7 +749,7 @@ class Lens(Described):
         )
 
     @property
-    def to_parent(self):
+    def to_parent(self) -> Transformation | None:
         """The stored edge from this lens' space back into its dataset's intrinsic space.
 
         None for an unsliced lens: its space IS the intrinsic space, and there is no shift to
@@ -779,7 +779,7 @@ class Lens(Described):
             ) from error
 
     @property
-    def active_anchors(self):
+    def active_anchors(self) -> "models.QuerySet[CoordinateAnchor]":
         """
         THE WORKSPACE QUERY:
         Finds all anchors that fall within the boundaries of this Lens.

@@ -11,17 +11,27 @@ for a wet recording session, and a session's traces are read back as what is *pl
 clock (``placeableIn``) -- not as its residents, since a trace lives in its own sample grid.
 """
 
+from typing import TypedDict, Unpack
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
 
 from core.models import (
     ArrayDataset,
     CoordinateSystem,
+    NeuronModel,
     RecordingSite,
     SimulationState,
     StimulusSite,
     Transformation,
+)
+from tests.fixture_types import (
+    AExecute,
+    CreateArrayDatasetFactory,
+    GraphQLData,
+    NeuronModelFactory,
 )
 from tests.seed import SOMA_MODEL
 
@@ -33,24 +43,34 @@ _ANCHORS = "anchors { coordinates recordingSite { kind label cell location posit
 CREATE_SESSION = "mutation ($input: CreateSessionInput!) { createSession(input: $input) { id name epoch axes { name type unit } } }"
 CREATE_SAMPLING_LAW = "mutation ($input: CreateSamplingLawInput!) { createSamplingLaw(input: $input) { id } }"
 DATASET = (
-    "query ($id: ID!) { arrayDataset(id: $id) { id valueUnit simulation { model { id name } duration dt } %s } }"
-    % _ANCHORS
+    "query ($id: ID!) { arrayDataset(id: $id) { id valueUnit simulation { model { id name } duration dt } "
+    + _ANCHORS
+    + " } }"
 )
 IN_SESSION = "query ($space: ID!, $affine: Boolean) { arrayDatasets(filters: {placeableIn: {space: $space, requireAffine: $affine}}) { id } }"
 PLACED = "query ($id: ID!, $affine: Boolean!) { coordinateSystem(id: $id) { placedSystems(requireAffine: $affine) { residents { __typename ... on ArrayDataset { id } } } } }"
 
 
-def _run(model, *, duration: str = "40 ms", dt: str | None = "25 us") -> dict:
+class _RunTiming(TypedDict, total=False):
+    """What ``_run`` lets a caller change about a run."""
+
+    duration: str
+    dt: str | None
+
+
+def _run(
+    model: NeuronModel, *, duration: str = "40 ms", dt: str | None = "25 us"
+) -> dict[str, str]:
     return {"model": str(model.id), "duration": duration, **({"dt": dt} if dt else {})}
 
 
 async def _run_datasets(
-    create_array_dataset,
-    model,
+    create_array_dataset: CreateArrayDatasetFactory,
+    model: NeuronModel,
     samples: int = 1600,
     stimulus_samples: int | None = None,
-    **run,
-):
+    **run: Unpack[_RunTiming],
+) -> tuple[GraphQLData, GraphQLData]:
     """A recorded and an injected output of one run of ``model``, each carrying the run and its site on its whole-dataset anchor."""
     recording = await create_array_dataset(
         "soma.v",
@@ -92,7 +112,7 @@ async def _run_datasets(
     return recording, stimulus
 
 
-def _session(name: str, *datasets: dict, **timing) -> dict:
+def _session(name: str, *datasets: GraphQLData, **timing: object) -> dict[str, object]:
     return {
         "input": {
             "name": name,
@@ -103,7 +123,9 @@ def _session(name: str, *datasets: dict, **timing) -> dict:
     }
 
 
-def _onto(clock: dict, *datasets: dict, **timing) -> dict:
+def _onto(
+    clock: GraphQLData, *datasets: GraphQLData, **timing: object
+) -> dict[str, object]:
     return {
         "input": {
             "clock": clock["id"],
@@ -113,20 +135,26 @@ def _onto(clock: dict, *datasets: dict, **timing) -> dict:
     }
 
 
-async def _in_session(aexecute, clock: dict, affine: bool | None = None) -> list[str]:
+async def _in_session(
+    aexecute: AExecute, clock: GraphQLData, affine: bool | None = None
+) -> list[str]:
     res = await aexecute(IN_SESSION, {"space": clock["id"], "affine": affine})
     assert not res.errors, res.errors
+    assert res.data is not None
     return sorted(dataset["id"] for dataset in res.data["arrayDatasets"])
 
 
 async def test_what_was_run_is_a_spoke_on_the_output(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     rec, _ = await _run_datasets(create_array_dataset, nm)
 
     res = await aexecute(DATASET, {"id": rec["id"]})
     assert not res.errors, res.errors
+    assert res.data is not None
     recording = res.data["arrayDataset"]
     assert recording["simulation"] == {
         "model": {"id": str(nm.id), "name": nm.name},
@@ -150,13 +178,18 @@ async def test_what_was_run_is_a_spoke_on_the_output(
     ] is None, "a recording was not computed"
 
 
-async def test_a_run_is_its_clock(aexecute, make_neuron_model, create_array_dataset):
+async def test_a_run_is_its_clock(
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     rec, stim = await _run_datasets(create_array_dataset, nm)
     res = await aexecute(
         CREATE_SESSION, _session("Sim", rec, stim, sampling={"rate": "40 kHz"})
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     clock = res.data["createSession"]
     assert (clock["name"], clock["epoch"], clock["axes"]) == (
         "Sim/clock",
@@ -198,8 +231,10 @@ async def test_a_run_is_its_clock(aexecute, make_neuron_model, create_array_data
 
 
 async def test_a_variable_step_run_is_in_its_session_but_not_offered_to_a_picker(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     rec, stim = await _run_datasets(create_array_dataset, nm, 731, dt=None)
     times = await create_array_dataset("CVode/times", [731], value_unit="millisecond")
@@ -207,6 +242,7 @@ async def test_a_variable_step_run_is_in_its_session_but_not_offered_to_a_picker
         CREATE_SESSION, _session("CVode", rec, stim, timeDataset=times["id"])
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     clock = res.data["createSession"]
 
     edges = await sync_to_async(
@@ -248,8 +284,10 @@ async def test_a_variable_step_run_is_in_its_session_but_not_offered_to_a_picker
 
 
 async def test_one_stimulus_drives_many_runs(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """An input carries no spoke: one waveform is timed onto each run's clock, and is in each session."""
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     waveform = await create_array_dataset("step 100 pA", [1600], value_unit="nA")
@@ -271,6 +309,7 @@ async def test_one_stimulus_drives_many_runs(
             _session(name, output, waveform, sampling={"rate": "40 kHz"}),
         )
         assert not res.errors, res.errors
+        assert res.data is not None
         clocks.append((res.data["createSession"], output))
 
     for clock, output in clocks:
@@ -280,8 +319,10 @@ async def test_one_stimulus_drives_many_runs(
 
 
 async def test_the_outputs_of_one_clock_agree_on_what_was_run(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     ran = await make_neuron_model(name="ran", json_model=SOMA_MODEL)
     other = await make_neuron_model(name="other", json_model=SOMA_MODEL)
     rec, _ = await _run_datasets(create_array_dataset, ran)
@@ -301,8 +342,11 @@ async def test_the_outputs_of_one_clock_agree_on_what_was_run(
     "run", [{"dt": "50 us"}, {"duration": "80 ms"}], ids=["dt", "duration"]
 )
 async def test_an_output_of_another_run_cannot_join_a_clock_later(
-    aexecute, make_neuron_model, create_array_dataset, run
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+    run: _RunTiming,
+) -> None:
     """Checked where the disagreement would arise: when an output is timed onto a clock, whichever mutation does it."""
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     rec, stim = await _run_datasets(create_array_dataset, nm)
@@ -310,6 +354,7 @@ async def test_an_output_of_another_run_cannot_join_a_clock_later(
         CREATE_SESSION, _session("Run", rec, stim, sampling={"rate": "40 kHz"})
     )
     assert not session.errors, session.errors
+    assert session.data is not None
     clock = session.data["createSession"]
     straggler, _ = await _run_datasets(create_array_dataset, nm, **run)
     res = await aexecute(
@@ -331,13 +376,15 @@ async def test_an_output_of_another_run_cannot_join_a_clock_later(
         CREATE_SESSION, _onto(clock, same, same_stim, sampling={"rate": "40 kHz"})
     )
     assert not joined.errors, "a second batch of the same run joins its clock"
+    assert joined.data is not None
     assert joined.data["createSession"]["id"] == clock["id"]
     assert len(await _in_session(aexecute, clock)) == 4
 
 
 async def test_a_dataset_is_computed_by_one_model(
-    make_neuron_model, create_array_dataset
-):
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     ran = await make_neuron_model(name="ran", json_model=SOMA_MODEL)
     other = await make_neuron_model(name="other", json_model=SOMA_MODEL)
     res = await create_array_dataset(
@@ -358,12 +405,15 @@ async def test_a_dataset_is_computed_by_one_model(
     assert not await ArrayDataset.objects.aexists()
 
 
-async def test_a_session_names_its_clock_one_way(aexecute, create_array_dataset):
+async def test_a_session_names_its_clock_one_way(
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     rec = await create_array_dataset("Vm", [1600])
     minted = await aexecute(
         CREATE_SESSION, _session("Patch", rec, sampling={"rate": "40 kHz"})
     )
     assert not minted.errors, minted.errors
+    assert minted.data is not None
     both = await aexecute(
         CREATE_SESSION,
         {
@@ -382,8 +432,10 @@ async def test_a_session_names_its_clock_one_way(aexecute, create_array_dataset)
 
 
 async def test_a_session_names_existing_datasets(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     rec, _ = await _run_datasets(create_array_dataset, nm)
     res = await aexecute(
@@ -403,14 +455,16 @@ async def test_a_session_names_existing_datasets(
     ids=["neither", "both"],
 )
 async def test_a_session_is_timed_in_exactly_one_way(
-    aexecute, create_array_dataset, timing
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    timing: dict[str, object],
+) -> None:
     rec = await create_array_dataset("soma.v", [100])
     res = await aexecute(CREATE_SESSION, _session("Untimed", rec, **timing))
     assert res.errors and "timed in exactly one way" in str(res.errors[0])
 
 
-async def test_a_session_has_datasets(aexecute):
+async def test_a_session_has_datasets(aexecute: AExecute) -> None:
     res = await aexecute(
         CREATE_SESSION,
         {"input": {"name": "Empty", "datasets": [], "sampling": {"rate": "1 kHz"}}},
@@ -419,8 +473,10 @@ async def test_a_session_has_datasets(aexecute):
 
 
 async def test_the_datasets_of_one_session_have_one_sample_count(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     rec, stim = await _run_datasets(create_array_dataset, nm, 1600, 1599)
     res = await aexecute(
@@ -430,7 +486,9 @@ async def test_the_datasets_of_one_session_have_one_sample_count(
     assert not await CoordinateSystem.objects.filter(name="Ragged/clock").aexists()
 
 
-async def test_a_session_needs_a_time_axis(aexecute, create_array_dataset):
+async def test_a_session_needs_a_time_axis(
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     rec = await create_array_dataset("soma.v", [100])
     units = await create_array_dataset(
         "not samples", [100], axes=[{"name": "unit", "type": "INDEX"}]
@@ -441,7 +499,9 @@ async def test_a_session_needs_a_time_axis(aexecute, create_array_dataset):
     assert res.errors and "has no TIME axis" in str(res.errors[0])
 
 
-async def test_sample_times_must_be_one_per_sample(aexecute, create_array_dataset):
+async def test_sample_times_must_be_one_per_sample(
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     rec = await create_array_dataset("soma.v", [731])
     times = await create_array_dataset("times", [730], value_unit="millisecond")
     res = await aexecute(
@@ -451,8 +511,9 @@ async def test_sample_times_must_be_one_per_sample(aexecute, create_array_datase
 
 
 async def test_a_dataset_carries_one_site_per_anchor(
-    make_neuron_model, create_array_dataset
-):
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """A value was recorded or injected: a clamp's command and its response are two channels, each with a site."""
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     res = await create_array_dataset(
@@ -512,8 +573,11 @@ TWO_CELLS = {
     ids=["unknown-cell", "section-of-another-cell", "section-without-cell"],
 )
 async def test_a_site_names_a_place_its_model_declares(
-    make_neuron_model, create_array_dataset, site, refusal
-):
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+    site: dict[str, str],
+    refusal: str,
+) -> None:
     nm = await make_neuron_model(name="two cells", json_model=TWO_CELLS)
     res = await create_array_dataset(
         "soma.v",
@@ -528,8 +592,9 @@ async def test_a_site_names_a_place_its_model_declares(
 
 
 async def test_a_section_alone_is_read_on_the_models_only_cell(
-    make_neuron_model, create_array_dataset
-):
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     dataset = await create_array_dataset(
         "soma.v",
@@ -551,8 +616,11 @@ async def test_a_section_alone_is_read_on_the_models_only_cell(
 
 @pytest.mark.parametrize("spoke", ["recordingSite", "simulation"])
 async def test_a_trace_is_of_a_model_of_the_callers_organization(
-    make_neuron_model, create_array_dataset, other_org_context, spoke
-):
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+    other_org_context: HttpContext,
+    spoke: str,
+) -> None:
     theirs = await make_neuron_model(context=other_org_context, json_model=SOMA_MODEL)
     value = (
         {"model": str(theirs.id), "cell": "soma"}
@@ -566,8 +634,10 @@ async def test_a_trace_is_of_a_model_of_the_callers_organization(
 
 
 async def test_a_model_lists_what_was_computed_from_it(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     rec, stim = await _run_datasets(create_array_dataset, nm)
     res = await aexecute(
@@ -575,6 +645,7 @@ async def test_a_model_lists_what_was_computed_from_it(
         {"id": str(nm.id)},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["neuronModel"] == {
         "simulatedDatasets": [{"id": rec["id"]}, {"id": stim["id"]}],
         "recordingSites": [{"kind": "VOLTAGE", "cell": "soma"}],
@@ -583,8 +654,10 @@ async def test_a_model_lists_what_was_computed_from_it(
 
 
 async def test_a_models_sessions_group_its_outputs_by_clock(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """One session per run -- per clock its outputs are timed onto -- and what is not timed yet under a null clock."""
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     other = await make_neuron_model(name="other", json_model=SOMA_MODEL)
@@ -600,6 +673,7 @@ async def test_a_models_sessions_group_its_outputs_by_clock(
             _session(name, *outputs, waveform, sampling={"rate": "40 kHz"}),
         )
         assert not res.errors, res.errors
+        assert res.data is not None
         clocks.append(res.data["createSession"]["id"])
     assert not (
         await aexecute(
@@ -612,6 +686,7 @@ async def test_a_models_sessions_group_its_outputs_by_clock(
         {"id": str(nm.id)},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     sessions = res.data["neuronModel"]["sessions"]
     assert [(s["clock"] and s["clock"]["name"]) for s in sessions] == [
         "run 1/clock",
@@ -643,7 +718,7 @@ query ($id: ID!) {
 """
 
 
-def _by_clock(sessions: list[dict]) -> dict:
+def _by_clock(sessions: list[GraphQLData]) -> dict[str | None, list[str]]:
     return {
         (s["clock"] or {}).get("name"): [d["id"] for d in s["datasets"]]
         for s in sessions
@@ -651,14 +726,16 @@ def _by_clock(sessions: list[dict]) -> dict:
 
 
 async def test_a_cell_and_a_section_show_the_sessions_they_were_recorded_in(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """Recording sites on a cell or a section, grouped by run. Two cells each with a `soma` section keep theirs apart; an injected stimulus is not a recording."""
     nm = await make_neuron_model(name="two cells", json_model=TWO_CELLS)
 
     async def output(
         name: str, cell: str, location: str, spoke: str = "recordingSite"
-    ) -> dict:
+    ) -> GraphQLData:
         return await create_array_dataset(
             name,
             [1600],
@@ -692,6 +769,7 @@ async def test_a_cell_and_a_section_show_the_sessions_they_were_recorded_in(
 
     res = await aexecute(CONFIG_SESSIONS, {"id": str(nm.id)})
     assert not res.errors, res.errors
+    assert res.data is not None
     cells = {cell["id"]: cell for cell in res.data["neuronModel"]["config"]["cells"]}
     sections = {
         (cell_id, section["id"]): _by_clock(section["sessions"])
@@ -715,14 +793,17 @@ async def test_a_cell_and_a_section_show_the_sessions_they_were_recorded_in(
         {"m": str(nm.id), "c": "int"},
     )
     assert not listed.errors, listed.errors
+    assert listed.data is not None
     assert [(s["id"], _by_clock(s["sessions"])) for s in listed.data["sections"]] == [
         ("soma", {"run 2/clock": [int_soma["id"]]})
     ], "the same answer through `sections`"
 
 
 async def test_a_site_naming_no_cell_is_on_the_sole_cell(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     nm = await make_neuron_model(json_model=SOMA_MODEL)
     recorded = await create_array_dataset(
         "Vm",
@@ -738,6 +819,7 @@ async def test_a_site_naming_no_cell_is_on_the_sole_cell(
     ).errors
     res = await aexecute(CONFIG_SESSIONS, {"id": str(nm.id)})
     assert not res.errors, res.errors
+    assert res.data is not None
     (cell,) = res.data["neuronModel"]["config"]["cells"]
     (section,) = cell["topology"]["sections"]
     assert (

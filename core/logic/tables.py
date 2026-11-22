@@ -20,16 +20,21 @@ could not do locally and costs this server a query whose price is set by someone
 count.
 """
 
+from typing import TYPE_CHECKING
+
 from arkitekt_datalayer import base_models
 from arkitekt_datalayer.datalayer import get_current_datalayer
 
+if TYPE_CHECKING:
+    from arkitekt_datalayer.models import ParquetStore
 
-def parquet_source_for_store(store) -> str:
+
+def parquet_source_for_store(store: "ParquetStore") -> str:
     """The s3 URL of a parquet store, whichever model references it."""
     return get_current_datalayer().parquet_source(store)
 
 
-def columns_for_store(store) -> list[base_models.ParquetColumn]:
+def columns_for_store(store: "ParquetStore") -> list[base_models.ParquetColumn]:
     """The columns a parquet store's file declares, in file order.
 
     Reads ``ParquetStore.columns`` -- recorded by ``fill_info`` when the upload was finished --

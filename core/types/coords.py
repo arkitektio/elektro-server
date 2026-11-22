@@ -27,15 +27,17 @@ are registered in :data:`transformation_types` and threaded into the schema's
 """
 
 import datetime
-from typing import TYPE_CHECKING, Annotated, Union
+from typing import TYPE_CHECKING, Annotated
 
 import kante
 import strawberry
 from authentikate.strawberry.types import User
 from django.db.models import Prefetch
+from graphql import GraphQLResolveInfo
 from kante.types import Info
 from koherent.strawberry.types import ProvenanceEntry
 from strawberry import auto
+from strawberry_django.utils.typing import PrefetchCallable
 
 from core import enums, filters, models, order
 from core.inputs.coords import BoundingBoxInput, CoordinateInput, at_map
@@ -47,6 +49,7 @@ from kanne_server import scalars as kanne_scalars
 if TYPE_CHECKING:
     # Only for the lazy annotations below: `core.types` imports this module, so importing
     # it back at runtime would be a cycle.
+    from core.types import NeuronModel
     from core.types.annotation import Annotation, AnnotationCollection
     from core.types.array_dataset import ArrayDataset, CoordinateAnchor, DataArray, Lens
     from core.types.sparse_dataset import SparseDataset
@@ -82,18 +85,18 @@ class Axis(OrgScopedOrNested):
 # unreturnable. The array types live in a module that imports this one, so they are
 # annotated lazily.
 Resident = Annotated[
-    Union[
-        Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")],
-        Annotated["DataArray", strawberry.lazy("core.types.array_dataset")],
-        Annotated["Lens", strawberry.lazy("core.types.array_dataset")],
-        Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")],
-        Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")],
-        Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")],
+    (
+        Annotated["ArrayDataset", strawberry.lazy("core.types.array_dataset")]
+        | Annotated["DataArray", strawberry.lazy("core.types.array_dataset")]
+        | Annotated["Lens", strawberry.lazy("core.types.array_dataset")]
+        | Annotated["TableDataset", strawberry.lazy("core.types.table_dataset")]
+        | Annotated["AnnotationCollection", strawberry.lazy("core.types.annotation")]
+        | Annotated["SparseDataset", strawberry.lazy("core.types.sparse_dataset")]
         # elektro's own arm, and the only one that lazy-loads the package rather than a
         # submodule: `NeuronModel` is defined in `core/types/__init__.py` *above* that module's
         # import of this one, so by the time strawberry resolves this the package is complete.
-        Annotated["NeuronModel", strawberry.lazy("core.types")],
-    ],
+        | Annotated["NeuronModel", strawberry.lazy("core.types")]
+    ),
     strawberry.union(
         "Resident",
         description="A piece of data living in a coordinate system. Data belongs to a space; the space belongs to nobody",
@@ -105,7 +108,9 @@ Resident = Annotated[
 _PLACEABLE_KEY = "placeable_system_ids"
 
 
-def _placeable_ids(info: Info, system, *, require_affine: bool = True) -> set[int]:
+def _placeable_ids(
+    info: Info, system: models.CoordinateSystem, *, require_affine: bool = True
+) -> set[int]:
     """The systems placeable in this one, computed once per space per request.
 
     `placeable_system_ids_in` is not cheap -- a registrations fetch, a residence map (three
@@ -357,7 +362,7 @@ class Selector:
     )
 
 
-def _endpoint_with_axes(side: str):  # noqa: ANN202 - a strawberry_django PrefetchCallable
+def _endpoint_with_axes(side: str) -> PrefetchCallable:
     return lambda info: Prefetch(
         side, queryset=models.CoordinateSystem.objects.prefetch_related("axes")
     )
@@ -497,7 +502,7 @@ class IdentityTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.IDENTITY.value
 
@@ -514,7 +519,7 @@ class ScaleTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.SCALE.value
 
@@ -538,7 +543,7 @@ class TranslationTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.TRANSLATION.value
 
@@ -562,7 +567,7 @@ class AffineTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.AFFINE.value
 
@@ -586,7 +591,7 @@ class RotationTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.ROTATION.value
 
@@ -608,7 +613,7 @@ class MapAxisTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.MAP_AXIS.value
 
@@ -639,7 +644,7 @@ class SequenceTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.SEQUENCE.value
 
@@ -661,7 +666,7 @@ class ByDimensionTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.BY_DIMENSION.value
 
@@ -683,7 +688,7 @@ class FieldTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.FIELD.value
 
@@ -715,7 +720,7 @@ class UnmappableTransformation(Transformation):
     id: auto
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:
+    def is_type_of(cls, obj: models.Transformation, info: GraphQLResolveInfo) -> bool:
         """Discriminate on the model's `kind` column."""
         return obj.kind == enums.TransformKind.UNMAPPABLE.value
 

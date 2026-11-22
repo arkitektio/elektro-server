@@ -3,9 +3,13 @@
 Ported from mikro's ``tests/test_filters_folder.py``.
 """
 
+from collections.abc import Mapping
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
+from tests.fixture_types import AExecute
 from tests.seed import create_folder
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -17,13 +21,20 @@ QUERY = """
 """
 
 
-async def names(aexecute, filters, context=None):  # noqa: ANN001, ANN201
+async def names(
+    aexecute: AExecute,
+    filters: Mapping[str, object],
+    context: HttpContext | None = None,
+) -> set[str]:
     result = await aexecute(QUERY, {"filters": filters}, context=context)
     assert not result.errors, result.errors
+    assert result.data is not None
     return {ds["name"] for ds in result.data["folders"]}
 
 
-async def test_filter_by_parentless(aexecute, authenticated_context):
+async def test_filter_by_parentless(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     root = await create_folder(authenticated_context, "Root")
     await create_folder(authenticated_context, "Child", parent=root)
 
@@ -31,7 +42,9 @@ async def test_filter_by_parentless(aexecute, authenticated_context):
     assert await names(aexecute, {"parentless": False}) == {"Child"}
 
 
-async def test_filter_by_is_default(aexecute, authenticated_context):
+async def test_filter_by_is_default(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     await create_folder(authenticated_context, "Default", is_default=True)
     await create_folder(authenticated_context, "Regular")
 
@@ -39,7 +52,9 @@ async def test_filter_by_is_default(aexecute, authenticated_context):
     assert await names(aexecute, {"isDefault": False}) == {"Regular"}
 
 
-async def test_filter_by_tags_and_pinned(aexecute, authenticated_context):
+async def test_filter_by_tags_and_pinned(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     tagged = await create_folder(authenticated_context, "Tagged")
     await create_folder(authenticated_context, "Plain")
     await sync_to_async(tagged.tags.add)("screening")
@@ -50,7 +65,9 @@ async def test_filter_by_tags_and_pinned(aexecute, authenticated_context):
     assert await names(aexecute, {"pinned": False}) == {"Plain"}
 
 
-async def test_pinned_is_per_user(aexecute, authenticated_context, bot_context):
+async def test_pinned_is_per_user(
+    aexecute: AExecute, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     """A pin is the *caller's*: a folder someone else pinned is not pinned for you."""
     folder = await create_folder(authenticated_context, "Theirs to pin")
     await sync_to_async(folder.pinned_by.add)(bot_context.request.user)
@@ -61,7 +78,9 @@ async def test_pinned_is_per_user(aexecute, authenticated_context, bot_context):
     }
 
 
-async def test_filter_by_owner(aexecute, authenticated_context, bot_context):
+async def test_filter_by_owner(
+    aexecute: AExecute, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     # The second user (sub 2) of the same organization: mikro's `create_other_user`.
     await create_folder(authenticated_context, "Mine")
     await create_folder(bot_context, "Theirs")
@@ -83,7 +102,9 @@ async def test_filter_by_owner(aexecute, authenticated_context, bot_context):
         "filters on `NameSearchFilterMixin` (files, array datasets, coordinate systems) are unaffected. No test in the suite had ever passed `search` to a SearchFilterMixin filter."
     ),
 )
-async def test_filter_by_search(aexecute, authenticated_context):
+async def test_filter_by_search(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The `search` half of mikro's `test_filter_by_search_and_description`."""
     await create_folder(
         authenticated_context, "Experiment", description="control slices"
@@ -93,7 +114,9 @@ async def test_filter_by_search(aexecute, authenticated_context):
     assert await names(aexecute, {"search": "Experiment"}) == {"Experiment"}
 
 
-async def test_filter_by_description(aexecute, authenticated_context):
+async def test_filter_by_description(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The `description` half of mikro's `test_filter_by_search_and_description`."""
     await create_folder(
         authenticated_context, "Experiment", description="control slices"
@@ -105,7 +128,9 @@ async def test_filter_by_description(aexecute, authenticated_context):
     }
 
 
-async def test_filter_by_parent(aexecute, authenticated_context):
+async def test_filter_by_parent(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The parent filter lists the direct children of a folder."""
     root = await create_folder(authenticated_context, "Root")
     child = await create_folder(authenticated_context, "Child A", parent=root)
@@ -116,7 +141,9 @@ async def test_filter_by_parent(aexecute, authenticated_context):
     assert await names(aexecute, {"parent": str(root.id)}) == {"Child A", "Child B"}
 
 
-async def test_an_explicit_null_is_no_constraint(aexecute, authenticated_context):
+async def test_an_explicit_null_is_no_constraint(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`USE_DEPRECATED_FILTERS`: a resolver is handed the explicit `null` a client sent, and must read it as "not asked"."""
     root = await create_folder(authenticated_context, "Root")
     await create_folder(authenticated_context, "Child", parent=root)
@@ -147,8 +174,8 @@ async def test_an_explicit_null_is_no_constraint(aexecute, authenticated_context
     ),
 )
 async def test_an_explicit_null_on_a_plain_field_is_no_constraint(
-    aexecute, authenticated_context, field: str
-):
+    aexecute: AExecute, authenticated_context: HttpContext, field: str
+) -> None:
     root = await create_folder(authenticated_context, "Root")
     await create_folder(authenticated_context, "Child", parent=root)
 
@@ -156,8 +183,10 @@ async def test_an_explicit_null_on_a_plain_field_is_no_constraint(
 
 
 async def test_folders_are_listed_per_organization(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """Every list here is organization-scoped, whatever the filter says."""
     mine = await create_folder(authenticated_context, "Mine")
     await create_folder(authenticated_context, "Mine too", parent=mine)

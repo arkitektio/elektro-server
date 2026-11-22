@@ -1,5 +1,3 @@
-from typing import List
-
 import kante
 import strawberry
 from pydantic import BaseModel

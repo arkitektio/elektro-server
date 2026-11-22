@@ -24,10 +24,16 @@ import datetime
 from collections.abc import Sequence
 
 from django.db import transaction
+from django.db.models import Model
+from kante.types import Info
 
 from core import enums, models
 from core.creation import CreationContext
-from core.inputs.coords import IDENTITY_TRANSFORM, PhysicalAxisInputModel
+from core.inputs.coords import (
+    IDENTITY_TRANSFORM,
+    LoweredDerivation,
+    PhysicalAxisInputModel,
+)
 from core.logic import graph as graph_logic
 from core.scoping import get_for_org
 
@@ -231,7 +237,7 @@ _DERIVATION_SOURCES: dict[str, tuple[type, str]] = {
 }
 
 
-def source_label(model: type, source) -> str:  # noqa: ANN001 - any container row
+def source_label(model: type[Model], source: Model) -> str:
     """What to call a source in an edge name or an error, whatever kind it is.
 
     ``f"{child} <- {source}"`` used to read the source's *dataset* name -- which a table, a
@@ -246,7 +252,9 @@ def source_label(model: type, source) -> str:  # noqa: ANN001 - any container ro
     )
 
 
-def resolve_derivation_source(info, lowered) -> "tuple[models.CoordinateSystem, str]":  # noqa: ANN001 - kante's Info, and a LoweredDerivation
+def resolve_derivation_source(
+    info: Info, lowered: LoweredDerivation
+) -> "tuple[models.CoordinateSystem, str]":
     """The space a derivation derives *from*, and a label for the edge's name.
 
     Org-scoped through ``get_for_org`` like every other id a client sends, and returned
@@ -261,7 +269,7 @@ def resolve_derivation_source(info, lowered) -> "tuple[models.CoordinateSystem, 
 
 
 def write_derivation_edges(
-    info,
+    info: Info,
     *,
     name: str,
     own_system: "models.CoordinateSystem",
@@ -327,7 +335,9 @@ def write_derivation_edges(
 
     edges: list[models.Transformation] = []
     with transaction.atomic():
-        for low, (source_system, label), field in zip(lowered, sources, fields):
+        for low, (source_system, label), field in zip(
+            lowered, sources, fields, strict=True
+        ):
             transform = low.transform
             edges.append(
                 graph_logic.write_relation_edge(
@@ -350,14 +360,14 @@ def write_derivation_edges(
 
 
 def write_key_edges(
-    info,
+    info: Info,
     *,
     name: str,
     own_system: "models.CoordinateSystem",
     keyed_by: Sequence,
     ctx: CreationContext,
     produces: Sequence[str] | None = None,
-) -> list["models.Transformation"]:  # noqa: ANN001 - kante's Info, and a list of KeyedByInput members
+) -> list["models.Transformation"]:
     """Write one FIELD edge per source keying this table, source space -> table space.
 
     The sibling of :func:`write_derivation_edges`, and deliberately not folded into it: a
@@ -463,7 +473,7 @@ def write_key_edges(
 
     edges: list[models.Transformation] = []
     with transaction.atomic():
-        for (entry, label, source_system), wanted in zip(resolved, stated):
+        for (entry, label, source_system), wanted in zip(resolved, stated, strict=True):
             source_axes = [axis.name for axis in source_system.axes.all()]
             supplied = set(source_axes)
             # Axes the table identifies itself are accounted for without the source supplying

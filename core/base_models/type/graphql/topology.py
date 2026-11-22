@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 from kante.types import Info
@@ -7,6 +7,13 @@ from strawberry.experimental import pydantic
 from kanne_server import scalars as quantities
 
 from ..topology import ConnectionModel, CoordModel, SectionModel, TopologyModel
+
+if TYPE_CHECKING:
+    # Only for the lazy annotations below: these modules import this one back.
+    from core.types import NeuronModel, NeuronModelSession
+
+    from ..cell import CellModel
+    from .cell import Cell
 
 
 @pydantic.type(
@@ -163,7 +170,7 @@ class Section:
         if self._neuron_model_id is None or self._cell_id is None:
             return None
 
-        def _cell():  # noqa: ANN202 - a stamped CellModel
+        def _cell() -> "CellModel":
             return sites.cell_of(
                 scoping.get_for_org(models.NeuronModel, info, id=self._neuron_model_id),
                 self._cell_id,

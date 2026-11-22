@@ -14,6 +14,7 @@ import pytest
 from arkitekt_datalayer.models import ZarrStore
 from asgiref.sync import sync_to_async
 from django.core.management import call_command
+from kante.context import HttpContext
 from pytest import approx
 
 from core.models import (
@@ -23,6 +24,7 @@ from core.models import (
     DataArray,
     Transformation,
 )
+from tests.fixture_types import AExecute, CreateArrayDatasetFactory, ZarrStoreFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -76,9 +78,10 @@ query ($id: ID!) {
 TC = [{"name": "t", "type": "TIME"}, {"name": "c", "type": "CHANNEL"}]
 
 
-async def _detail(aexecute, dataset_id: str) -> dict:
+async def _detail(aexecute: AExecute, dataset_id: str) -> dict:
     result = await aexecute(DETAIL, {"id": dataset_id})
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["arrayDataset"]
 
 
@@ -91,8 +94,8 @@ SPEC_FILTER = (
 
 
 async def test_an_axis_of_one_position_does_not_count_towards_the_spec(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     """A spec says what the data is: one channel is not multichannel, and one sample is no signal.
 
     The axis is still declared -- `hasAxisTypes` finds it -- but it is not what the dataset is.
@@ -128,6 +131,7 @@ async def test_an_axis_of_one_position_does_not_count_towards_the_spec(
     async def names(filters: dict) -> set[str]:
         result = await aexecute(SPEC_FILTER, {"filters": filters})
         assert not result.errors, result.errors
+        assert result.data is not None
         return {dataset["name"] for dataset in result.data["arrayDatasets"]}
 
     assert await names({"spec": ["MULTICHANNEL"]}) == {"recording", "one-sample"}
@@ -148,8 +152,8 @@ async def test_an_axis_of_one_position_does_not_count_towards_the_spec(
 
 
 async def test_datasets_stored_under_the_old_rule_are_corrected_by_the_job(
-    create_array_dataset,
-):
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """A row that says MULTICHANNEL for one channel is rewritten by the `respec_datasets` job."""
     stale = await create_array_dataset("single-channel", [30000, 1])
     right = await create_array_dataset("recording", [30000, 4])
@@ -173,8 +177,8 @@ async def test_datasets_stored_under_the_old_rule_are_corrected_by_the_job(
 
 
 async def test_a_recording_is_a_dataset_a_grid_and_one_level(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     created = await create_array_dataset("probe", [30000, 4], value_unit="uV")
     dataset = await _detail(aexecute, created["id"])
 
@@ -213,7 +217,9 @@ async def test_a_recording_is_a_dataset_a_grid_and_one_level(
     ], "the store is the level's; the unit is an anchor's"
 
 
-async def test_the_value_unit_is_an_anchor_not_a_column(aexecute, create_array_dataset):
+async def test_the_value_unit_is_an_anchor_not_a_column(
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     """Anchored to no coordinate it speaks for the dataset; anchored to a channel, for that channel."""
     anchors = [
         {"axisAnchors": [], "valueUnit": {"unit": "mV"}},
@@ -244,7 +250,9 @@ async def test_the_value_unit_is_an_anchor_not_a_column(aexecute, create_array_d
     assert (unstated["valueUnit"], unstated["valueDimension"]) == (None, None)
 
 
-async def test_the_rig_state_round_trips_typed(aexecute, create_array_dataset):
+async def test_the_rig_state_round_trips_typed(
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     rig = {
         "mode": "VOLTAGE_CLAMP",
         "holdingPotential": "-70 mV",
@@ -298,8 +306,8 @@ async def test_the_rig_state_round_trips_typed(aexecute, create_array_dataset):
 
 
 async def test_a_rig_state_cannot_contradict_its_own_clamp_mode(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     result = await create_array_dataset(
         "bad",
         [10],
@@ -318,8 +326,8 @@ async def test_a_rig_state_cannot_contradict_its_own_clamp_mode(
 
 
 async def test_a_decimated_level_is_placed_in_the_recordings_grid(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     """An hour at 30 kHz, and a level decimated by 100 for the overview: mikro's pyramid, along time."""
     created = await create_array_dataset("long", [10000, 4], levels=[([100, 4], "MAX")])
     dataset = await _detail(aexecute, created["id"])
@@ -339,7 +347,7 @@ async def test_a_decimated_level_is_placed_in_the_recordings_grid(
     )
     assert overview["toParent"] is not None and base["toParent"] is None
 
-    def steps():
+    def steps() -> tuple[str, dict[str, dict[str, object]]]:
         edge = Transformation.objects.get(
             input_id=overview["coordinateSystem"]["id"],
             output_id=dataset["intrinsicSystem"]["id"],
@@ -362,8 +370,8 @@ async def test_a_decimated_level_is_placed_in_the_recordings_grid(
 
 
 async def test_a_pyramid_over_event_codes_may_not_be_averaged(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     """An INDEX axis says the array enumerates things: a mean of two unit ids is a unit that does not exist."""
     axes = [{"name": "unit", "type": "INDEX"}, {"name": "t", "type": "TIME"}]
     refused = await create_array_dataset(
@@ -381,8 +389,8 @@ async def test_a_pyramid_over_event_codes_may_not_be_averaged(
 
 
 async def test_a_derived_dataset_records_how_its_grid_maps_back_into_its_source(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     """A decimation by 4 as a *new dataset*: sample i of the child is sample 4i of the source."""
     raw = await create_array_dataset("raw", [8000])
     derived_from = [
@@ -417,14 +425,15 @@ async def test_a_derived_dataset_records_how_its_grid_maps_back_into_its_source(
 
 
 async def test_update_renames_and_redescribes_and_nothing_else(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     dataset = await create_array_dataset("old", [10])
     res = await aexecute(
         UPDATE,
         {"input": {"id": dataset["id"], "name": "new", "description": "after rework"}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert (
         res.data["updateArrayDataset"]["name"],
         res.data["updateArrayDataset"]["description"],
@@ -439,8 +448,8 @@ async def test_update_renames_and_redescribes_and_nothing_else(
 
 
 async def test_deleting_a_dataset_takes_its_spaces_and_flags_its_stores(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     dataset = await create_array_dataset("gone", [10000], levels=[([100], "MAX")])
     store_ids = await sync_to_async(
         lambda: list(
@@ -453,6 +462,7 @@ async def test_deleting_a_dataset_takes_its_spaces_and_flags_its_stores(
 
     res = await aexecute(DELETE, {"input": {"id": dataset["id"]}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["deleteArrayDataset"] == dataset["id"]
     assert await CoordinateSystem.objects.acount() == 0, (
         "a sample grid nothing lives in is not a space anyone can use -- the level's goes too"
@@ -472,8 +482,8 @@ async def test_deleting_a_dataset_takes_its_spaces_and_flags_its_stores(
 
 
 async def test_a_level_can_be_deleted_but_level_zero_is_the_dataset(
-    aexecute, create_array_dataset
-):
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     dataset = await create_array_dataset("long", [10000], levels=[([100], "MAX")])
     base, overview = await sync_to_async(
         lambda: list(
@@ -494,8 +504,10 @@ async def test_a_level_can_be_deleted_but_level_zero_is_the_dataset(
 
 
 async def test_deleting_a_dataset_deletes_what_draws_it(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """A layer of data that no longer exists is a layer of nothing: it goes with its lens. The experiment stays."""
     from core.models import Experiment, ExperimentLayer
     from tests import seed
@@ -509,6 +521,7 @@ async def test_deleting_a_dataset_deletes_what_draws_it(
         {"input": {"coordinateSystem": str(clock.pk), "name": "E"}},
     )
     assert not staged.errors, staged.errors
+    assert staged.data is not None
     assert staged.data["createExperimentFromCoordinateSystem"]["layers"] == [
         {"kind": "TRACE"}
     ]
@@ -524,12 +537,14 @@ async def test_deleting_a_dataset_deletes_what_draws_it(
 # --- negatives ------------------------------------------------------------------------------------
 
 
-async def test_delete_not_found(aexecute):
+async def test_delete_not_found(aexecute: AExecute) -> None:
     res = await aexecute(DELETE, {"input": {"id": "999999"}})
     assert res.errors
 
 
-async def test_missing_zarr_metadata(aexecute, zarr_store):
+async def test_missing_zarr_metadata(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     store = await zarr_store(
         seed=False
     )  # no zarr.json -> fill_info raises FileNotFoundError
@@ -548,7 +563,9 @@ async def test_missing_zarr_metadata(aexecute, zarr_store):
     assert not await ArrayDataset.objects.filter(name="broken").aexists()
 
 
-async def test_the_axes_are_always_declared(aexecute, zarr_store):
+async def test_the_axes_are_always_declared(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """(t, c) or (sweep, t)? Nothing in the bytes decides, so the caller must -- for every rank, as in mikro."""
     store = await zarr_store(shape=[1000])
     res = await aexecute(
@@ -559,8 +576,10 @@ async def test_the_axes_are_always_declared(aexecute, zarr_store):
 
 
 async def test_declared_axes_must_match_the_rank_of_the_array(
-    create_array_dataset, zarr_store, aexecute
-):
+    create_array_dataset: CreateArrayDatasetFactory,
+    zarr_store: ZarrStoreFactory,
+    aexecute: AExecute,
+) -> None:
     store = await zarr_store(shape=[1000, 4])
     res = await aexecute(
         "mutation ($input: CreateArrayDatasetInput!) { createArrayDataset(input: $input) { id } }",
@@ -579,8 +598,8 @@ async def test_declared_axes_must_match_the_rank_of_the_array(
 
 
 async def test_declared_axes_must_agree_with_the_names_the_store_gives_its_dimensions(
-    aexecute, zarr_store
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """A transposed declaration would not raise anywhere downstream: a sampling law written over `t` would run along the channels."""
     store = await zarr_store(shape=[1000, 4], dimension_names=["t", "c"])
     axes = [{"name": "c", "type": "CHANNEL"}, {"name": "t", "type": "TIME"}]
@@ -603,7 +622,9 @@ async def test_declared_axes_must_agree_with_the_names_the_store_gives_its_dimen
     ).aexists(), "refused before anything is written"
 
 
-async def test_an_anchor_pins_the_axes_its_dataset_has(create_array_dataset):
+async def test_an_anchor_pins_the_axes_its_dataset_has(
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """`{ch: 3}` on a (t, c) dataset would not fail anywhere downstream: it would be a label that labels nothing."""
     unknown = await create_array_dataset(
         "a",
@@ -629,7 +650,9 @@ async def test_an_anchor_pins_the_axes_its_dataset_has(create_array_dataset):
     )
 
 
-async def test_a_value_unit_must_be_a_unit(create_array_dataset):
+async def test_a_value_unit_must_be_a_unit(
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     result = await create_array_dataset("bad", [10], value_unit="5 mV", raw=True)
     assert result.errors
     assert not await ArrayDataset.objects.filter(name="bad").aexists(), (
@@ -638,8 +661,11 @@ async def test_a_value_unit_must_be_a_unit(create_array_dataset):
 
 
 async def test_another_organization_cannot_touch_this_dataset_or_its_store(
-    aexecute, create_array_dataset, zarr_store, other_org_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    zarr_store: ZarrStoreFactory,
+    other_org_context: HttpContext,
+) -> None:
     dataset = await create_array_dataset("mine", [10])
     store = await zarr_store()
 

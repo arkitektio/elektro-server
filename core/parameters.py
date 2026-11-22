@@ -6,7 +6,7 @@ so we keep it deliberately simple here.
 """
 
 from enum import Enum
-from typing import Any, Self
+from typing import Any, TypeVar
 
 import strawberry
 from pydantic import BaseModel, model_validator
@@ -28,6 +28,8 @@ class ParameterKind(str, Enum):
 
 #: Kinds that may carry a physical unit. STRING/BOOL parameters are unitless.
 _NUMERIC_KINDS = (ParameterKind.FLOAT, ParameterKind.INT)
+
+_ParameterInput = TypeVar("_ParameterInput", bound="ParameterInputModel")
 
 
 class ParameterModel(BaseModel):
@@ -56,7 +58,7 @@ class ParameterInputModel(BaseModel):
     dimension: pq.Dimension | None = None
 
     @model_validator(mode="after")
-    def check_units(self) -> Self:
+    def check_units(self: _ParameterInput) -> _ParameterInput:
         if self.reference_unit is None:
             offending = [
                 f

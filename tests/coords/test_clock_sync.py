@@ -10,10 +10,12 @@ import datetime
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core.logic import clocks
 from core.models import CoordinateSystem, Transformation
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -23,8 +25,8 @@ CREATE_CLOCK_OFFSET = "mutation ($input: CreateClockOffsetInput!) { createClockO
 
 
 async def test_a_probe_clock_is_synced_onto_the_daq_clock_by_its_epochs_and_its_drift(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ctx = authenticated_context
     probe = await seed.create_clock(ctx, "probe", epoch=NINE)
     daq = await seed.create_clock(
@@ -40,6 +42,7 @@ async def test_a_probe_clock_is_synced_onto_the_daq_clock_by_its_epochs_and_its_
         {"input": {"clock": str(probe.pk), "onto": str(daq.pk), "driftPpm": 12.0}},
     )
     assert not synced.errors, synced.errors
+    assert synced.data is not None
     edge = await Transformation.objects.aget(pk=synced.data["createClockOffset"]["id"])
     assert edge.params["affine"][0] == pytest.approx([1.000012, -0.25]), (
         "the probe started a quarter second before the DAQ, and runs 12 ppm fast"
@@ -56,6 +59,7 @@ async def test_a_probe_clock_is_synced_onto_the_daq_clock_by_its_epochs_and_its_
         {"input": {"coordinateSystem": str(daq.pk)}},
     )
     assert not experiment.errors, experiment.errors
+    assert experiment.data is not None
     (layer,) = experiment.data["createExperimentFromCoordinateSystem"]["layers"]
     assert layer["placement"] == "PLACED"
     assert layer["asAffine"]["matrix"][0] == pytest.approx(
@@ -64,8 +68,8 @@ async def test_a_probe_clock_is_synced_onto_the_daq_clock_by_its_epochs_and_its_
 
 
 async def test_an_edge_stating_no_offset_between_differently_anchored_clocks_is_still_refused(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     from core.logic import graph as graph_logic
 
     probe = await seed.create_clock(authenticated_context, "probe", epoch=NINE)
@@ -82,8 +86,8 @@ async def test_an_edge_stating_no_offset_between_differently_anchored_clocks_is_
 
 
 async def test_an_unanchored_clock_needs_its_offset_stated(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     segment = await seed.create_clock(authenticated_context, "segment")
     session = await seed.create_clock(authenticated_context, "session", epoch=NINE)
     res = await aexecute(

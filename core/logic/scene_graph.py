@@ -53,7 +53,7 @@ def layers_of(scene: "models.Experiment") -> list:
     return list(scene.layers.select_related(*LAYER_PLACEMENT_RELATIONS))
 
 
-def source_system(layer) -> "models.CoordinateSystem | None":  # noqa: ANN001 - an ExperimentLayer
+def source_system(layer: "models.ExperimentLayer") -> "models.CoordinateSystem | None":
     """The coordinate system a layer's data is expressed in. One definition, the graph's."""
     return graph_logic.layer_source_system(layer)
 
@@ -104,7 +104,7 @@ class SceneGraph:
         """The container whose data lives in a space -- a dataset, by its own key."""
         return self.universe.container_of(system.pk) if system is not None else None
 
-    def _layer_container(self, layer) -> tuple | None:  # noqa: ANN001 - a recording or stimulus view
+    def _layer_container(self, layer: "models.ExperimentLayer") -> tuple | None:
         """The container a view's source system belongs to, without touching the database."""
         return self._container_of(source_system(layer))
 
@@ -127,7 +127,7 @@ class SceneGraph:
     # --- the questions -------------------------------------------------------
 
     def placement_path(
-        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+        self, layer: "models.ExperimentLayer", *, at: dict[str, int] | None = None
     ) -> list[tuple["models.Transformation", bool]] | None:
         """The path of edges from a layer's source system to this scene's world system.
 
@@ -183,7 +183,7 @@ class SceneGraph:
         return self._world_axes
 
     def condensed_placement(
-        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+        self, layer: "models.ExperimentLayer", *, at: dict[str, int] | None = None
     ) -> "graph_logic.CondensedPlacement | None":
         """This layer's whole path to world as one affine map, or None when there is no path.
 
@@ -214,7 +214,7 @@ class SceneGraph:
         )
 
     def representative_path(
-        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+        self, layer: "models.ExperimentLayer", *, at: dict[str, int] | None = None
     ) -> list[tuple["models.Transformation", bool]] | None:
         """The layer's path, falling back to a route through its scoped edges when there is one.
 
@@ -260,7 +260,7 @@ class SceneGraph:
         )
 
     def placement_validity(
-        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+        self, layer: "models.ExperimentLayer", *, at: dict[str, int] | None = None
     ) -> str:
         """How much this layer's placement is actually known: the weakest edge on its path.
 
@@ -282,7 +282,7 @@ class SceneGraph:
         return graph_logic.weakest_validity(edge.validity for edge, _ in steps)
 
     def placement_invariance(
-        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+        self, layer: "models.ExperimentLayer", *, at: dict[str, int] | None = None
     ) -> str:
         """Which geometric properties survive the whole walk from this layer's data to world.
 
@@ -308,7 +308,7 @@ class SceneGraph:
         )
 
     def placement_state(
-        self, layer: "models.Layer", *, at: dict[str, int] | None = None
+        self, layer: "models.ExperimentLayer", *, at: dict[str, int] | None = None
     ) -> str:
         """Whether this layer has a place in the world, and if not, why not.
 
@@ -389,10 +389,10 @@ class SceneGraph:
         return self._levels.get(dataset_id, [])
 
     def level_placements(
-        self, layer
+        self, layer: "models.ExperimentLayer"
     ) -> list[
         tuple["models.DataArray", list[tuple["models.Transformation", bool]] | None]
-    ]:  # noqa: ANN001 - a recording or stimulus view
+    ]:
         """Per pyramid level, the path from that level's sample grid to this experiment's world system.
 
         Every trace layer: a pyramid is a fact about the array, so a decimated recording and a

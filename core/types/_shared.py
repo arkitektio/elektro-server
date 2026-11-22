@@ -4,12 +4,19 @@ Lives here, not in ``core/types/__init__.py``, so that a type module split out o
 (``core/types/coords.py``) can import the mixin without importing the package that imports it.
 """
 
+from collections.abc import Callable
+from typing import TypeVar
+
+from django.db.models import Model, QuerySet
+from kante.types import Info
 from strawberry.scalars import JSON
 
 from core import scoping
 
+_M = TypeVar("_M", bound=Model)
 
-def build_prescoped_queryset(info, queryset):
+
+def build_prescoped_queryset(info: Info, queryset: QuerySet[_M]) -> QuerySet[_M]:
     """Scope a list queryset to the request's organization.
 
     Honors an explicit ``filters.scope`` override (not yet implemented) and
@@ -24,8 +31,8 @@ def build_prescoped_queryset(info, queryset):
     return scoping.scope_queryset(queryset, info)
 
 
-def build_prescoper():
-    def prescoper(queryset, info):
+def build_prescoper() -> Callable[[QuerySet[_M], Info], QuerySet[_M]]:
+    def prescoper(queryset: QuerySet[_M], info: Info) -> QuerySet[_M]:
         return build_prescoped_queryset(info, queryset)
 
     return prescoper
@@ -40,7 +47,9 @@ class OrgScoped:
     """
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[_M], info: Info, **kwargs: object
+    ) -> QuerySet[_M]:
         return build_prescoped_queryset(info, queryset)
 
 
@@ -66,7 +75,9 @@ class OrgScopedOrNested(OrgScoped):
     """
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[_M], info: Info, **kwargs: object
+    ) -> QuerySet[_M]:
         if getattr(queryset, "_result_cache", None) is not None or getattr(
             queryset, "_known_related_objects", None
         ):
@@ -74,7 +85,9 @@ class OrgScopedOrNested(OrgScoped):
         return build_prescoped_queryset(info, queryset)
 
 
-def apply_link_filters(queryset, filters_input, info) -> list:  # noqa: ANN001 - a QuerySet, a strawberry filter input, kante's Info
+def apply_link_filters(
+    queryset: QuerySet[_M], filters_input: object, info: Info
+) -> list[_M]:
     """Apply an optional ``FileLinkFilter`` to a link queryset and evaluate it.
 
     Vendored from mikro. Lives here because several resolvers across modules need it --
@@ -100,7 +113,7 @@ DESCRIPTORS_DESCRIPTION = (
 )
 
 
-def resolve_descriptors(root) -> JSON:  # noqa: ANN001 - the model instance behind any hosted type
+def resolve_descriptors(root: Model) -> JSON:
     """The descriptors of a hosted object, from its structure's declaration (``elektro_server.service``)."""
     from elektro_server.service import service  # the declaration imports core.models
 

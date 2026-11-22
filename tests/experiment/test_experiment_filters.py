@@ -9,8 +9,13 @@ import uuid
 
 import pytest
 from asgiref.sync import sync_to_async
+from authentikate.models import User
+from kante.context import HttpContext
+from kante.context import User as RequestUser
+from koherent.models import Task
 
 from core import models
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -23,7 +28,9 @@ query ($filters: ExperimentFilter) {
 
 
 @sync_to_async
-def _make_experiment(ctx, *, name, creator):
+def _make_experiment(
+    ctx: HttpContext, *, name: str, creator: User | RequestUser
+) -> models.Experiment:
     # An experiment carries its own organization and composes over a world it adopts.
     world = models.CoordinateSystem.objects.create(
         name=f"{name}/world", creator=creator, organization=ctx.request.organization
@@ -34,9 +41,7 @@ def _make_experiment(ctx, *, name, creator):
 
 
 @sync_to_async
-def _other_user():
-    from authentikate.models import User
-
+def _other_user() -> User:
     user, _ = User.objects.get_or_create(
         sub="2", iss="static_issuer", defaults={"username": "static_issuer_2"}
     )
@@ -44,9 +49,7 @@ def _other_user():
 
 
 @sync_to_async
-def _attach_task(exp):
-    from koherent.models import Task
-
+def _attach_task(exp: models.Experiment) -> Task:
     task = Task.objects.create(
         task_id=f"task-{uuid.uuid4().hex}",
         root_task_id=f"root-{uuid.uuid4().hex}",
@@ -66,7 +69,9 @@ def _attach_task(exp):
     return task
 
 
-async def test_mine_and_created_by(aexecute, authenticated_context):
+async def test_mine_and_created_by(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     me = authenticated_context.request.user
     other = await _other_user()
     await _make_experiment(authenticated_context, name="mine", creator=me)
@@ -74,14 +79,18 @@ async def test_mine_and_created_by(aexecute, authenticated_context):
 
     res = await aexecute(EXPERIMENTS, {"filters": {"mine": True}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [e["name"] for e in res.data["experiments"]] == ["mine"]
 
     res = await aexecute(EXPERIMENTS, {"filters": {"createdBy": str(other.id)}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [e["name"] for e in res.data["experiments"]] == ["theirs"]
 
 
-async def test_provenance_root_task(aexecute, authenticated_context):
+async def test_provenance_root_task(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     me = authenticated_context.request.user
     with_task = await _make_experiment(
         authenticated_context, name="from-run", creator=me
@@ -93,8 +102,10 @@ async def test_provenance_root_task(aexecute, authenticated_context):
         EXPERIMENTS, {"filters": {"provenanceRootTask": task.root_task_id}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [e["name"] for e in res.data["experiments"]] == ["from-run"]
 
     res = await aexecute(EXPERIMENTS, {"filters": {"createdByAgent": False}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [e["name"] for e in res.data["experiments"]] == ["manual"]

@@ -12,6 +12,8 @@ comparable against the service it was vendored from. Read "voxel" as "sample": a
 decimated dataset obeys the same half-sample rule a downsampled image does.
 """
 
+from collections.abc import Sequence
+
 import pytest
 from pytest import approx
 
@@ -47,7 +49,7 @@ def _level_transform(level: int) -> tuple[list[float], list[float]]:
 # --- 1. the assertion that matters ----------------------------------------
 
 
-def test_extent_preserved():
+def test_extent_preserved() -> None:
     """Every level must cover the same pixel extent. This is THE assertion.
 
     ``scale[i] * shape[i]`` is the size of the array along axis i, in level-0
@@ -66,7 +68,7 @@ def test_extent_preserved():
             )
 
 
-def test_z_factor_is_not_a_power_of_two():
+def test_z_factor_is_not_a_power_of_two() -> None:
     """The z scales must follow the real shapes, not the nominal 2**level chain.
 
     Level 3's z factor is 36/4 = 9, not 8. A model that stores nominal factors
@@ -86,7 +88,7 @@ def test_z_factor_is_not_a_power_of_two():
     )
 
 
-def test_half_voxel_offset_is_recorded():
+def test_half_voxel_offset_is_recorded() -> None:
     """A downsample shifts the voxel centres, and the translation must say so.
 
     Level 1's voxels are centred half a level-0 voxel further in. Nothing recorded
@@ -107,14 +109,14 @@ def test_half_voxel_offset_is_recorded():
             )
 
 
-def test_categorical_axes_are_never_downsampled():
+def test_categorical_axes_are_never_downsampled() -> None:
     """A fractional coordinate between two channels is meaningless, so a channel axis must keep its extent."""
     bad_shape = [10, 1, 36, 1024, 1024]  # c halved from 2 to 1
     with pytest.raises(ValueError, match="must not be downsampled"):
         coords.pyramid_transform(PYRAMID_SHAPES[0], bad_shape, _AXIS_SPECS)
 
 
-def test_continuous_axes_may_be_downsampled():
+def test_continuous_axes_may_be_downsampled() -> None:
     """Time and frequency are continuous: a decimated dataset or a re-binned spectrogram is legitimate.
 
     Striding a long recording to every other sample is as meaningful as spatial
@@ -142,7 +144,7 @@ def test_continuous_axes_may_be_downsampled():
     )
 
 
-def test_a_frequency_axis_is_continuous():
+def test_a_frequency_axis_is_continuous() -> None:
     """A frequency axis samples a spectrum, so it may be re-binned.
 
     This is what separates FREQUENCY from CHANNEL: a channel axis' coordinates index
@@ -158,7 +160,7 @@ def test_a_frequency_axis_is_continuous():
     assert translation[0] == approx(0.5)
 
 
-def test_a_frequency_axis_carries_an_inverse_time_unit():
+def test_a_frequency_axis_carries_an_inverse_time_unit() -> None:
     """A frequency is one over a time. A frequency axis calibrated in seconds is not a
     slightly-off calibration, it is a lie the arithmetic would happily propagate."""
     coords.assert_unit_matches_type(
@@ -172,7 +174,7 @@ def test_a_frequency_axis_carries_an_inverse_time_unit():
         )
 
 
-def test_a_time_axis_refuses_a_value_unit():
+def test_a_time_axis_refuses_a_value_unit() -> None:
     """The unit of a dataset's *values* (mV, pA) is never an axis unit: an axis says where a sample is, not what it measured."""
     coords.assert_unit_matches_type(
         "t", enums.AxisTypeChoices.TIME.value, "millisecond"
@@ -184,7 +186,7 @@ def test_a_time_axis_refuses_a_value_unit():
         )
 
 
-def test_half_voxel_convention():
+def test_half_voxel_convention() -> None:
     """The voxel centre is the origin: voxel n occupies [n - 0.5, n + 0.5)."""
     low, high = coords.vectors_bbox([[340.0, 10.0, 10.0]])
     assert low == [339.5, 9.5, 9.5]
@@ -196,7 +198,7 @@ def test_half_voxel_convention():
     assert high == [0.5, 0.5, 0.5]
 
 
-def test_bbox_uses_every_corner():
+def test_bbox_uses_every_corner() -> None:
     """An affine-transformed AABB is not an AABB.
 
     Under a rotation, pushing only the min and max corners through the matrix
@@ -231,7 +233,7 @@ def test_bbox_uses_every_corner():
     assert full["max"][0] > shortcut_high[0]
 
 
-def test_eight_corners_in_3d():
+def test_eight_corners_in_3d() -> None:
     """A 3D box has eight corners, and all eight are transformed."""
     assert len(coords.bbox_corners([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])) == 8
 
@@ -239,7 +241,7 @@ def test_eight_corners_in_3d():
 # --- 4. the lens edge -------------------------------------------------------
 
 
-def test_lens_to_parent_is_a_translation_of_the_slice_starts():
+def test_lens_to_parent_is_a_translation_of_the_slice_starts() -> None:
     """A crop shifts voxel coordinates, and the edge must record the shift.
 
     Without it, an ROI drawn on a cropped lens has no defined path back to its
@@ -248,7 +250,13 @@ def test_lens_to_parent_is_a_translation_of_the_slice_starts():
     slices = [coords.AxisSpec(name="z", type="SPACE")]  # placeholder, replaced below
 
     class _Slice:
-        def __init__(self, axis, start=None, stop=None, step=None):
+        def __init__(
+            self,
+            axis: str,
+            start: int | None = None,
+            stop: int | None = None,
+            step: int | None = None,
+        ) -> None:
             self.axis, self.start, self.stop, self.step = axis, start, stop, step
 
     slices = [_Slice("z", start=4, stop=32)]
@@ -258,7 +266,7 @@ def test_lens_to_parent_is_a_translation_of_the_slice_starts():
     assert params["translation"] == [0.0, 0.0, 4.0, 0.0, 0.0]
 
 
-def test_stepped_lens_rescales_as_well_as_offsets():
+def test_stepped_lens_rescales_as_well_as_offsets() -> None:
     """A stepped lens is a SEQUENCE, not a bare translation.
 
     A translation-only edge would mis-place every subsampled lens by a factor of
@@ -266,7 +274,13 @@ def test_stepped_lens_rescales_as_well_as_offsets():
     """
 
     class _Slice:
-        def __init__(self, axis, start=None, stop=None, step=None):
+        def __init__(
+            self,
+            axis: str,
+            start: int | None = None,
+            stop: int | None = None,
+            step: int | None = None,
+        ) -> None:
             self.axis, self.start, self.stop, self.step = axis, start, stop, step
 
     kind, params = coords.lens_to_parent(
@@ -278,11 +292,17 @@ def test_stepped_lens_rescales_as_well_as_offsets():
     assert params["translation"] == [0.0, 0.0, 10.0]
 
 
-def test_lens_roundtrip():
+def test_lens_roundtrip() -> None:
     """A point in lens space, pushed to the parent and back, is where it started."""
 
     class _Slice:
-        def __init__(self, axis, start=None, stop=None, step=None):
+        def __init__(
+            self,
+            axis: str,
+            start: int | None = None,
+            stop: int | None = None,
+            step: int | None = None,
+        ) -> None:
             self.axis, self.start, self.stop, self.step = axis, start, stop, step
 
     dims = ["z", "y", "x"]
@@ -305,11 +325,17 @@ def test_lens_roundtrip():
     assert coords.apply(inverse, in_parent) == approx(point)
 
 
-def test_lens_shape_follows_python_slice_semantics():
+def test_lens_shape_follows_python_slice_semantics() -> None:
     """The lens' shape is derived, so it cannot drift from the slices that define it."""
 
     class _Slice:
-        def __init__(self, axis, start=None, stop=None, step=None):
+        def __init__(
+            self,
+            axis: str,
+            start: int | None = None,
+            stop: int | None = None,
+            step: int | None = None,
+        ) -> None:
             self.axis, self.start, self.stop, self.step = axis, start, stop, step
 
     shape = coords.lens_shape(
@@ -329,21 +355,26 @@ def test_lens_shape_follows_python_slice_semantics():
 # a review.
 
 
-def _flat(matrix) -> list[float]:
+def _flat(matrix: Sequence[Sequence[float]]) -> list[float]:
     """One flat list, because `pytest.approx` refuses a nested one."""
     return [value for row in matrix for value in row]
 
 
-def _apply_forms(forms: dict[str, coords.AxedForm], axes, point) -> dict[str, float]:
+def _apply_forms(
+    forms: dict[str, coords.AxedForm], axes: Sequence[str], point: Sequence[float]
+) -> dict[str, float]:
     """Push a point through composed functionals, one output axis at a time."""
     return {
-        axis: sum(factor * value for factor, value in zip(form.coefficients, point))
+        axis: sum(
+            factor * value
+            for factor, value in zip(form.coefficients, point, strict=True)
+        )
         + form.constant
         for axis, form in forms.items()
     }
 
 
-def test_invert_matrix_is_the_inverse():
+def test_invert_matrix_is_the_inverse() -> None:
     """Round-tripped against `matmul`, not eyeballed: A @ A-1 must be the identity."""
     matrix = [
         [2.0, 0.5, 0.0, 3.0],
@@ -355,7 +386,7 @@ def test_invert_matrix_is_the_inverse():
     assert _flat(product) == approx(_flat(coords.identity_matrix(3)), abs=1e-9)
 
 
-def test_invert_matrix_pivots_rather_than_failing_on_a_zero_diagonal():
+def test_invert_matrix_pivots_rather_than_failing_on_a_zero_diagonal() -> None:
     """An axis swap has zeros down its diagonal and is perfectly invertible.
 
     Without partial pivoting this raises `SingularTransformError` for a matrix that is not
@@ -369,7 +400,7 @@ def test_invert_matrix_pivots_rather_than_failing_on_a_zero_diagonal():
     assert _flat(coords.invert_matrix(swap)) == approx(_flat(swap), abs=1e-12)
 
 
-def test_a_singular_matrix_refuses_to_invert():
+def test_a_singular_matrix_refuses_to_invert() -> None:
     """A projection written as a matrix: rank-deficient, and no determinant-free gate sees it."""
     projection = [
         [1.0, 1.0, 0.0],
@@ -381,7 +412,7 @@ def test_a_singular_matrix_refuses_to_invert():
         coords.invert_matrix(projection)
 
 
-def test_singularity_is_judged_relative_to_the_matrix_own_scale():
+def test_singularity_is_judged_relative_to_the_matrix_own_scale() -> None:
     """A map stated in nanometres is small, not singular; a collapsed one is singular at any size.
 
     An absolute threshold gets both of these wrong, and in opposite directions -- and so does
@@ -487,7 +518,7 @@ def test_singularity_is_judged_relative_to_the_matrix_own_scale():
         "by_dimension_affine",
     ],
 )
-def test_inverting_a_step_undoes_it(step: coords.AxedStep):
+def test_inverting_a_step_undoes_it(step: coords.AxedStep) -> None:
     """Every invertible kind: forward then back is the identity on a point, not merely on paper.
 
     Checked by pushing a point through both, because that is what a client does with the
@@ -514,7 +545,7 @@ def test_inverting_a_step_undoes_it(step: coords.AxedStep):
         enums.TransformKindChoices.UNMAPPABLE.value,
     ],
 )
-def test_the_kinds_with_no_inverse_refuse_to_be_inverted(kind: str):
+def test_the_kinds_with_no_inverse_refuse_to_be_inverted(kind: str) -> None:
     """Unreachable through the walk -- `is_reverse_traversable` excludes both -- and guarded anyway."""
     step = coords.AxedStep(
         kind=kind, params={}, input_axes=("y", "x"), output_axes=("y", "x")
@@ -523,7 +554,7 @@ def test_the_kinds_with_no_inverse_refuse_to_be_inverted(kind: str):
         coords.invert_step(step)
 
 
-def test_a_sequence_composes_its_children_rather_than_its_own_empty_params():
+def test_a_sequence_composes_its_children_rather_than_its_own_empty_params() -> None:
     """A SEQUENCE wrapper's map lives on its children, and reading `params` gets the identity.
 
     `graph._sequence` writes the scale on child 0 and the translation on child 1, leaving the
@@ -548,7 +579,7 @@ def test_a_sequence_composes_its_children_rather_than_its_own_empty_params():
     )
 
 
-def test_a_rank_changing_affine_composes_from_its_own_rows():
+def test_a_rank_changing_affine_composes_from_its_own_rows() -> None:
     """An AFFINE's rows *are* its output axes, so it states a rank change without BY_DIMENSION.
 
     `assert_edge_rank` admits M x (N+1) between spaces of different rank deliberately -- "an
@@ -573,7 +604,7 @@ def test_a_rank_changing_affine_composes_from_its_own_rows():
     )
 
 
-def test_forms_to_matrix_gives_no_row_to_an_axis_the_path_says_nothing_about():
+def test_forms_to_matrix_gives_no_row_to_an_axis_the_path_says_nothing_about() -> None:
     """A partial registration is a partial matrix, never a zero-filled full-rank one.
 
     A zero row would pin the data at that axis' origin -- a claim nobody made -- and cull it
@@ -598,7 +629,7 @@ def test_forms_to_matrix_gives_no_row_to_an_axis_the_path_says_nothing_about():
     assert _flat(matrix) == approx(_flat([[0.0, 2.0, 0.0, 0.0], [0.0, 0.0, 2.0, 0.0]]))
 
 
-def test_an_identity_between_two_units_is_not_a_claim_that_they_are_equal():
+def test_an_identity_between_two_units_is_not_a_claim_that_they_are_equal() -> None:
     """An IDENTITY between a nanometre axis and a micrometre one used to say 1 nm = 1 um.
 
     The two spaces are the same space said twice, which is what an IDENTITY means -- so the
@@ -620,7 +651,7 @@ def test_an_identity_between_two_units_is_not_a_claim_that_they_are_equal():
     assert forms["x"].coefficients == approx((0.0, 0.001))
 
 
-def test_the_same_unit_on_both_sides_changes_nothing():
+def test_the_same_unit_on_both_sides_changes_nothing() -> None:
     """The whole safety argument for shipping the conversion: where the units agree -- or
     where either side has none, which is every stored edge in the deployment today -- the
     factor is exactly 1.0 and the answer is the one composed before there were units here."""
@@ -641,7 +672,9 @@ def test_the_same_unit_on_both_sides_changes_nothing():
         assert coords.step_forms(step)["x"].coefficients == approx((1.0,)), units
 
 
-def test_a_by_dimension_converts_the_axes_it_passes_through_and_not_the_ones_it_maps():
+def test_a_by_dimension_converts_the_axes_it_passes_through_and_not_the_ones_it_maps() -> (
+    None
+):
     """The scope, stated as a test: a pass-through is a unit pair, a stated number is not.
 
     `z` is not named, so it passes through and its unit pair is the whole of what relates the
@@ -669,7 +702,7 @@ def test_a_by_dimension_converts_the_axes_it_passes_through_and_not_the_ones_it_
     )
 
 
-def test_two_units_with_no_conversion_between_them_leave_the_axis_unplaced():
+def test_two_units_with_no_conversion_between_them_leave_the_axis_unplaced() -> None:
     """A nanosecond axis facing a micrometre one is not a pass-through, and there is no number
     that makes it one. Absent, not one -- the same rule as `_by_dimension_forms`' "absent is
     not zero", and for the same reason: a wrong number places the data somewhere, and a
@@ -687,7 +720,7 @@ def test_two_units_with_no_conversion_between_them_leave_the_axis_unplaced():
     assert forms["x"].coefficients == approx((0.0, 1.0)), "its neighbour is unaffected"
 
 
-def test_an_inverted_step_converts_the_other_way():
+def test_an_inverted_step_converts_the_other_way() -> None:
     """`invert_step` swaps the axes; the units have to swap with them or the reciprocal is
     never taken and a round trip comes back 1000000x out."""
     step = coords.AxedStep(
@@ -703,7 +736,7 @@ def test_an_inverted_step_converts_the_other_way():
     )
 
 
-def test_an_arbitrary_unit_declines_the_claim_rather_than_conflicting_with_it():
+def test_an_arbitrary_unit_declines_the_claim_rather_than_conflicting_with_it() -> None:
     """ "a.u." means *no* calibration claim, and `assert_unit_matches_type` already reads it that
     way -- it short-circuits and checks nothing. Reading it as an incompatible dimension here
     would make one function treat the same string as "no claim" and the next as "these axes
@@ -712,7 +745,7 @@ def test_an_arbitrary_unit_declines_the_claim_rather_than_conflicting_with_it():
     `dimensionless` is deliberately on the other side of that line: a real pint unit and a real
     claim, with genuinely no conversion to a micrometre."""
 
-    def factor(source, target):
+    def factor(source: str, target: str) -> coords.AxedForm | None:
         step = coords.AxedStep(
             kind=enums.TransformKindChoices.IDENTITY.value,
             params={},

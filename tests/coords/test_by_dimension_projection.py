@@ -19,12 +19,15 @@ cannot be out-voted by a stale copy of itself.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
 
 from core import enums, models
+from core.creation import CreationContext
 from core.logic import coords as coords_logic
 from core.logic import graph as graph_logic
 from tests import seed
+from tests.fixture_types import AExecute, SimulationChainFactory
 from tests.seed import axis
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -39,7 +42,9 @@ LATTICE = [
 ]
 
 
-async def _systems(ctx) -> tuple[models.CoordinateSystem, models.CoordinateSystem]:  # noqa: ANN001
+async def _systems(
+    ctx: HttpContext,
+) -> tuple[models.CoordinateSystem, models.CoordinateSystem]:
     """Two datasets' sample grids: a (row, col) lattice and a (c, y, x) slide."""
     lattice = await seed.create_dataset(
         ctx,
@@ -54,7 +59,15 @@ async def _systems(ctx) -> tuple[models.CoordinateSystem, models.CoordinateSyste
     )
 
 
-def _edge(ctx, input_system, output_system, **params) -> models.Transformation:  # noqa: ANN001
+def _edge(
+    ctx: CreationContext,
+    input_system: models.CoordinateSystem,
+    output_system: models.CoordinateSystem,
+    *,
+    scale: list[float] | None = None,
+    translation: list[float] | None = None,
+    affine: list[list[float]] | None = None,
+) -> models.Transformation:
     return graph_logic.build_registration_edge(
         input_system=input_system,
         output_system=output_system,
@@ -62,7 +75,9 @@ def _edge(ctx, input_system, output_system, **params) -> models.Transformation: 
         input_axes=["row", "col"],
         output_axes=["y", "x"],
         ctx=ctx,
-        **params,
+        scale=scale,
+        translation=translation,
+        affine=affine,
     )
 
 
@@ -70,7 +85,9 @@ def _children(edge: models.Transformation) -> list[tuple[str, dict]]:
     return [(child.kind, child.params) for child in edge.children.order_by("order")]
 
 
-async def test_an_affine_reaches_a_client_as_a_child(authenticated_context):
+async def test_an_affine_reaches_a_client_as_a_child(
+    authenticated_context: HttpContext,
+) -> None:
     """The matrix is on a child row, in a type that publishes it."""
     ctx = seed._creation(authenticated_context)
     lattice, slide = await _systems(authenticated_context)
@@ -85,8 +102,8 @@ async def test_an_affine_reaches_a_client_as_a_child(authenticated_context):
 
 
 async def test_the_projection_does_not_change_what_the_server_composes(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """A projected edge and a childless one compose to the same matrix.
 
     The whole safety argument: if these two ever disagree, the projection has become a second
@@ -119,8 +136,8 @@ async def test_the_projection_does_not_change_what_the_server_composes(
 
 
 async def test_scale_and_translation_project_in_the_order_they_apply(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """`_params_matrix` applies scale then translation, so the children say so in that order."""
     ctx = seed._creation(authenticated_context)
     lattice, slide = await _systems(authenticated_context)
@@ -135,7 +152,9 @@ async def test_scale_and_translation_project_in_the_order_they_apply(
     ]
 
 
-async def test_an_affine_wins_over_scale_and_translation(authenticated_context):
+async def test_an_affine_wins_over_scale_and_translation(
+    authenticated_context: HttpContext,
+) -> None:
     """`_params_matrix` ignores scale/translation when an affine is present; so does this.
 
     Projecting all three would publish a composition the server never performs.
@@ -152,7 +171,9 @@ async def test_an_affine_wins_over_scale_and_translation(authenticated_context):
     ]
 
 
-async def test_a_wrapper_with_no_map_of_its_own_is_left_alone(authenticated_context):
+async def test_a_wrapper_with_no_map_of_its_own_is_left_alone(
+    authenticated_context: HttpContext,
+) -> None:
     """`create_identity_registration` writes `params={}` and one IDENTITY child, where the child IS the map.
 
     Regenerating children there would erase the edge's entire content, so a params-less
@@ -200,7 +221,9 @@ query ($id: ID!) {
 """
 
 
-async def test_a_sampling_law_is_readable_by_a_client(aexecute, make_simulation_chain):
+async def test_a_sampling_law_is_readable_by_a_client(
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """Not in mikro. A sampling law is a BY_DIMENSION, so its period and start reach a client only as a child.
 
     10 kHz from t = 0 on a millisecond clock: t_ms = sample * 0.1.
@@ -209,6 +232,7 @@ async def test_a_sampling_law_is_readable_by_a_client(aexecute, make_simulation_
 
     result = await aexecute(SAMPLING_LAW, {"id": str(chain.clock.pk)})
     assert not result.errors, result.errors
+    assert result.data is not None
     # One law per dataset of the run -- the recording's and the stimulus' -- and they agree.
     laws = result.data["coordinateSystem"]["registrations"]
     assert len(laws) == 2 and laws[0] == laws[1]

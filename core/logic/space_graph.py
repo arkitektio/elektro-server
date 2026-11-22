@@ -36,6 +36,7 @@ dataset out of every view it is really in.
 
 from dataclasses import dataclass
 
+from kante.context import Organization
 from kante.types import Info
 
 from core import enums, models, scoping
@@ -126,7 +127,7 @@ class SpaceGraph:
         self,
         space: "models.CoordinateSystem",
         *,
-        organization,
+        organization: Organization,
         loaders: dict | None = None,
     ) -> None:
         """Fetch the space's residents, then the edge universe rooted at the space."""
@@ -562,7 +563,7 @@ def region_from_bounds(
 
     return {
         name: [float(low), float(high)]
-        for name, low, high in zip(axis_names, mins, maxs)
+        for name, low, high in zip(axis_names, mins, maxs, strict=False)
     }
 
 

@@ -7,8 +7,11 @@ answers what it answered when asked alone.
 """
 
 import pytest
+from kante.context import HttpContext
 
+from core.models import NeuronModel
 from tests.coords._helpers import counted
+from tests.fixture_types import AExecute, CreateArrayDatasetFactory, NeuronModelFactory
 from tests.seed import SOMA_MODEL
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -19,7 +22,9 @@ ROWS = """query { arrayDatasets(ordering: [{id: ASC}]) {
 ALONE = """query ($id: ID!) { arrayDataset(id: $id) { id name multiscale shape axisNames valueUnit spec simulation { duration model { id name } } } }"""
 
 
-async def _make(create_array_dataset, model, i: int) -> None:
+async def _make(
+    create_array_dataset: CreateArrayDatasetFactory, model: NeuronModel, i: int
+) -> None:
     if i % 3 == 0:
         await create_array_dataset(
             f"run-{i}",
@@ -29,7 +34,7 @@ async def _make(create_array_dataset, model, i: int) -> None:
                     "axisAnchors": [],
                     "valueUnit": {"unit": "mV"},
                     "simulation": {
-                        "model": str(model.id),
+                        "model": str(model.pk),
                         "duration": "40 ms",
                         "dt": "25 us",
                     },
@@ -45,8 +50,10 @@ async def _make(create_array_dataset, model, i: int) -> None:
 
 
 async def test_rows_answer_as_alone_and_cost_the_same_for_any_page(
-    aexecute, make_neuron_model, create_array_dataset
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     model = await make_neuron_model(json_model=SOMA_MODEL)
     for i in range(3):
         await _make(create_array_dataset, model, i)
@@ -56,6 +63,7 @@ async def test_rows_answer_as_alone_and_cost_the_same_for_any_page(
     for row in rows:
         alone = await aexecute(ALONE, {"id": row["id"]})
         assert not alone.errors, alone.errors
+        assert alone.data is not None
         assert alone.data["arrayDataset"] == row
     by_name = {row["name"].split("-")[0]: row for row in rows}
     assert by_name["run"]["simulation"] == {
@@ -86,7 +94,9 @@ async def test_rows_answer_as_alone_and_cost_the_same_for_any_page(
 EXPERIMENTS = "query ($id: ID!) { arrayDataset(id: $id) { experiments { id } experimentLayers { experiment { id } } } }"
 
 
-async def test_experiments_drawing_a_dataset_each_once(aexecute, authenticated_context):
+async def test_experiments_drawing_a_dataset_each_once(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     from tests import seed
     from tests.coords._helpers import add_layer, create_experiment
 
@@ -107,6 +117,7 @@ async def test_experiments_drawing_a_dataset_each_once(aexecute, authenticated_c
 
     res = await aexecute(EXPERIMENTS, {"id": str(dataset.pk)})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [e["id"] for e in res.data["arrayDataset"]["experiments"]] == [
         str(first.pk),
         str(second.pk),

@@ -7,7 +7,7 @@ everything else about a space is asked of the space.
 """
 
 import datetime
-from typing import Annotated, cast
+from typing import TYPE_CHECKING, Annotated, cast
 
 import strawberry
 import strawberry_django
@@ -21,6 +21,10 @@ from core import filters, models
 from core.types._shared import DESCRIPTORS_DESCRIPTION, OrgScoped, resolve_descriptors
 from core.types.annotation import AnnotationCollection
 from core.types.coords import CoordinateSystem
+
+if TYPE_CHECKING:
+    # Only for the lazy annotation below: core.types.layers imports this module back.
+    from core.types.layers import ExperimentLayer
 
 
 @strawberry_django.type(

@@ -2,24 +2,48 @@ import json
 import os
 import time
 import uuid
-from types import SimpleNamespace
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any, Literal, overload
 
 import boto3
 import psycopg
 import pytest
+from arkitekt_datalayer.models import BigFileStore, ZarrStore
 from asgiref.sync import sync_to_async
 from authentikate.models import Client, Membership, Organization, User
+from botocore.client import BaseClient
 from botocore.config import Config
 from django.contrib.contenttypes.management import create_contenttypes
 from django.db.models.signals import post_migrate
 from dokker import PortNotFoundError, testing
+from dokker.deployment import Deployment
 from kante.context import HttpContext, UniversalRequest
 from moto import mock_aws
+from numpy.typing import NDArray
+from pytest_django import DjangoDbBlocker
 from strawberry.http.temporal_response import TemporalResponse
+from strawberry.types import ExecutionResult
+
+from core.models import ArrayDataset, Folder, ModEnvironment, NeuronModel
+from tests.fixture_types import (
+    AExecute,
+    BackendStack,
+    BigFileStoreFactory,
+    CreateArrayDatasetFactory,
+    DatasetFactory,
+    Grant,
+    GraphQLData,
+    NeuronModelFactory,
+    SimulationChain,
+    SimulationChainFactory,
+    ZarrReader,
+    ZarrStoreFactory,
+    ZarrUploader,
+)
 
 
 @pytest.fixture(scope="function")
-def aws_credentials():
+def aws_credentials() -> None:
     """Mocked AWS Credentials for moto."""
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"
     os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
@@ -29,23 +53,23 @@ def aws_credentials():
 
 
 @pytest.fixture(scope="function")
-def s3(aws_credentials):
+def s3(aws_credentials: None) -> Iterator[BaseClient]:
     with mock_aws():
         yield boto3.client("s3", region_name="us-east-1")
 
 
 @pytest.fixture
-def create_bucket1(s3):
+def create_bucket1(s3: BaseClient) -> None:
     s3.create_bucket(Bucket="babanana")
 
 
 @pytest.fixture
-def create_bucket2(s3):
+def create_bucket2(s3: BaseClient) -> None:
     s3.create_bucket(Bucket="cabanana")
 
 
 def _wait_for_port(
-    e, service: str, container_port: int, deadline_seconds: float = 30.0
+    e: Deployment, service: str, container_port: int, deadline_seconds: float = 30.0
 ) -> int:
     """The host port docker published for ``service:container_port``, once the container is up."""
     deadline = time.monotonic() + deadline_seconds
@@ -59,7 +83,7 @@ def _wait_for_port(
 
 
 @pytest.fixture(scope="session")
-def backend_stack():
+def backend_stack() -> Iterator[BackendStack]:
     docker_compose_path = os.path.join(
         os.path.dirname(__file__), "integration", "docker-compose.yaml"
     )
@@ -140,7 +164,7 @@ def backend_stack():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def embedding_model_warm():
+def embedding_model_warm() -> Iterator[None]:
     """Load the embedding model once per session, outside any test's DB transaction.
 
     Every save of a dataset embeds its text, so the first one would otherwise pay the model
@@ -153,7 +177,7 @@ def embedding_model_warm():
 
 
 @pytest.fixture(scope="session")
-def django_db_modify_db_settings(backend_stack):
+def django_db_modify_db_settings(backend_stack: BackendStack) -> Iterator[None]:
     """Start the backend services, and point Django at the ports they came up on.
 
     pytest-django calls this before creating the test database, which is the only window
@@ -169,7 +193,9 @@ def django_db_modify_db_settings(backend_stack):
 
 
 @pytest.fixture(scope="session")
-def django_db_setup(django_db_setup, django_db_blocker):
+def django_db_setup(
+    django_db_setup: None, django_db_blocker: DjangoDbBlocker
+) -> Iterator[None]:
     # Every transaction=True test teardown flushes the DB and re-fires
     # post_migrate, which rebuilds all contenttypes and permissions from the
     # model registry (~1s per test). The rows never change between tests, so
@@ -187,7 +213,7 @@ def django_db_setup(django_db_setup, django_db_blocker):
     )
     post_migrate.disconnect(create_contenttypes)
 
-    def restore_contenttypes_and_permissions(sender, **kwargs):
+    def restore_contenttypes_and_permissions(sender: object, **kwargs: object) -> None:
         # post_migrate fires once per app config on flush; restore once.
         if getattr(sender, "label", None) != "contenttypes":
             return
@@ -216,7 +242,7 @@ def django_db_setup(django_db_setup, django_db_blocker):
 
 
 @pytest.fixture(scope="function")
-def authenticated_context(db, backend_stack):
+def authenticated_context(db: None, backend_stack: BackendStack) -> HttpContext:
     # Match the identity the static "test" token resolves to (see settings_test
     # STATIC_TOKENS + authentikate's token expansion), so the org/user on this
     # context is the same one the schema's AuthentikateExtension authenticates as
@@ -248,7 +274,7 @@ def authenticated_context(db, backend_stack):
 
 
 @pytest.fixture(scope="function")
-def bot_context(db, backend_stack) -> HttpContext:
+def bot_context(db: None, backend_stack: BackendStack) -> HttpContext:
     """A non-admin user (static token "bottest") in the SAME org as authenticated_context.
 
     Holds only ``elektro_editor``: it passes the write gate but is not elektro's admin, so the delete
@@ -283,7 +309,7 @@ def bot_context(db, backend_stack) -> HttpContext:
 
 
 @pytest.fixture(scope="function")
-def other_org_context(db, backend_stack) -> HttpContext:
+def other_org_context(db: None, backend_stack: BackendStack) -> HttpContext:
     """A context for a user in a different organization (static token "othertest")."""
     user, _ = User.objects.get_or_create(
         sub="9", iss="static_issuer", defaults={"username": "static_issuer_9"}
@@ -312,7 +338,7 @@ def other_org_context(db, backend_stack) -> HttpContext:
 
 
 @pytest.fixture(scope="function")
-def same_user_other_org_context(db, backend_stack) -> HttpContext:
+def same_user_other_org_context(db: None, backend_stack: BackendStack) -> HttpContext:
     """The user of ``authenticated_context`` (sub 1), acting in "other_org" (token "test-other-org")."""
     user, _ = User.objects.get_or_create(
         sub="1", iss="static_issuer", defaults={"username": "static_issuer_1"}
@@ -341,7 +367,7 @@ def same_user_other_org_context(db, backend_stack) -> HttpContext:
 
 
 @pytest.fixture(scope="function")
-def simple_api_context(db, backend_stack) -> HttpContext:
+def simple_api_context(db: None, backend_stack: BackendStack) -> HttpContext:
     user, _ = User.objects.get_or_create(
         sub="1", iss="static_issuer", defaults={"username": "static_issuer_1"}
     )
@@ -394,14 +420,18 @@ def fresh_request(ctx: HttpContext) -> HttpContext:
 
 
 @pytest.fixture
-def aexecute(authenticated_context):
+def aexecute(authenticated_context: HttpContext) -> AExecute:
     """Run a GraphQL document against the schema, as one request, defaulting to the authed identity."""
     from elektro_server.schema import schema
 
-    async def _run(query, variables=None, context=None):
+    async def _run(
+        query: str,
+        variables: Mapping[str, object] | None = None,
+        context: HttpContext | None = None,
+    ) -> ExecutionResult:
         return await schema.execute(
             query,
-            variable_values=variables or {},
+            variable_values=dict(variables or {}),
             context_value=fresh_request(context or authenticated_context),
         )
 
@@ -409,15 +439,15 @@ def aexecute(authenticated_context):
 
 
 def zarr_v3_metadata(
-    shape: list[int], dimension_names: list[str | None] | None = None
-) -> dict:
+    shape: Sequence[int], dimension_names: Sequence[str | None] | None = None
+) -> dict[str, object]:
     """Minimal valid Zarr v3 array metadata -- enough for Datalayer.get_zarr_metadata.
 
     The server reads this and never a chunk, so a store is fully described by it: its shape
     is what an axis declaration is checked against, and its dimension names, when present,
     are what the declared axis names must agree with.
     """
-    metadata = {
+    metadata: dict[str, object] = {
         "zarr_format": 3,
         "node_type": "array",
         "shape": list(shape),
@@ -440,7 +470,7 @@ ZARR_V3_METADATA = zarr_v3_metadata([8])
 
 
 @pytest.fixture
-def s3_client(backend_stack):
+def s3_client(backend_stack: BackendStack) -> BaseClient:
     """boto3 S3 client pointed at the compose RustFS (see settings_test.DATALAYER)."""
     from django.conf import settings
 
@@ -463,12 +493,18 @@ def s3_client(backend_stack):
 
 
 @pytest.fixture
-def zarr_store(authenticated_context, s3_client):
+def zarr_store(
+    authenticated_context: HttpContext, s3_client: BaseClient
+) -> ZarrStoreFactory:
     """Factory: create a ZarrStore row and (by default) seed its zarr.json in RustFS."""
-    from arkitekt_datalayer.models import ZarrStore
 
     @sync_to_async
-    def _make(context=None, seed=True, shape=None, dimension_names=None):
+    def _make(
+        context: HttpContext | None = None,
+        seed: bool = True,
+        shape: Sequence[int] | None = None,
+        dimension_names: Sequence[str | None] | None = None,
+    ) -> ZarrStore:
         ctx = context or authenticated_context
         key = uuid.uuid4().hex
         store = ZarrStore.objects.create(
@@ -518,7 +554,9 @@ _DEFAULT_AXES = {
 
 
 @pytest.fixture
-def create_array_dataset(aexecute, zarr_store):
+def create_array_dataset(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> CreateArrayDatasetFactory:
     """Factory: an array dataset made the way a client makes one -- a real zarr.json in RustFS, then ``createArrayDataset``.
 
     The first of the two steps every interpretation test takes: data enters here, and
@@ -526,24 +564,54 @@ def create_array_dataset(aexecute, zarr_store):
     or the raw result when ``raw=True`` (for a test about a refusal).
     """
 
+    @overload
     async def _make(
-        name="dataset",
-        shape=None,
+        name: str = "dataset",
+        shape: Sequence[int] | None = None,
         *,
-        axes=None,
-        value_unit=None,
-        anchors=None,
-        levels=None,
-        derived_from=None,
-        folder=None,
-        context=None,
-        raw=False,
-    ):
+        axes: Sequence[Mapping[str, object]] | None = None,
+        value_unit: str | None = None,
+        anchors: Sequence[Mapping[str, object]] | None = None,
+        levels: Sequence[tuple[Sequence[int], str | None]] | None = None,
+        derived_from: object = None,
+        folder: int | str | None = None,
+        context: HttpContext | None = None,
+        raw: Literal[False] = False,
+    ) -> GraphQLData: ...
+
+    @overload
+    async def _make(
+        name: str = "dataset",
+        shape: Sequence[int] | None = None,
+        *,
+        axes: Sequence[Mapping[str, object]] | None = None,
+        value_unit: str | None = None,
+        anchors: Sequence[Mapping[str, object]] | None = None,
+        levels: Sequence[tuple[Sequence[int], str | None]] | None = None,
+        derived_from: object = None,
+        folder: int | str | None = None,
+        context: HttpContext | None = None,
+        raw: Literal[True],
+    ) -> ExecutionResult: ...
+
+    async def _make(
+        name: str = "dataset",
+        shape: Sequence[int] | None = None,
+        *,
+        axes: Sequence[Mapping[str, object]] | None = None,
+        value_unit: str | None = None,
+        anchors: Sequence[Mapping[str, object]] | None = None,
+        levels: Sequence[tuple[Sequence[int], str | None]] | None = None,
+        derived_from: object = None,
+        folder: int | str | None = None,
+        context: HttpContext | None = None,
+        raw: bool = False,
+    ) -> GraphQLData | ExecutionResult:
         shape = list(shape or [1000])
         axes = axes or _DEFAULT_AXES[len(shape)]
-        names = [axis["name"] for axis in axes]
+        names = [str(axis["name"]) for axis in axes]
         store = await zarr_store(context=context, shape=shape, dimension_names=names)
-        scales = []
+        scales: list[dict[str, object]] = []
         for level, (level_shape, method) in enumerate(levels or [], start=1):
             level_store = await zarr_store(
                 context=context, shape=list(level_shape), dimension_names=names
@@ -556,11 +624,16 @@ def create_array_dataset(aexecute, zarr_store):
                 }
             )
 
-        all_anchors = list(anchors or [])
+        all_anchors: list[Mapping[str, object]] = list(anchors or [])
         if value_unit is not None:
             all_anchors.append({"axisAnchors": [], "valueUnit": {"unit": value_unit}})
 
-        payload = {"data": str(store.pk), "scales": scales, "name": name, "axes": axes}
+        payload: dict[str, object] = {
+            "data": str(store.pk),
+            "scales": scales,
+            "name": name,
+            "axes": axes,
+        }
         if all_anchors:
             payload["anchors"] = all_anchors
         if derived_from is not None:
@@ -574,22 +647,28 @@ def create_array_dataset(aexecute, zarr_store):
         if raw:
             return result
         assert not result.errors, result.errors
+        assert result.data is not None
         return result.data["createArrayDataset"]
 
     return _make
 
 
 @pytest.fixture
-def bigfile_store(authenticated_context, s3_client):
+def bigfile_store(
+    authenticated_context: HttpContext, s3_client: BaseClient
+) -> BigFileStoreFactory:
     """Factory: create a BigFileStore row and (by default) put its bytes in RustFS.
 
     ``fromFileLike`` reads the object's size off the store, so a file made from a store whose
     upload never happened is refused -- pass ``content=None`` for that case.
     """
-    from arkitekt_datalayer.models import BigFileStore
 
     @sync_to_async
-    def _make(context=None, content=b"elektro", **kwargs):
+    def _make(
+        context: HttpContext | None = None,
+        content: bytes | None = b"elektro",
+        **kwargs: object,
+    ) -> BigFileStore:
         ctx = context or authenticated_context
         key = uuid.uuid4().hex
         store = BigFileStore.objects.create(
@@ -603,12 +682,15 @@ def bigfile_store(authenticated_context, s3_client):
 
 
 @pytest.fixture
-def make_dataset(authenticated_context):
+def make_dataset(authenticated_context: HttpContext) -> DatasetFactory:
     """Factory: create an ArrayDataset row with no grid and no levels -- for tests about filing and tenancy, not about the graph."""
-    from core.models import ArrayDataset
 
     @sync_to_async
-    def _make(context=None, name="dataset", folder=None):
+    def _make(
+        context: HttpContext | None = None,
+        name: str = "dataset",
+        folder: Folder | None = None,
+    ) -> ArrayDataset:
         ctx = context or authenticated_context
         return ArrayDataset.objects.create(
             name=name,
@@ -621,7 +703,7 @@ def make_dataset(authenticated_context):
 
 
 @pytest.fixture
-def make_neuron_model(authenticated_context):
+def make_neuron_model(authenticated_context: HttpContext) -> NeuronModelFactory:
     """Factory: create a NeuronModel row (unique hash per row), with the space it owns.
 
     environment is NOT NULL on NeuronModel, so one is minted automatically when
@@ -631,10 +713,15 @@ def make_neuron_model(authenticated_context):
     container, so a row without one is a state the mutation never produces and every lineage
     read would have to special-case. One INDEX axis, nothing placeable.
     """
-    from core.models import Axis, CoordinateSystem, ModEnvironment, NeuronModel
+    from core.models import Axis, CoordinateSystem
 
     @sync_to_async
-    def _make(context=None, name="NeuronModel", environment=None, json_model=None):
+    def _make(
+        context: HttpContext | None = None,
+        name: str = "NeuronModel",
+        environment: ModEnvironment | None = None,
+        json_model: Mapping[str, object] | None = None,
+    ) -> NeuronModel:
         ctx = context or authenticated_context
         if environment is None:
             environment = ModEnvironment.objects.create(
@@ -662,7 +749,9 @@ def make_neuron_model(authenticated_context):
 
 
 @pytest.fixture
-def make_simulation_chain(authenticated_context):
+def make_simulation_chain(
+    authenticated_context: HttpContext,
+) -> SimulationChainFactory:
     """Factory: a run of a NeuronModel -- a clock, and a recorded and an injected output, each timed onto it.
 
     Built the way ``createArrayDataset`` + ``createSession`` build it, without an object store (see
@@ -681,18 +770,18 @@ def make_simulation_chain(authenticated_context):
 
     @sync_to_async
     def _make(
-        context=None,
+        context: HttpContext | None = None,
         *,
-        name="sim",
-        samples=400,
-        rate="10 kHz",
-        t_start="0 ms",
-        timing="sampling",
-        unit="millisecond",
-    ):
+        name: str = "sim",
+        samples: int = 400,
+        rate: str = "10 kHz",
+        t_start: str = "0 ms",
+        timing: str = "sampling",
+        unit: str = "millisecond",
+    ) -> SimulationChain:
         from kanne_server import scalars as quantities
 
-        def parse(scalar, text):
+        def parse(scalar: object, text: str) -> int:
             """A pint string, lowered to kanne's canonical integer exactly as the API boundary lowers it."""
             return quantities.SCALAR_MAP[scalar].parse_value(text)
 
@@ -780,7 +869,7 @@ def make_simulation_chain(authenticated_context):
                     ctx=creation,
                 )
 
-        return SimpleNamespace(
+        return SimulationChain(
             neuron_model=nm,
             clock=clock,
             grid=rec_dataset.coordinate_system,
@@ -794,13 +883,17 @@ def make_simulation_chain(authenticated_context):
 
 
 @pytest.fixture
-def upload_zarr_to_grant(backend_stack):
+def upload_zarr_to_grant(backend_stack: BackendStack) -> ZarrUploader:
     """Write a real Zarr v3 array straight to MinIO through obstore, using the
     credentials/bucket/key returned by a requestZarrUpload grant."""
     from django.conf import settings
 
     @sync_to_async
-    def _upload(grant, shape=(4, 4), chunks=(4, 4)):
+    def _upload(
+        grant: Grant,
+        shape: tuple[int, ...] = (4, 4),
+        chunks: tuple[int, ...] = (4, 4),
+    ) -> None:
         import numpy as np
         import zarr
         from obstore.store import S3Store
@@ -829,13 +922,14 @@ def upload_zarr_to_grant(backend_stack):
 
 
 @pytest.fixture
-def read_zarr_from_grant(backend_stack):
+def read_zarr_from_grant(backend_stack: BackendStack) -> ZarrReader:
     """Read a Zarr array back from MinIO through obstore using the credentials/
     bucket/key returned by a requestZarrAccess grant. Returns the numpy array."""
     from django.conf import settings
 
     @sync_to_async
-    def _read(grant):
+    def _read(grant: Grant) -> NDArray[Any]:
+        import numpy as np
         import zarr
         from obstore.store import S3Store
         from zarr.storage import ObjectStore
@@ -855,6 +949,7 @@ def read_zarr_from_grant(backend_stack):
 
         s3 = S3Store(grant["bucket"], **kwargs)
         arr = zarr.open_array(store=ObjectStore(s3, read_only=True), mode="r")
-        return arr[:]
+        # An ndarray already: zarr's annotation also admits a scalar and other array likes.
+        return np.asarray(arr[:])
 
     return _read

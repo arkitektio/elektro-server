@@ -8,8 +8,10 @@ about what "timed" means.
 """
 
 import pytest
+from kante.context import HttpContext
 
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -39,13 +41,16 @@ mutation Create($input: CreateAnnotationCollectionInput!) {
 """
 
 
-async def _ids(aexecute, query: str, variables: dict, key: str) -> set[str]:  # noqa: ANN001
+async def _ids(aexecute: AExecute, query: str, variables: dict, key: str) -> set[str]:
     result = await aexecute(query, variables)
     assert not result.errors, result.errors
+    assert result.data is not None
     return {row["id"] for row in result.data[key]}
 
 
-async def test_array_datasets_split_on_a_time_axis(aexecute, authenticated_context):
+async def test_array_datasets_split_on_a_time_axis(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     recording = await seed.create_dataset(authenticated_context, "Recording")  # t, c
     image = await seed.create_array_dataset(authenticated_context, "Image")  # c, y, x
 
@@ -60,7 +65,7 @@ async def test_array_datasets_split_on_a_time_axis(aexecute, authenticated_conte
     )
 
 
-async def test_annotation_collections_split_on_a_time_axis(aexecute):
+async def test_annotation_collections_split_on_a_time_axis(aexecute: AExecute) -> None:
     events = await aexecute(
         CREATE_ANNOTATION_COLLECTION,
         {"input": {"name": "Epochs", "axes": [{"name": "t", "type": "TIME"}]}},
@@ -90,8 +95,8 @@ async def test_annotation_collections_split_on_a_time_axis(aexecute):
 
 
 async def test_clocks_are_found_past_the_first_page_of_spaces(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The ClockPicker's case: a page of spaces with no TIME axis must not hide the clock."""
     for index in range(5):
         await seed.create_array_dataset(
@@ -106,7 +111,9 @@ async def test_clocks_are_found_past_the_first_page_of_spaces(
     assert str(clock.pk) in page, "the filter runs before the page is cut"
 
 
-async def test_has_axis_types_on_a_space_is_all_of(aexecute, authenticated_context):
+async def test_has_axis_types_on_a_space_is_all_of(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     recording = await seed.create_dataset(authenticated_context, "Recording")  # t, c
     clock = await seed.create_clock(authenticated_context, "Session")  # t only
 

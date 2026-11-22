@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Annotated
 
 import kante
 import strawberry
+from django.db.models import QuerySet
+from graphql import GraphQLResolveInfo
 from kante.types import Info
 from strawberry import auto
 
@@ -125,7 +127,12 @@ class ExperimentLayer:
     order: int
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):  # noqa: ANN001, ANN206 - strawberry_django's hook
+    def get_queryset(
+        cls,
+        queryset: QuerySet[models.ExperimentLayer],
+        info: Info,
+        **kwargs: object,
+    ) -> QuerySet[models.ExperimentLayer]:
         """Tenant-scope, and select the relations the placement logic reads in Python.
 
         The optimizer prefetches what the *selection set* names, and a client asking only for
@@ -278,7 +285,7 @@ def _lens_duration(lens: "models.Lens") -> int | None:
     return int(round(samples * step * 1e21 / rate))
 
 
-def _level_paths(layer, info: Info) -> list["LevelPlacement"]:  # noqa: ANN001 - a lens-backed layer row
+def _level_paths(layer: models.ExperimentLayer, info: Info) -> list["LevelPlacement"]:
     """One placement per pyramid level of a lens-backed layer's dataset: mikro's ``_level_placements``."""
     return [
         LevelPlacement(
@@ -350,7 +357,7 @@ class TraceLayer(ExperimentLayer):
         return _level_paths(self, info)
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+    def is_type_of(cls, obj: object, info: GraphQLResolveInfo) -> bool:
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.TRACE.value
 
 
@@ -427,7 +434,7 @@ class SpikesLayer(ExperimentLayer):
         return _filter_bys(self.spike_filter_bys)
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+    def is_type_of(cls, obj: object, info: GraphQLResolveInfo) -> bool:
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.SPIKES.value
 
 
@@ -503,7 +510,7 @@ class EventsLayer(ExperimentLayer):
         return _filter_bys(self.table_filter_bys)
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+    def is_type_of(cls, obj: object, info: GraphQLResolveInfo) -> bool:
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.EVENTS.value
 
 
@@ -523,7 +530,7 @@ class AnnotationLayer(ExperimentLayer):
     )
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+    def is_type_of(cls, obj: object, info: GraphQLResolveInfo) -> bool:
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.ANNOTATION.value
 
 
@@ -574,7 +581,7 @@ class HeatmapLayer(ExperimentLayer):
         return _level_paths(self, info)
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+    def is_type_of(cls, obj: object, info: GraphQLResolveInfo) -> bool:
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.HEATMAP.value
 
 
@@ -658,7 +665,7 @@ class SeriesLayer(ExperimentLayer):
         return _filter_bys(self.table_filter_bys)
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+    def is_type_of(cls, obj: object, info: GraphQLResolveInfo) -> bool:
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.SERIES.value
 
 
@@ -738,7 +745,7 @@ class WaveformLayer(ExperimentLayer):
         return _filter_bys(self.spike_filter_bys)
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+    def is_type_of(cls, obj: object, info: GraphQLResolveInfo) -> bool:
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.WAVEFORM.value
 
 
@@ -842,7 +849,7 @@ class PointLayer(ExperimentLayer):
         return _filter_bys(self.table_filter_bys)
 
     @classmethod
-    def is_type_of(cls, obj, info) -> bool:  # noqa: ANN001 - strawberry's hook
+    def is_type_of(cls, obj: object, info: GraphQLResolveInfo) -> bool:
         return getattr(obj, "kind", None) == enums.ExperimentLayerKind.POINT.value
 
 

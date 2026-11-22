@@ -19,10 +19,12 @@ residents to describe it either.
 """
 
 import pytest
+from kante.context import HttpContext
 
 from core import enums, models
 from tests import seed
 from tests.coords._helpers import counted, create_experiment, derive, derived_dataset
+from tests.fixture_types import AExecute, GraphQLData, ZarrStoreFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -66,15 +68,17 @@ _PHYSICAL_AXES = [
 ]
 
 
-async def _calibrate(ctx, dataset: models.ArrayDataset) -> models.CoordinateSystem:  # noqa: ANN001
+async def _calibrate(
+    ctx: HttpContext, dataset: models.ArrayDataset
+) -> models.CoordinateSystem:
     return await seed.create_physical_space(
         ctx, dataset, _PHYSICAL_AXES, scale=[1.0, 0.5, 0.5], name="Stage"
     )
 
 
 async def _register(
-    ctx, dataset: models.ArrayDataset, experiment: models.Experiment
-) -> models.Transformation:  # noqa: ANN001
+    ctx: HttpContext, dataset: models.ArrayDataset, experiment: models.Experiment
+) -> models.Transformation:
     """Authoring the edge into the world IS the placement: there is no experiment membership to join."""
     return await models.Transformation.objects.acreate(
         kind=enums.TransformKindChoices.AFFINE.value,
@@ -85,9 +89,12 @@ async def _register(
     )
 
 
-async def _graph(aexecute, system_id, max_depth: int | None = None) -> dict:  # noqa: ANN001
+async def _graph(
+    aexecute: AExecute, system_id: int, max_depth: int | None = None
+) -> GraphQLData:
     result = await aexecute(GRAPH, {"id": str(system_id), "maxDepth": max_depth})
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["coordinateGraph"]
 
 
@@ -102,8 +109,8 @@ def _inhabitants(graph: dict) -> list[list[str]]:
 
 
 async def test_the_walk_reaches_the_whole_neighbourhood_of_a_dataset(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """From a dataset's sample grid: its lens, its calibration, and the world it sits in."""
     ctx = authenticated_context
     dataset = await seed.create_array_dataset(ctx, "Volume")
@@ -135,8 +142,8 @@ async def test_the_walk_reaches_the_whole_neighbourhood_of_a_dataset(
 
 
 async def test_an_edge_pointing_into_the_root_still_relates_to_it(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Reachability is undirected: from a calibrated space, the calibration points *in*.
 
     A forward-only walk leaves this system with no edges at all -- a calibration maps samples
@@ -169,8 +176,8 @@ async def test_an_edge_pointing_into_the_root_still_relates_to_it(
 
 
 async def test_two_datasets_in_one_scene_reach_each_other_through_world(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Relatedness is transitive, which is exactly what no filter on `transformations` can express."""
     ctx = authenticated_context
     first = await seed.create_array_dataset(ctx, "First")
@@ -187,8 +194,8 @@ async def test_two_datasets_in_one_scene_reach_each_other_through_world(
 
 
 async def test_max_depth_bounds_the_walk_and_leaves_no_edge_dangling(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A depth cutoff must cut whole edges, not leave ones pointing at systems it did not return."""
     ctx = authenticated_context
     first = await seed.create_array_dataset(ctx, "First")
@@ -211,8 +218,10 @@ async def test_max_depth_bounds_the_walk_and_leaves_no_edge_dangling(
 
 
 async def test_the_walk_stops_at_the_organization_boundary(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """A graph walk crosses foreign keys, and every one of them is a chance to cross a tenant.
 
     The traversal is not a filtered list the scoping layer would narrow on its own: it issues
@@ -248,8 +257,8 @@ query Graph($id: ID!, $maxDepth: Int) {
 
 
 async def _measure_walk(
-    aexecute, ctx, document: str, dataset_count: int
-) -> tuple[int, int]:  # noqa: ANN001
+    aexecute: AExecute, ctx: HttpContext, document: str, dataset_count: int
+) -> tuple[int, int]:
     """The systems one walk returns, and what it cost, over a fresh world of ``dataset_count`` datasets.
 
     The lenses are *stepped*, so each one's edge is a SEQUENCE with children: mikro gets its
@@ -276,8 +285,8 @@ async def _measure_walk(
 
 
 async def test_the_walk_is_flat_in_the_size_of_the_graph(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The cost is the depth of the walk, not the width of it.
 
     A custom resolver returns a plain list, and a plain list is invisible to the optimizer --
@@ -301,8 +310,8 @@ async def test_the_walk_is_flat_in_the_size_of_the_graph(
 
 
 async def test_the_walk_is_flat_when_no_nested_model_list_is_selected(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The control for the test above, and not in mikro: the traversal itself does not grow.
 
     Same graphs, same walk, minus the two fields strawberry-django resolves through a
@@ -330,8 +339,8 @@ async def test_the_walk_is_flat_when_no_nested_model_list_is_selected(
 
 
 async def _chain(
-    aexecute, zarr_store, ctx
-) -> tuple[models.ArrayDataset, models.ArrayDataset, models.ArrayDataset]:  # noqa: ANN001
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, ctx: HttpContext
+) -> tuple[models.ArrayDataset, models.ArrayDataset, models.ArrayDataset]:
     """raw -> filtered (IDENTITY) -> features (UNMAPPABLE): a lineage that mixes a placing hop and a historical one."""
     raw = await seed.create_dataset(ctx, "Raw", seed.T_AXES, [1000])
     filtered = await derived_dataset(
@@ -359,8 +368,8 @@ async def _chain(
 
 
 async def test_the_lineage_graph_steps_through_a_mixed_chain(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """raw -> filtered -> features, walked from any point in it, in both directions.
 
     The point of the query: a client standing on the filtered dataset wants the recording above
@@ -378,6 +387,7 @@ async def test_the_lineage_graph_steps_through_a_mixed_chain(
         LINEAGE, {"system": str(filtered.coordinate_system_id), "maxDepth": None}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     graph = result.data["lineageGraph"]
     assert {(node["__typename"], node.get("name")) for node in graph["nodes"]} == {
@@ -395,14 +405,15 @@ async def test_the_lineage_graph_steps_through_a_mixed_chain(
         LINEAGE, {"system": str(raw.coordinate_system_id), "maxDepth": None}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert len(result.data["lineageGraph"]["nodes"]) == 3, (
         "a component read from either end is the same component"
     )
 
 
 async def test_the_lineage_graph_is_bounded_and_excludes_registrations(
-    aexecute, zarr_store, authenticated_context
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, authenticated_context: HttpContext
+) -> None:
     """`maxDepth` bounds the walk, and a clock never enters it.
 
     A registration is where data was *put*, not where it came from, so it is not a lineage
@@ -419,6 +430,7 @@ async def test_the_lineage_graph_is_bounded_and_excludes_registrations(
         LINEAGE, {"system": str(raw.coordinate_system_id), "maxDepth": 1}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert {node.get("name") for node in result.data["lineageGraph"]["nodes"]} == {
         "Raw",
         "Filtered",
@@ -429,6 +441,7 @@ async def test_the_lineage_graph_is_bounded_and_excludes_registrations(
         LINEAGE, {"system": str(raw.coordinate_system_id), "maxDepth": None}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert all(
         node["__typename"] != "CoordinateSystem"
         for node in result.data["lineageGraph"]["nodes"]
@@ -438,8 +451,10 @@ async def test_the_lineage_graph_is_bounded_and_excludes_registrations(
 
 
 async def test_the_lineage_graph_stops_at_the_organization_boundary(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """Every GraphQL type here is org-scoped, and a lineage root is no exception."""
     theirs = await seed.create_dataset(other_org_context, "Theirs", seed.T_AXES, [1000])
     denied = await aexecute(
@@ -460,17 +475,18 @@ query Directed($id: ID!, $direction: GraphDirection) {
 """
 
 
-async def _directed(aexecute, system_id, direction: str) -> set[str]:  # noqa: ANN001
+async def _directed(aexecute: AExecute, system_id: int, direction: str) -> set[str]:
     result = await aexecute(
         DIRECTED_GRAPH, {"id": str(system_id), "direction": direction}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return {system["id"] for system in result.data["coordinateGraph"]["systems"]}
 
 
 async def test_outgoing_does_not_cross_the_world_into_its_other_residents(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """OUTGOING reaches where this dataset maps to -- the world -- but not what else maps into that world.
 
     The add-layer form pulled the whole undirected component and threw away the spaces reached
@@ -498,8 +514,8 @@ async def test_outgoing_does_not_cross_the_world_into_its_other_residents(
 
 
 async def test_incoming_reaches_what_maps_into_a_space_and_nothing_downstream(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """INCOMING from the world: every dataset registered into it, and not the spaces those map onward to."""
     ctx = authenticated_context
     first = await seed.create_array_dataset(ctx, "First")

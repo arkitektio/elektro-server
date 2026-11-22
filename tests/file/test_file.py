@@ -10,8 +10,16 @@ a derivation edge. One row says it from either end -- ``sourceFiles`` on
 import pytest
 from arkitekt_datalayer.models import BigFileStore
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core.models import File, FileLink
+from tests.fixture_types import (
+    AExecute,
+    BigFileStoreFactory,
+    CreateArrayDatasetFactory,
+    DatasetFactory,
+    ZarrStoreFactory,
+)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -43,7 +51,9 @@ UNLINK_FILE = "mutation ($input: UnlinkFileInput!) { unlinkFile(input: $input) }
 SOURCE_FILES = "query ($id: ID!) { arrayDataset(id: $id) { sourceFiles { seriesIdentifier file { name } } exports { file { name } } } }"
 
 
-async def _make_file(ctx, store, name="f.abf") -> File:
+async def _make_file(
+    ctx: HttpContext, store: BigFileStore, name: str = "f.abf"
+) -> File:
     return await File.objects.acreate(
         name=name,
         store=store,
@@ -54,8 +64,10 @@ async def _make_file(ctx, store, name="f.abf") -> File:
 
 
 async def test_from_file_like_names_sizes_and_files_the_file(
-    aexecute, bigfile_store, authenticated_context
-):
+    aexecute: AExecute,
+    bigfile_store: BigFileStoreFactory,
+    authenticated_context: HttpContext,
+) -> None:
     store = await bigfile_store(
         content=b"0123456789",
         original_file_name="upload.bin",
@@ -65,6 +77,7 @@ async def test_from_file_like_names_sizes_and_files_the_file(
         FROM_FILE_LIKE, {"input": {"fileName": "cell3.abf", "file": str(store.id)}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     data = res.data["fromFileLike"]
 
     assert data["name"] == "cell3.abf", (
@@ -81,8 +94,10 @@ async def test_from_file_like_names_sizes_and_files_the_file(
 
 
 async def test_a_file_written_from_a_dataset_says_so(
-    aexecute, bigfile_store, create_array_dataset
-):
+    aexecute: AExecute,
+    bigfile_store: BigFileStoreFactory,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     dataset = await create_array_dataset("recording", [1000])
     store = await bigfile_store()
     export = [
@@ -99,6 +114,7 @@ async def test_a_file_written_from_a_dataset_says_so(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     (link,) = res.data["fromFileLike"]["exportedFrom"]
     assert link == {
         "direction": "RENDITION",
@@ -115,8 +131,11 @@ async def test_a_file_written_from_a_dataset_says_so(
 
 
 async def test_a_dataset_converted_from_a_file_says_so_per_series(
-    aexecute, authenticated_context, bigfile_store, zarr_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    zarr_store: ZarrStoreFactory,
+) -> None:
     file = await _make_file(authenticated_context, await bigfile_store(), "session.nwb")
     store = await zarr_store(shape=[100], dimension_names=["t"])
     payload = {
@@ -131,6 +150,7 @@ async def test_a_dataset_converted_from_a_file_says_so_per_series(
         {"input": payload},
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     assert created.data["createArrayDataset"]["sourceFiles"] == [
         {
             "seriesIdentifier": "sweep-3",
@@ -148,8 +168,11 @@ async def test_a_dataset_converted_from_a_file_says_so_per_series(
 
 
 async def test_link_file_records_a_link_after_the_fact_and_refuses_a_duplicate(
-    aexecute, authenticated_context, bigfile_store, make_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    make_dataset: DatasetFactory,
+) -> None:
     file = await _make_file(authenticated_context, await bigfile_store())
     dataset = await make_dataset()
 
@@ -163,6 +186,7 @@ async def test_link_file_records_a_link_after_the_fact_and_refuses_a_duplicate(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     (link,) = res.data["linkFile"]
     assert (link["seriesIdentifier"], link["direction"]) == ("series-0", "SOURCE")
     assert link["container"] == {"__typename": "ArrayDataset", "id": str(dataset.id)}
@@ -203,8 +227,11 @@ async def test_link_file_records_a_link_after_the_fact_and_refuses_a_duplicate(
 
 
 async def test_link_file_names_one_direction(
-    aexecute, authenticated_context, bigfile_store, make_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    make_dataset: DatasetFactory,
+) -> None:
     file = await _make_file(authenticated_context, await bigfile_store())
     dataset = await make_dataset()
     both = await aexecute(
@@ -223,12 +250,15 @@ async def test_link_file_names_one_direction(
 
 
 async def test_delete_file_flags_its_store(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     file = await _make_file(authenticated_context, store, "del.abf")
     res = await aexecute(DELETE_FILE, {"input": {"id": str(file.id)}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["deleteFile"] == str(file.id)
     assert not await File.objects.filter(id=file.id).aexists()
     store = await BigFileStore.objects.aget(pk=store.pk)
@@ -238,8 +268,11 @@ async def test_delete_file_flags_its_store(
 
 
 async def test_the_file_filters_answer_what_a_picker_asks(
-    aexecute, authenticated_context, bigfile_store, make_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    make_dataset: DatasetFactory,
+) -> None:
     recording = await _make_file(
         authenticated_context, await bigfile_store(), "cell3.ABF"
     )
@@ -261,6 +294,7 @@ async def test_the_file_filters_answer_what_a_picker_asks(
             {"filters": filters},
         )
         assert not res.errors, res.errors
+        assert res.data is not None
         return sorted(file["name"] for file in res.data["files"])
 
     assert await names({"mimeGroup": "RECORDING"}) == ["cell3.ABF"]
@@ -278,19 +312,23 @@ async def test_the_file_filters_answer_what_a_picker_asks(
 # --- negatives ---------------------------------------------------------------
 
 
-async def test_delete_file_not_found(aexecute):
+async def test_delete_file_not_found(aexecute: AExecute) -> None:
     res = await aexecute(DELETE_FILE, {"input": {"id": "999999"}})
     assert res.errors
 
 
-async def test_from_file_like_unknown_store(aexecute):
+async def test_from_file_like_unknown_store(aexecute: AExecute) -> None:
     res = await aexecute(FROM_FILE_LIKE, {"input": {"fileName": "x", "file": "999999"}})
     assert res.errors
 
 
 async def test_another_organization_cannot_link_to_this_file(
-    aexecute, authenticated_context, other_org_context, bigfile_store, make_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    make_dataset: DatasetFactory,
+) -> None:
     file = await _make_file(authenticated_context, await bigfile_store())
     theirs = await make_dataset(context=other_org_context)
     res = await aexecute(

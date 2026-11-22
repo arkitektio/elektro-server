@@ -17,7 +17,7 @@ import strawberry
 from arkitekt_service.collaborations.guests import require_in_collaboration
 from django.db import IntegrityError, transaction
 from kante.types import Info
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
 from simple_history.utils import bulk_create_with_history
 
 from core import enums, guards, models, types
@@ -46,7 +46,9 @@ class _ShapeInputModel(BaseModel):
 
     @field_validator("stroke_color", "fill_color")
     @classmethod
-    def _colors_are_rgba(cls, color: list[int] | None, info) -> list[int] | None:  # noqa: ANN001 - pydantic's own ValidationInfo
+    def _colors_are_rgba(
+        cls, color: list[int] | None, info: ValidationInfo
+    ) -> list[int] | None:
         if color is not None:
             assert_rgba(color, field=camel_field(info.field_name), maximum=255)
         return color

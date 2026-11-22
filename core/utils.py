@@ -1,14 +1,18 @@
-from typing import Any
+from typing import TypeVar
+
+from django.db.models import Model, QuerySet
+
+_M = TypeVar("_M", bound=Model)
 
 
 # Factor out pagination logic into a separate function
 def paginate_querysets(
-    *querysets: Any,
+    *querysets: QuerySet[_M],
     offset: int = 0,
     limit: int = 100,
-):
+) -> list[_M]:
 
-    items = []
+    items: list[_M] = []
     remaining_limit = limit  # How many more items we need to fetch
     current_offset = offset  # Start at the initial offset
 

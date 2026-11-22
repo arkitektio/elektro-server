@@ -17,7 +17,7 @@ from core.logic import graph as graph_logic
 from core.scoping import get_for_org
 
 
-def get_model_hash(model_instance, float_precision: int = 5) -> str:
+def get_model_hash(model_instance: object, float_precision: int = 5) -> str:
     """
     Generates a deterministic SHA256 hash for a Strawberry/Pydantic model.
 
@@ -26,7 +26,7 @@ def get_model_hash(model_instance, float_precision: int = 5) -> str:
         float_precision: The number of decimal places to round floats to.
     """
 
-    def _normalize_value(value):
+    def _normalize_value(value: object) -> object:
         # 1. Handle Floats: Format to fixed precision string to avoid IEEE 754 issues
         if isinstance(value, float):
             return f"{value:.{float_precision}f}"
@@ -122,7 +122,9 @@ BUILT_IN_MECHANISMS = {"hh", "pas", "leak", "extracellular", "capacitance"}
 _MODEL_AXES = [AxisInputModel(name="object", type=enums.AxisType.INDEX)]
 
 
-def _lower_parent_sugar(parsed) -> list:  # noqa: ANN001 - the parsed input model
+def _lower_parent_sugar(
+    parsed: CreateNeuronModelInputModel,
+) -> list[DerivedFromSpec]:
     """The derivation entries this create states, with `parent` lowered into one of them.
 
     ``parent`` predates the graph: it was a column, and it is kept as sugar for the one shape it
@@ -155,7 +157,11 @@ def _lower_parent_sugar(parsed) -> list:  # noqa: ANN001 - the parsed input mode
     ]
 
 
-def _inherited_environment(info: Info, parsed, derived_from: list):  # noqa: ANN001, ANN201
+def _inherited_environment(
+    info: Info,
+    parsed: CreateNeuronModelInputModel,
+    derived_from: list[DerivedFromSpec],
+) -> models.ModEnvironment:
     """The environment this model belongs to: stated, or inherited from its first model source.
 
     Inheritance used to ride on `parent` directly. With `parent` lowered into `derivedFrom` the
@@ -231,7 +237,9 @@ def create_neuron_model(
                 f"Parameter {param!r} for mechanism {mech!r} in {where} is not among the mechanism's declared parameters ({sorted(env_mechs[mech])})."
             )
 
-    def check_value_dimension(mech: str, param: str, value, where: str) -> None:
+    def check_value_dimension(
+        mech: str, param: str, value: str | None, where: str
+    ) -> None:
         # The value is a GenericQuantity in-memory string (or None). Enforce that
         # its physical dimension matches the parameter's declared dimension — only
         # possible for catalog mechanisms whose param declares a unit.

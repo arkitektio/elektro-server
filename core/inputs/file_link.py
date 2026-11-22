@@ -18,7 +18,12 @@ import strawberry
 from pydantic import BaseModel, ConfigDict, Field
 
 from core import enums
-from core.input_unions import parse_union_member, prose_errors, union_memberships
+from core.input_unions import (
+    PydanticInputDecorator,
+    parse_union_member,
+    prose_errors,
+    union_memberships,
+)
 
 _SERIES_DESCRIPTION = (
     "Which part of the file this concerns -- the series of a multi-series ABF or NWB file, the sweep group of a recording. Omit when the file holds one thing. It is part of the link's "
@@ -203,8 +208,8 @@ class ExportOfInput:
 
 
 def _export_of_member(
-    model: type, key: "enums.FileLinkContainerKind", description: str
-):  # noqa: ANN202 - a decorator factory
+    model: type[BaseModel], key: "enums.FileLinkContainerKind", description: str
+) -> PydanticInputDecorator:
     """Publish one member input of the ExportOfInput union."""
     return kante.pydantic_input(
         model,

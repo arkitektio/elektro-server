@@ -18,10 +18,12 @@ import uuid
 import pytest
 from arkitekt_datalayer.models import BigFileStore
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext, Organization, User
 from koherent.models import Task
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute, BigFileStoreFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -33,7 +35,11 @@ DELETE_DATA_ARRAY = "mutation($id: ID!) { deleteDataArray(input: {id: $id}) }"
 DELETE_LENS = "mutation($id: ID!) { deleteLens(input: {id: $id}) }"
 
 
-def _assign_creation_to(instance, assigner, organization) -> None:  # noqa: ANN001 - any provenance-tracked row
+def _assign_creation_to(
+    instance: models.Folder | models.ArrayDataset,
+    assigner: User,
+    organization: Organization,
+) -> None:
     """Say that ``instance`` was created under a task ``assigner`` assigned.
 
     What a verified provenance token leaves behind: a ``koherent.Task`` row naming the human at
@@ -55,13 +61,18 @@ def _assign_creation_to(instance, assigner, organization) -> None:  # noqa: ANN0
         args_hash_algorithm="",
         organization=organization,
     )
-    assert instance.provenance_entries.filter(history_type="+").update(task=task) == 1
+    # koherent's ProvenanceField adds `provenance_entries` at class creation; without the
+    # django-stubs plugin no reverse accessor is visible to the checker.
+    entries = instance.provenance_entries  # pyright: ignore[reportAttributeAccessIssue]
+    assert entries.filter(history_type="+").update(task=task) == 1
 
 
 # --- creator / assigner / admin guard on a self-anchored model (Folder) -------
 
 
-async def test_creator_can_delete_own_folder(aexecute, authenticated_context):
+async def test_creator_can_delete_own_folder(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     folder = await seed.create_folder(authenticated_context, "Mine")
 
     result = await aexecute(DELETE_FOLDER, {"id": str(folder.pk)})
@@ -71,8 +82,8 @@ async def test_creator_can_delete_own_folder(aexecute, authenticated_context):
 
 
 async def test_non_owner_non_admin_cannot_delete_folder(
-    aexecute, authenticated_context, bot_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     # Owned by the admin user (sub 1); the bot user (sub 2, same org) is neither
     # creator nor assigner nor admin.
     folder = await seed.create_folder(authenticated_context, "NotYours")
@@ -90,8 +101,8 @@ async def test_non_owner_non_admin_cannot_delete_folder(
 
 
 async def test_org_admin_can_delete_other_users_folder(
-    aexecute, authenticated_context, bot_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     # Created by a second user (sub 2); deleted by the admin user (sub 1).
     folder = await seed.create_folder(bot_context, "BotsFolder")
     assert folder.creator_id != authenticated_context.request.user.id
@@ -102,7 +113,9 @@ async def test_org_admin_can_delete_other_users_folder(
     assert not await models.Folder.objects.filter(id=folder.pk).aexists()
 
 
-async def test_assignee_can_delete_folder(aexecute, authenticated_context, bot_context):
+async def test_assignee_can_delete_folder(
+    aexecute: AExecute, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     # Creator is the admin user, but the bot user assigned the task that created it: the
     # assigner path lets the bot delete it.
     folder = await seed.create_folder(authenticated_context, "Assigned")
@@ -117,8 +130,10 @@ async def test_assignee_can_delete_folder(aexecute, authenticated_context, bot_c
 
 
 async def test_another_organization_never_reaches_the_guard(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     folder = await seed.create_folder(authenticated_context, "Mine")
 
     denied = await aexecute(
@@ -135,7 +150,11 @@ async def test_another_organization_never_reaches_the_guard(
 # --- File ---------------------------------------------------------------------
 
 
-async def test_delete_file(aexecute, authenticated_context, bigfile_store):
+async def test_delete_file(
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     file = await seed.create_file(
         authenticated_context, "f.abf", store=await bigfile_store()
     )
@@ -147,8 +166,11 @@ async def test_delete_file(aexecute, authenticated_context, bigfile_store):
 
 
 async def test_delete_file_denied_for_non_owner(
-    aexecute, authenticated_context, bot_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bot_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     file = await seed.create_file(authenticated_context, "f.abf", store=store)
 
@@ -165,7 +187,9 @@ async def test_delete_file_denied_for_non_owner(
 # --- ArrayDataset, and the parts that defer to it -------------------------------
 
 
-async def test_delete_array_dataset(aexecute, authenticated_context):
+async def test_delete_array_dataset(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     array_dataset = await seed.create_array_dataset(
         authenticated_context, "ADS", shapes=[[1, 32, 32]]
     )
@@ -182,8 +206,8 @@ async def test_delete_array_dataset(aexecute, authenticated_context):
 
 
 async def test_delete_array_dataset_denied_for_non_owner(
-    aexecute, authenticated_context, bot_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     array_dataset = await seed.create_array_dataset(
         authenticated_context, "ADS", shapes=[[1, 32, 32]]
     )
@@ -200,7 +224,9 @@ async def test_delete_array_dataset_denied_for_non_owner(
     ).aexists()
 
 
-async def test_delete_data_array(aexecute, authenticated_context):
+async def test_delete_data_array(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     # Level 1, not 0: level 0 *is* the dataset, and `deleteDataArray` refuses it here
     # (`tests/array_dataset/test_array_dataset.py` pins that refusal).
     array_dataset = await seed.create_array_dataset(
@@ -221,8 +247,8 @@ async def test_delete_data_array(aexecute, authenticated_context):
 
 
 async def test_delete_data_array_defers_to_its_dataset(
-    aexecute, authenticated_context, bot_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     """A level carries no creator of its own: `ANCHOR_PATHS` sends the question to the dataset."""
     array_dataset = await seed.create_array_dataset(
         authenticated_context, "ADS", shapes=[[1, 32, 32], [1, 16, 16]]
@@ -248,7 +274,9 @@ async def test_delete_data_array_defers_to_its_dataset(
     assert not await models.DataArray.objects.filter(id=data_array.pk).aexists()
 
 
-async def test_delete_lens(aexecute, authenticated_context):
+async def test_delete_lens(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     array_dataset = await seed.create_array_dataset(
         authenticated_context, "ADS", shapes=[[1, 32, 32]]
     )
@@ -266,8 +294,8 @@ async def test_delete_lens(aexecute, authenticated_context):
 
 
 async def test_delete_sliced_lens_takes_the_space_it_owned(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     array_dataset = await seed.create_array_dataset(
         authenticated_context, "ADS", shapes=[[3, 32, 32]]
     )
@@ -295,8 +323,8 @@ async def test_delete_sliced_lens_takes_the_space_it_owned(
 
 
 async def test_delete_lens_denied_for_non_owner(
-    aexecute, authenticated_context, bot_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext, bot_context: HttpContext
+) -> None:
     array_dataset = await seed.create_array_dataset(
         authenticated_context, "ADS", shapes=[[1, 32, 32]]
     )

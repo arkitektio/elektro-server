@@ -29,6 +29,7 @@ from core import enums, models
 from core.logic import graph as graph_logic
 from tests import seed
 from tests.coords._helpers import add_layer, counted, create_experiment
+from tests.fixture_types import AExecute, GraphQLData
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -56,7 +57,7 @@ query PathToWorld($id: ID!) {
 
 
 def _edge(
-    ctx: HttpContext, kind: str, params: dict | None = None, **kwargs
+    ctx: HttpContext, kind: str, params: dict | None = None, **kwargs: object
 ) -> models.Transformation:
     """One bare edge, endpoints and all, built through the ORM.
 
@@ -74,7 +75,7 @@ def _edge(
 
 
 async def _classify(
-    ctx: HttpContext, kind: str, params: dict | None = None, **kwargs
+    ctx: HttpContext, kind: str, params: dict | None = None, **kwargs: object
 ) -> str:
     def build_and_classify() -> str:
         return graph_logic.invariance_of(_edge(ctx, kind, params, **kwargs))
@@ -83,10 +84,11 @@ async def _classify(
 
 
 async def _view(
-    aexecute, experiment_id: int | str, query: str = VIEW_INVARIANCE
-) -> dict:  # noqa: ANN001 - the conftest fixture
+    aexecute: AExecute, experiment_id: int | str, query: str = VIEW_INVARIANCE
+) -> GraphQLData:
     result = await aexecute(query, {"id": str(experiment_id)})
     assert not result.errors, result.errors
+    assert result.data is not None
     (view,) = result.data["experiment"]["layers"]
     return view
 
@@ -96,13 +98,15 @@ async def _view(
 
 @pytest.mark.parametrize("kind", ["IDENTITY", "TRANSLATION", "ROTATION", "MAP_AXIS"])
 async def test_the_isometries_are_the_kinds_that_deform_nothing(
-    authenticated_context, kind: str
-):
+    authenticated_context: HttpContext, kind: str
+) -> None:
     """A relabelling, an offset and a rotation all leave every distance and angle where it was."""
     assert await _classify(authenticated_context, kind) == "ISOMETRY"
 
 
-async def test_an_isotropic_scale_is_a_similarity(authenticated_context):
+async def test_an_isotropic_scale_is_a_similarity(
+    authenticated_context: HttpContext,
+) -> None:
     """One factor on every axis: a circle is still a circle, so angles and length ratios survive."""
     assert (
         await _classify(authenticated_context, "SCALE", {"scale": [0.5, 0.5, 0.5]})
@@ -110,7 +114,9 @@ async def test_an_isotropic_scale_is_a_similarity(authenticated_context):
     )
 
 
-async def test_an_anisotropic_scale_is_only_affine(authenticated_context):
+async def test_an_anisotropic_scale_is_only_affine(
+    authenticated_context: HttpContext,
+) -> None:
     """Different factors per axis: a circular bead arrives an ellipse, so no angle survives.
 
     ABLATION: drop the all-equal check and this reads SIMILARITY -- telling a client that a
@@ -124,8 +130,8 @@ async def test_an_anisotropic_scale_is_only_affine(authenticated_context):
 
 
 async def test_an_affine_reads_affine_even_when_its_matrix_is_rigid(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """A 90-degree rotation written as a matrix is an isometry, and still reads AFFINE.
 
     The deliberate limit: proving it rigid needs an SVD, which is numerics inside a metadata
@@ -137,17 +143,21 @@ async def test_an_affine_reads_affine_even_when_its_matrix_is_rigid(
     )
 
 
-async def test_a_field_is_diffeomorphic_at_best(authenticated_context):
+async def test_a_field_is_diffeomorphic_at_best(
+    authenticated_context: HttpContext,
+) -> None:
     """A map given by an array's values has a position-dependent Jacobian: nothing local transfers."""
     assert await _classify(authenticated_context, "FIELD") == "DIFFEOMORPHIC"
 
 
-async def test_an_unmappable_edge_corresponds_to_nothing(authenticated_context):
+async def test_an_unmappable_edge_corresponds_to_nothing(
+    authenticated_context: HttpContext,
+) -> None:
     """The one kind that denies a correspondence denies every property with it."""
     assert await _classify(authenticated_context, "UNMAPPABLE") == "NONE"
 
 
-async def test_an_unknown_kind_fails_safe():
+async def test_an_unknown_kind_fails_safe() -> None:
     """A kind the classifier does not know reads NONE, the bottom -- never a claim of rigidity.
 
     Unsaved, because `kind` is a choices column and the database will not hold a kind that
@@ -170,8 +180,8 @@ async def test_an_unknown_kind_fails_safe():
     [([2.0, 2.0, 2.0], "SIMILARITY"), ([1.0, 0.325, 0.325], "AFFINE")],
 )
 async def test_a_sequence_is_the_weakest_of_its_steps(
-    authenticated_context, scale: list, expected: str
-):
+    authenticated_context: HttpContext, scale: list, expected: str
+) -> None:
     """A scale-then-translate sequence takes its class from the scale; the translation is rigid."""
 
     def build() -> str:
@@ -191,7 +201,9 @@ async def test_a_sequence_is_the_weakest_of_its_steps(
     assert await sync_to_async(build)() == expected
 
 
-async def test_a_childless_wrapper_reads_the_map_it_carries(authenticated_context):
+async def test_a_childless_wrapper_reads_the_map_it_carries(
+    authenticated_context: HttpContext,
+) -> None:
     """A BY_DIMENSION with no children carries its map in its own params, and is read that way.
 
     The one place this must not mirror `is_invertible`, which answers True for a childless
@@ -212,7 +224,9 @@ async def test_a_childless_wrapper_reads_the_map_it_carries(authenticated_contex
     )
 
 
-async def test_a_childless_wrapper_with_no_map_is_an_isometry(authenticated_context):
+async def test_a_childless_wrapper_with_no_map_is_an_isometry(
+    authenticated_context: HttpContext,
+) -> None:
     """Naming axes and nothing else is the identity on the axes named."""
     assert await _classify(authenticated_context, "BY_DIMENSION") == "ISOMETRY"
 
@@ -222,8 +236,8 @@ async def test_a_childless_wrapper_with_no_map_is_an_isometry(authenticated_cont
     [([2.0, 2.0], "SIMILARITY"), ([2.0, 3.0], "AFFINE")],
 )
 async def test_a_childless_wrapper_takes_the_weakest_map_it_carries(
-    authenticated_context, scale: list, expected: str
-):
+    authenticated_context: HttpContext, scale: list, expected: str
+) -> None:
     """`_OPTIONAL_PARAMS_BY_KIND` lets one BY_DIMENSION carry several params: the weakest decides.
 
     ABLATION: return the first match rather than the minimum and an anisotropic scale riding
@@ -243,8 +257,8 @@ async def test_a_childless_wrapper_takes_the_weakest_map_it_carries(
 
 
 async def test_an_identity_registration_places_a_layer_isometrically(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Nothing on the path deforms anything, so a distance in the data IS a distance in world."""
     ctx = authenticated_context
     dataset = await seed.create_dataset(ctx, "Rigid", SPATIAL_AXES, [8, 64, 64])
@@ -256,7 +270,9 @@ async def test_an_identity_registration_places_a_layer_isometrically(
     assert (await _view(aexecute, experiment.pk))["placementInvariance"] == "ISOMETRY"
 
 
-async def test_the_weakest_edge_on_the_path_decides(aexecute, authenticated_context):
+async def test_the_weakest_edge_on_the_path_decides(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """An anisotropic calibration drags an otherwise rigid placement down to AFFINE.
 
     A **sliced** lens in an experiment over the dataset's physical space walks two edges: the
@@ -289,8 +305,8 @@ async def test_the_weakest_edge_on_the_path_decides(aexecute, authenticated_cont
 
 
 async def test_an_isotropic_calibration_keeps_the_layer_similar(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Equal steps on every axis: shapes and angles survive, and one factor converts lengths."""
     ctx = authenticated_context
     dataset = await seed.create_dataset(ctx, "Isotropic", SPATIAL_AXES, [8, 64, 64])
@@ -307,8 +323,8 @@ async def test_an_isotropic_calibration_keeps_the_layer_similar(
 
 
 async def test_an_unplaced_layer_reads_none_and_says_why_elsewhere(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """No path means nothing corresponds -- and `placement` is what distinguishes the two reasons.
 
     The conflation is deliberate and mirrors `placementValidity`'s UNKNOWN: a client that
@@ -334,8 +350,8 @@ async def test_an_unplaced_layer_reads_none_and_says_why_elsewhere(
 
 
 async def test_an_inverted_step_does_not_change_the_class(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Every class here is closed under inversion, which is why the BFS's `inverted` flag needs no handling.
 
     The edge is authored world -> sample grid, against the direction a placement walks, so the
@@ -375,8 +391,8 @@ async def test_an_inverted_step_does_not_change_the_class(
 
 
 async def test_placement_invariance_costs_no_query_beyond_placement_validity(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The class is read off columns and prefetches the graph already fetched.
 
     `kind` and `params` are local columns of an edge row, and every SceneGraph fetch site
@@ -408,7 +424,7 @@ async def test_placement_invariance_costs_no_query_beyond_placement_validity(
     )
 
 
-async def test_the_invariance_is_derived_not_stored():
+async def test_the_invariance_is_derived_not_stored() -> None:
     """No column, no TextChoices twin -- and the derived fields wear their two distinct names."""
     from elektro_server.schema import schema
 

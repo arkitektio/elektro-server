@@ -8,28 +8,37 @@ its permission check to its governing anchor.
 """
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from asgiref.sync import sync_to_async
 from authentikate.models import User
+from kante.context import HttpContext
+from kante.context import Organization as RequestOrganization
+from kante.context import User as RequestUser
+from kante.types import Info
 
 from core import guards, models
 from elektro_server.contract import ADMIN
+from tests.fixture_types import AExecute
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
-def _info(user, organization, roles):
+def _info(
+    user: User | RequestUser, organization: RequestOrganization, roles: list[str]
+) -> Info:
     """A minimal Info whose request carries the given identity and roles."""
     request = SimpleNamespace(
         user=user,
         organization=organization,
         membership=SimpleNamespace(roles=roles),
     )
-    return SimpleNamespace(context=SimpleNamespace(request=request))
+    # A stand-in, not an Info: the guard reads only these attributes of it.
+    return cast(Info, SimpleNamespace(context=SimpleNamespace(request=request)))
 
 
-def _make_dataset(ctx):
+def _make_dataset(ctx: HttpContext) -> models.Folder:
     return models.Folder.objects.create(
         name="DS",
         creator=ctx.request.user,
@@ -41,14 +50,14 @@ def _make_dataset(ctx):
 # --- predicate: can_delete ---------------------------------------------------
 
 
-def test_creator_can_delete(authenticated_context):
+def test_creator_can_delete(authenticated_context: HttpContext) -> None:
     ctx = authenticated_context
     ds = _make_dataset(ctx)
     info = _info(ctx.request.user, ctx.request.organization, roles=[])
     assert guards.can_delete(info, ds) is True
 
 
-def test_non_creator_denied(authenticated_context):
+def test_non_creator_denied(authenticated_context: HttpContext) -> None:
     ctx = authenticated_context
     ds = _make_dataset(ctx)
     intruder = User.objects.create(username="intruder", sub="42", iss="static_issuer")
@@ -56,7 +65,7 @@ def test_non_creator_denied(authenticated_context):
     assert guards.can_delete(info, ds) is False
 
 
-def test_admin_can_delete_others(authenticated_context):
+def test_admin_can_delete_others(authenticated_context: HttpContext) -> None:
     ctx = authenticated_context
     ds = _make_dataset(ctx)
     boss = User.objects.create(username="boss", sub="43", iss="static_issuer")
@@ -64,7 +73,9 @@ def test_admin_can_delete_others(authenticated_context):
     assert guards.can_delete(info, ds) is True
 
 
-def test_anchor_defers_a_layer_to_its_experiment(authenticated_context):
+def test_anchor_defers_a_layer_to_its_experiment(
+    authenticated_context: HttpContext,
+) -> None:
     ctx = authenticated_context
     world = models.CoordinateSystem.objects.create(
         name="world", creator=ctx.request.user, organization=ctx.request.organization
@@ -96,7 +107,9 @@ def test_anchor_defers_a_layer_to_its_experiment(authenticated_context):
     assert guards.can_delete(info_other, layer) is False
 
 
-def test_anchor_defers_a_site_spoke_to_its_dataset(authenticated_context):
+def test_anchor_defers_a_site_spoke_to_its_dataset(
+    authenticated_context: HttpContext,
+) -> None:
     ctx = authenticated_context
     dataset = models.ArrayDataset.objects.create(
         name="soma.v", creator=ctx.request.user, organization=ctx.request.organization
@@ -123,7 +136,7 @@ def test_anchor_defers_a_site_spoke_to_its_dataset(authenticated_context):
     assert guards.resolve_anchor(site) == dataset
 
 
-def test_anchor_defers_a_spoke_to_its_table(authenticated_context):
+def test_anchor_defers_a_spoke_to_its_table(authenticated_context: HttpContext) -> None:
     """An anchor on a table is part of the table: whoever may delete the table may delete its spokes."""
     ctx = authenticated_context
     store = models.ParquetStore.objects.create(
@@ -144,7 +157,9 @@ def test_anchor_defers_a_spoke_to_its_table(authenticated_context):
     assert guards.resolve_anchor(label) == table
 
 
-def test_anchor_defers_a_spoke_to_its_sparse_dataset(authenticated_context):
+def test_anchor_defers_a_spoke_to_its_sparse_dataset(
+    authenticated_context: HttpContext,
+) -> None:
     """And likewise for a sparse matrix: the anchor is part of the matrix."""
     ctx = authenticated_context
     matrix = models.SparseDataset.objects.create(
@@ -174,8 +189,10 @@ mutation ($input: DeleteInput!) { deleteLayer(input: $input) }
 
 @pytest.mark.asyncio
 async def test_delete_denied_for_other_org(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     ds = await sync_to_async(_make_dataset)(authenticated_context)
     res = await aexecute(
         DELETE_DATASET, {"input": {"id": str(ds.id)}}, context=other_org_context
@@ -185,7 +202,9 @@ async def test_delete_denied_for_other_org(
 
 
 @pytest.mark.asyncio
-async def test_delete_layer_defers_to_its_experiment(aexecute, authenticated_context):
+async def test_delete_layer_defers_to_its_experiment(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     from tests import seed
     from tests.coords._helpers import add_layer, create_experiment
 
@@ -200,6 +219,7 @@ async def test_delete_layer_defers_to_its_experiment(aexecute, authenticated_con
     )
     res = await aexecute(DELETE_LAYER, {"input": {"id": str(layer.pk)}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["deleteLayer"] == str(layer.pk)
     assert not await models.ExperimentLayer.objects.filter(pk=layer.pk).aexists()
     assert await models.ArrayDataset.objects.filter(pk=dataset.pk).aexists(), (

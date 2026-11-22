@@ -18,12 +18,14 @@ coming back, whatever shape it returns in.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import enums, models
 from core.logic import graph as graph_logic
 from core.logic import scene_graph, space_graph
 from tests import seed
 from tests.coords._helpers import QueryCounter, add_layer, counted, create_experiment
+from tests.fixture_types import AExecute, SimulationChainFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -37,18 +39,15 @@ _VIEW_PLACEMENT = """
       placementInvariance
 """
 
-EXPERIMENT_PLACEMENTS = (
-    """
-query ExperimentPlacements {
-  experiments {
+EXPERIMENT_PLACEMENTS = f"""
+query ExperimentPlacements {{
+  experiments {{
     id
-    layers { %s }
-    world { placedSystems { id residents { __typename } } }
-  }
-}
+    layers {{ {_VIEW_PLACEMENT} }}
+    world {{ placedSystems {{ id residents {{ __typename }} }} }}
+  }}
+}}
 """
-    % _VIEW_PLACEMENT
-)
 
 SPACE_PLACED = """
 query SpacePlaced { coordinateSystems { id placedSystems { id } } }
@@ -65,7 +64,7 @@ _AFFINE = [
 ]
 
 
-async def _seed_experiment(ctx, *, view_count: int) -> models.Experiment:  # noqa: ANN001
+async def _seed_experiment(ctx: HttpContext, *, view_count: int) -> models.Experiment:
     """An experiment of `view_count` views spread over two registered datasets.
 
     Two datasets, not one: a single-dataset experiment would not catch an adjacency that is
@@ -105,8 +104,8 @@ def _view_count(data: dict) -> int:
 
 
 async def test_scene_placements_are_flat_in_layer_count(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Asking an experiment for its views' placements costs the same at 7 views as at 3."""
     await _seed_experiment(authenticated_context, view_count=3)
     small_data, small_queries = await counted(aexecute, EXPERIMENT_PLACEMENTS)
@@ -127,8 +126,8 @@ async def test_scene_placements_are_flat_in_layer_count(
 
 
 async def test_a_spaces_placeable_set_is_walked_once_per_request(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`placedSystems` answers from one walk of the space per request, however often it is asked.
 
     It derives from `placeable_system_ids_in`, which is a registrations fetch, a residence
@@ -165,8 +164,8 @@ async def test_a_spaces_placeable_set_is_walked_once_per_request(
 
 
 async def test_two_scenes_over_one_world_share_the_root_edge_fetch(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """The world's edges are fetched once per request, not once per experiment composing over it.
 
     An experiment's searchable universe is its world's edges plus its views' datasets' facts, and
@@ -223,8 +222,10 @@ mutation ($input: CreateTraceLayerInput!) { createTraceLayer(input: $input) { id
 
 
 async def test_creating_a_layer_is_flat_in_scene_size(
-    aexecute, authenticated_context, make_simulation_chain
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     """Laying out one more recording costs the same over a world of 7 runs as over a world of 3.
 
     The placement check a creating mutation runs (is this source placeable in this world?)
@@ -248,6 +249,7 @@ async def test_creating_a_layer_is_flat_in_scene_size(
             },
         )
         assert not created.errors, created.errors
+        assert created.data is not None
         experiment = created.data["createExperiment"]["id"]
         for index in range(already):
             earlier = await make_simulation_chain(name=f"earlier{already}-{index}")

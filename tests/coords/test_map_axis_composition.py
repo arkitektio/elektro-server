@@ -16,6 +16,7 @@ ever sees `params` -- so `_edge_params` writes the permutation out as an `affine
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import enums, models
 from core.logic import graph as graph_logic
@@ -25,8 +26,8 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
 
 async def test_an_roi_behind_a_map_axis_edge_is_permuted_not_mislabelled(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """The box is pushed through the permutation, rather than handed back untouched."""
     dataset = await seed.create_array_dataset(authenticated_context, "Volume")
     organization = authenticated_context.request.organization

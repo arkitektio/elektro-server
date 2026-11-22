@@ -7,10 +7,12 @@ the SDL, a list that forgot its organization, a filter that reads ``null`` as ``
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute, DatasetFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -78,7 +80,7 @@ query ($id: ID!, $region: BoundingBoxInput!) {
 """
 
 
-def _clock_input(dataset, period: float, start: float) -> dict:
+def _clock_input(dataset: models.ArrayDataset, period: float, start: float) -> dict:
     return {
         "name": "session clock",
         "axes": [{"name": "t", "type": "TIME", "unit": "second"}],
@@ -95,7 +97,7 @@ def _clock_input(dataset, period: float, start: float) -> dict:
 # --- the SDL ----------------------------------------------------------------------------
 
 
-async def test_every_transformation_kind_and_union_member_is_in_the_sdl():
+async def test_every_transformation_kind_and_union_member_is_in_the_sdl() -> None:
     """A type reachable only through an interface vanishes from the SDL without an error unless it is registered by hand."""
     from elektro_server.schema import schema
 
@@ -166,8 +168,8 @@ async def test_every_transformation_kind_and_union_member_is_in_the_sdl():
 
 
 async def test_a_clock_is_created_with_the_sampling_law_that_registers_a_dataset_onto_it(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [30000]
     )
@@ -176,6 +178,7 @@ async def test_a_clock_is_created_with_the_sampling_law_that_registers_a_dataset
         CREATE_SYSTEM, {"input": _clock_input(dataset, 1 / 30000, 2.0)}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     clock = res.data["createCoordinateSystem"]
 
     assert clock["axes"] == [
@@ -192,7 +195,9 @@ async def test_a_clock_is_created_with_the_sampling_law_that_registers_a_dataset
     assert edge["input"]["id"] == str(dataset.coordinate_system_id)
 
 
-async def test_a_unit_that_does_not_measure_time_is_refused_on_a_time_axis(aexecute):
+async def test_a_unit_that_does_not_measure_time_is_refused_on_a_time_axis(
+    aexecute: AExecute,
+) -> None:
     res = await aexecute(
         CREATE_SYSTEM,
         {
@@ -206,8 +211,8 @@ async def test_a_unit_that_does_not_measure_time_is_refused_on_a_time_axis(aexec
 
 
 async def test_in_view_reports_where_a_recording_sits_on_its_clock(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
     )
@@ -220,6 +225,7 @@ async def test_in_view_reports_where_a_recording_sits_on_its_clock(
         IN_VIEW, {"id": clock_id, "region": {"min": [0.0], "max": [10.0]}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     (hit,) = res.data["coordinateSystem"]["inView"]
     assert hit["source"] == {"__typename": "ArrayDataset", "id": str(dataset.pk)}
     assert (hit["extentState"], hit["validity"], hit["invariance"]) == (
@@ -242,8 +248,8 @@ async def test_in_view_reports_where_a_recording_sits_on_its_clock(
 
 
 async def test_create_lens_derives_shape_system_and_edge_from_the_slices(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.TC_AXES, [30000, 4]
     )
@@ -261,6 +267,7 @@ async def test_create_lens_derives_shape_system_and_edge_from_the_slices(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     lens = res.data["createLens"]
 
     assert lens["shape"] == [3000, 2]
@@ -273,14 +280,15 @@ async def test_create_lens_derives_shape_system_and_edge_from_the_slices(
 
 
 async def test_an_unsliced_lens_lives_in_its_datasets_grid(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
     )
 
     res = await aexecute(CREATE_LENS, {"input": {"dataset": str(dataset.pk)}})
     assert not res.errors, res.errors
+    assert res.data is not None
     lens = res.data["createLens"]
     assert lens["coordinateSystem"]["id"] == str(dataset.coordinate_system_id)
     assert lens["toParent"] is None
@@ -291,7 +299,9 @@ async def test_an_unsliced_lens_lives_in_its_datasets_grid(
     ]
 
 
-async def test_a_dataset_without_axes_cannot_be_given_a_lens(aexecute, make_dataset):
+async def test_a_dataset_without_axes_cannot_be_given_a_lens(
+    aexecute: AExecute, make_dataset: DatasetFactory
+) -> None:
     """A dataset created before it was given axes is not in the graph, and says so rather than failing on a null."""
     dataset = await make_dataset()
     res = await aexecute(CREATE_LENS, {"input": {"dataset": str(dataset.pk)}})
@@ -302,8 +312,8 @@ async def test_a_dataset_without_axes_cannot_be_given_a_lens(aexecute, make_data
 
 
 async def test_a_space_data_lives_in_cannot_be_deleted_directly(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
     )
@@ -318,8 +328,8 @@ async def test_a_space_data_lives_in_cannot_be_deleted_directly(
 
 
 async def test_a_clock_with_a_registration_is_not_deleted_out_from_under_it(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
     )
@@ -334,7 +344,9 @@ async def test_a_clock_with_a_registration_is_not_deleted_out_from_under_it(
     )
 
 
-async def test_an_empty_world_can_be_deleted(aexecute, authenticated_context):
+async def test_an_empty_world_can_be_deleted(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     world = await seed.create_world(authenticated_context, "scratch")
     res = await aexecute(DELETE_SYSTEM, {"input": {"id": str(world.pk)}})
     assert not res.errors, res.errors
@@ -347,8 +359,10 @@ async def test_an_empty_world_can_be_deleted(aexecute, authenticated_context):
 
 
 async def test_another_organization_sees_none_of_this_graph(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
     )
@@ -362,6 +376,7 @@ async def test_another_organization_sees_none_of_this_graph(
 
     theirs = await aexecute(SYSTEMS, context=other_org_context)
     assert not theirs.errors, theirs.errors
+    assert theirs.data is not None
     assert theirs.data["coordinateSystems"] == []
 
     edges = await aexecute("{ transformations { id } }", context=other_org_context)
@@ -372,8 +387,10 @@ async def test_another_organization_sees_none_of_this_graph(
 
 
 async def test_another_organization_cannot_register_into_or_delete_this_graph(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
     )
@@ -402,8 +419,8 @@ async def test_another_organization_cannot_register_into_or_delete_this_graph(
 
 
 async def test_uninhabited_separates_clocks_from_sample_grids_and_null_means_no_constraint(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """This service runs strawberry-django's deprecated filters, where an explicit null reaches the resolver.
 
     mikro's resolver is ``condition if value else ~condition``, which would read ``uninhabited: null``
@@ -415,9 +432,10 @@ async def test_uninhabited_separates_clocks_from_sample_grids_and_null_means_no_
     world = await seed.create_world(authenticated_context, "clock")
     grid_id, world_id = str(dataset.coordinate_system_id), str(world.pk)
 
-    async def ids(filters):
+    async def ids(filters: dict[str, object]) -> set[str]:
         res = await aexecute(SYSTEMS, {"filters": filters})
         assert not res.errors, res.errors
+        assert res.data is not None
         return {row["id"] for row in res.data["coordinateSystems"]}
 
     assert await ids({"uninhabited": True}) == {world_id}
@@ -428,8 +446,8 @@ async def test_uninhabited_separates_clocks_from_sample_grids_and_null_means_no_
 
 
 async def test_lenses_placeable_in_a_clock_are_those_of_the_datasets_sampled_onto_it(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     sampled = await seed.create_dataset(
         authenticated_context, "sampled", seed.T_AXES, [1000]
     )
@@ -453,6 +471,7 @@ async def test_lenses_placeable_in_a_clock_are_those_of_the_datasets_sampled_ont
         {"f": {"placeableIn": {"space": str(clock.pk)}}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [row["id"] for row in res.data["lenses"]] == [str(placed.pk)]
 
     residents = await sync_to_async(lambda: list(clock.datasets.all()))()

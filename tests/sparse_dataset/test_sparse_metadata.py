@@ -89,7 +89,7 @@ class _S3:
     def __init__(self, tree: dict[str, dict]) -> None:
         self.tree = tree
 
-    def get_object(self, Bucket: str, Key: str) -> dict:  # noqa: N803 -- boto3's spelling
+    def get_object(self, Bucket: str, Key: str) -> dict:
         assert Bucket == "zarr"
         suffix = Key[len("some-prefix/") :]
         if suffix not in self.tree:

@@ -27,6 +27,7 @@ wrong is not refused at read, it is silently skipped.
 import pytest
 from asgiref.sync import sync_to_async
 from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import enums, models
 from elektro_server.schema import schema
@@ -88,12 +89,27 @@ async def _mask(
 
 
 async def _create(
-    ctx: HttpContext, name: str, columns: list[dict], **extra: object
-) -> object:
+    ctx: HttpContext,
+    name: str,
+    columns: list[dict],
+    *,
+    identified_by: dict[str, list] | None = None,
+    keyed_by: list | None = None,
+    **extra: object,
+) -> ExecutionResult:
     return await schema.execute(
         CREATE_TABLE,
         context_value=ctx,
-        variable_values={"input": await seed.table_input(ctx, name, columns, **extra)},
+        variable_values={
+            "input": await seed.table_input(
+                ctx,
+                name,
+                columns,
+                identified_by=identified_by,
+                keyed_by=keyed_by,
+                **extra,
+            )
+        },
     )
 
 
@@ -101,7 +117,7 @@ async def _create(
 @pytest.mark.asyncio
 async def test_a_table_with_no_axes_cannot_be_keyed_at_all(
     authenticated_context: HttpContext,
-):
+) -> None:
     """It used to be a runtime refusal. It is now inexpressible, which is the better guarantee.
 
     A table with no `axes` has the synthetic `object` axis, which has no column behind it, so
@@ -111,7 +127,7 @@ async def test_a_table_with_no_axes_cannot_be_keyed_at_all(
     only way to key it is to give it an axis, which is exactly the fix the old message asked
     for -- so the refusal has become the shape of the input.
     """
-    mask = await _mask(authenticated_context)
+    await _mask(authenticated_context)
 
     result = await _create(
         authenticated_context,
@@ -119,6 +135,7 @@ async def test_a_table_with_no_axes_cannot_be_keyed_at_all(
         [{"name": "area", "dtype": "DOUBLE", "role": "ATTRIBUTE"}],
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     table = result.data["createTableDataset"]
     assert [axis["name"] for axis in table["coordinateSystem"]["axes"]] == ["object"], (
         "the synthetic axis"
@@ -135,7 +152,7 @@ async def test_a_table_with_no_axes_cannot_be_keyed_at_all(
 @pytest.mark.asyncio
 async def test_keyed_by_refuses_a_mask_that_consumes_nothing(
     authenticated_context: HttpContext,
-):
+) -> None:
     """A mask whose every axis is also a table axis collapses nothing, so it is not a map."""
     mask = await _mask(authenticated_context)
 
@@ -158,7 +175,7 @@ async def test_keyed_by_refuses_a_mask_that_consumes_nothing(
 @pytest.mark.asyncio
 async def test_keyed_by_refuses_a_table_that_produces_nothing(
     authenticated_context: HttpContext,
-):
+) -> None:
     """A table with no coordinate of its own has nothing for the pixels to supply.
 
     The refusal is now the *specific* one, because the caller names the axis: `t` is an axis of
@@ -186,7 +203,9 @@ async def test_keyed_by_refuses_a_table_that_produces_nothing(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_keyed_by_refuses_the_same_mask_twice(authenticated_context: HttpContext):
+async def test_keyed_by_refuses_the_same_mask_twice(
+    authenticated_context: HttpContext,
+) -> None:
     """A second edge between the same pair says nothing the first did not."""
     mask = await _mask(authenticated_context)
 
@@ -207,7 +226,7 @@ async def test_keyed_by_refuses_the_same_mask_twice(authenticated_context: HttpC
 @pytest.mark.asyncio
 async def test_a_refused_key_edge_leaves_no_table_behind(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The whole creation is one transaction, so a bad mask does not strand a table."""
     mask = await _mask(authenticated_context)
 
@@ -230,7 +249,7 @@ async def test_a_refused_key_edge_leaves_no_table_behind(
 @pytest.mark.asyncio
 async def test_keying_a_table_does_not_make_the_mask_derived_from_it(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The FIELD leaves the mask's system and lands in a table's, which is the shape
     ``derivedFrom`` reports for a dataset -- so check it is not read as lineage.
 
@@ -254,6 +273,7 @@ async def test_keying_a_table_does_not_make_the_mask_derived_from_it(
         variable_values={"id": str(mask.pk)},
     )
     assert not mask_lineage.errors, mask_lineage.errors
+    assert mask_lineage.data is not None
     assert mask_lineage.data["arrayDataset"]["derivedFrom"] == [], (
         "keying a table is not a lineage claim about the mask"
     )
@@ -270,7 +290,7 @@ async def test_keying_a_table_does_not_make_the_mask_derived_from_it(
 @pytest.mark.asyncio
 async def test_keyed_by_refuses_a_table_with_two_id_axes(
     authenticated_context: HttpContext,
-):
+) -> None:
     """One pixel holds one value, so one mask cannot supply two ids.
 
     `assert_field_produces` refuses this anyway, but from the field's side -- it reads as
@@ -331,7 +351,7 @@ SHAPE_COLUMNS = [
 @pytest.mark.asyncio
 async def test_keyed_by_refuses_a_lens_and_a_table_by_construction(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The union advertises two members, so the other four are a schema error, not a runtime one.
 
     `DerivationSourceKind` carries six; keying reuses neither the enum nor its breadth,
@@ -358,7 +378,7 @@ async def test_keyed_by_refuses_a_lens_and_a_table_by_construction(
 @pytest.mark.asyncio
 async def test_the_identified_axes_lookup_does_not_repeat_per_keying_source(
     authenticated_context: HttpContext,
-):
+) -> None:
     """`identified_axes(own_system)` is a property of the table, so it is read once.
 
     It sat inside the per-entry loop, costing two ORM traversals per keying source, and
@@ -383,7 +403,7 @@ async def test_the_identified_axes_lookup_does_not_repeat_per_keying_source(
         counter = []
         real = graph_logic.identified_axes
 
-        def counting(system):
+        def counting(system: models.CoordinateSystem) -> set[str]:
             counter.append(system.pk)
             return real(system)
 
@@ -416,7 +436,7 @@ async def test_the_identified_axes_lookup_does_not_repeat_per_keying_source(
 @pytest.mark.asyncio
 async def test_a_kind_that_cannot_key_is_refused_rather_than_raising_keyerror(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The lookup into `_DERIVATION_SOURCES` was bare, so an unmapped kind was a 500.
 
     Reachable only through a bug -- every caller filters on `AUTHORS_EDGE` first -- but the
@@ -431,6 +451,7 @@ async def test_a_kind_that_cannot_key_is_refused_rather_than_raising_keyerror(
 
     table = await _create(authenticated_context, "measurements", OBJECT_COLUMNS)
     assert not table.errors, table.errors
+    assert table.data is not None
     dataset = await models.TableDataset.objects.aget(
         pk=table.data["createTableDataset"]["id"]
     )
@@ -469,7 +490,7 @@ async def _field_edges(source: models.CoordinateSystem) -> list[models.Transform
 @pytest.mark.asyncio
 async def test_keyed_by_derives_the_axis_split_from_the_two_spaces(
     authenticated_context: HttpContext,
-):
+) -> None:
     """One call, no axes stated, and the edge comes out with the split already right.
 
     `(t,y,x)` against `(t,i)` can only mean consume `(y,x)`, produce `i`, pass `t` through --
@@ -485,6 +506,7 @@ async def test_keyed_by_derives_the_axis_split_from_the_two_spaces(
         identified_by={"i": [{"kind": "DATASET", "dataset": str(mask.pk)}]},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     table = result.data["createTableDataset"]
 
     (edge,) = await _field_edges(mask_system)
@@ -506,7 +528,7 @@ async def test_keyed_by_derives_the_axis_split_from_the_two_spaces(
 @pytest.mark.asyncio
 async def test_keyed_by_and_derived_from_are_two_edges_in_opposite_directions(
     authenticated_context: HttpContext,
-):
+) -> None:
     """Stating both in one call writes both, and neither stands in for the other."""
     mask = await _mask(authenticated_context)
     mask_system = await sync_to_async(lambda: mask.intrinsic_coordinate_system)()
@@ -523,6 +545,7 @@ async def test_keyed_by_and_derived_from_are_two_edges_in_opposite_directions(
         ],
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     table = result.data["createTableDataset"]
     table_system = table["coordinateSystem"]["id"]
 
@@ -545,7 +568,7 @@ async def test_keyed_by_and_derived_from_are_two_edges_in_opposite_directions(
 @pytest.mark.asyncio
 async def test_sibling_masks_each_get_their_own_edge(
     authenticated_context: HttpContext,
-):
+) -> None:
     """`keyedBy` is a list: two masks may key one table, one edge each."""
     nuclei = await _mask(authenticated_context, "nuclei labels")
     cells = await _mask(authenticated_context, "cell labels")
@@ -560,7 +583,9 @@ async def test_sibling_masks_each_get_their_own_edge(
     )
     assert not result.errors, result.errors
     for mask in (nuclei, cells):
-        system = await sync_to_async(lambda: mask.intrinsic_coordinate_system)()
+        system = await sync_to_async(
+            lambda mask=mask: mask.intrinsic_coordinate_system
+        )()
         assert len(await _field_edges(system)) == 1, f"one edge rooted at {system.pk}"
 
 
@@ -568,7 +593,7 @@ async def test_sibling_masks_each_get_their_own_edge(
 @pytest.mark.asyncio
 async def test_a_referenced_index_axis_is_identified_and_the_field_need_not_produce_it(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The product-space case: a row identified by a *pair*, and a mask can only supply one; the other is a TABLE reference."""
     mask = await _mask(authenticated_context)
     cells = await _create(
@@ -585,6 +610,7 @@ async def test_a_referenced_index_axis_is_identified_and_the_field_need_not_prod
         ],
     )
     assert not cells.errors, cells.errors
+    assert cells.data is not None
 
     result = await _create(
         authenticated_context,
@@ -608,6 +634,7 @@ async def test_a_referenced_index_axis_is_identified_and_the_field_need_not_prod
         identified_by={"nucleus_id": [{"kind": "DATASET", "dataset": str(mask.pk)}]},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     table = result.data["createTableDataset"]
     assert [axis["name"] for axis in table["coordinateSystem"]["axes"]] == [
         "nucleus_id",

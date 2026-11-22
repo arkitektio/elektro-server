@@ -12,6 +12,8 @@ selection and cannot disagree with anything, so the sugar is safe. There is no `
 where a clock sits is ``createClockOffset``'s, stated once for everything timed on it.
 """
 
+from typing import Protocol, TypedDict
+
 import kante
 import strawberry
 from django.db import transaction
@@ -612,12 +614,26 @@ class JoinStepInput:
         return picker_models.JoinStepModel(table=str(self.table), column=self.column)
 
 
-def _pickers_of(input) -> dict:  # noqa: ANN001 - a strawberry input with color_bys / filter_bys
+class _PickerInput(Protocol):
+    """A strawberry layer input that carries colour and filter pickers."""
+
+    color_bys: list[ColorByInput] | None
+    filter_bys: list[FilterByInput] | None
+
+
+class _Pickers(TypedDict, total=False):
+    """The picker lists of a layer input, lowered to their models."""
+
+    color_bys: list[picker_models.ColorByModel]
+    filter_bys: list[picker_models.FilterByModel]
+
+
+def _pickers_of(input: _PickerInput) -> _Pickers:
     """The picker lists of a strawberry input, lowered to their models (strawberry inputs are not pydantic-backed here)."""
-    values = {}
-    if getattr(input, "color_bys", None) is not None:
+    values: _Pickers = {}
+    if input.color_bys is not None:
         values["color_bys"] = [entry.to_pydantic() for entry in input.color_bys]
-    if getattr(input, "filter_bys", None) is not None:
+    if input.filter_bys is not None:
         values["filter_bys"] = [entry.to_pydantic() for entry in input.filter_bys]
     return values
 
@@ -669,12 +685,12 @@ class CreateSpikesLayerInput:
     )
 
     def to_pydantic(self) -> CreateSpikesLayerInputModel:
-        return CreateSpikesLayerInputModel(
-            **{**_plain(self, CreateSpikesLayerInputModel), **_pickers_of(self)}
+        return CreateSpikesLayerInputModel.model_validate(
+            {**_plain(self, CreateSpikesLayerInputModel), **_pickers_of(self)}
         )
 
 
-def _plain(input, model: type[BaseModel]) -> dict:  # noqa: ANN001 - a strawberry input
+def _plain(input: object, model: type[BaseModel]) -> dict[str, object]:
     """The scalar fields of a strawberry input the pydantic model declares, pickers aside."""
     return {
         name: getattr(input, name)
@@ -732,8 +748,8 @@ class UpdateSpikesLayerInput:
     order: int | None = None
 
     def to_pydantic(self) -> UpdateSpikesLayerInputModel:
-        return UpdateSpikesLayerInputModel(
-            **{**_plain(self, UpdateSpikesLayerInputModel), **_pickers_of(self)}
+        return UpdateSpikesLayerInputModel.model_validate(
+            {**_plain(self, UpdateSpikesLayerInputModel), **_pickers_of(self)}
         )
 
 
@@ -847,8 +863,8 @@ class CreateEventsLayerInput:
     )
 
     def to_pydantic(self) -> CreateEventsLayerInputModel:
-        return CreateEventsLayerInputModel(
-            **{**_plain(self, CreateEventsLayerInputModel), **_pickers_of(self)}
+        return CreateEventsLayerInputModel.model_validate(
+            {**_plain(self, CreateEventsLayerInputModel), **_pickers_of(self)}
         )
 
 
@@ -899,8 +915,8 @@ class UpdateEventsLayerInput:
     order: int | None = None
 
     def to_pydantic(self) -> UpdateEventsLayerInputModel:
-        return UpdateEventsLayerInputModel(
-            **{**_plain(self, UpdateEventsLayerInputModel), **_pickers_of(self)}
+        return UpdateEventsLayerInputModel.model_validate(
+            {**_plain(self, UpdateEventsLayerInputModel), **_pickers_of(self)}
         )
 
 
@@ -1093,7 +1109,11 @@ class CreateHeatmapLayerInput:
     )
 
 
-def _selected_lens(info: Info, ctx: CreationContext, parsed) -> "models.Lens":  # noqa: ANN001 - a create model with lens / dataset / window / clock
+def _selected_lens(
+    info: Info,
+    ctx: CreationContext,
+    parsed: "CreateHeatmapLayerInputModel | CreateWaveformLayerInputModel",
+) -> "models.Lens":
     """The lens a create input names, cuts out of a window, or reuses whole."""
     if parsed.lens is not None:
         return get_for_org(models.Lens, info, id=parsed.lens)
@@ -1264,8 +1284,8 @@ class CreateWaveformLayerInput:
     )
 
     def to_pydantic(self) -> CreateWaveformLayerInputModel:
-        return CreateWaveformLayerInputModel(
-            **{**_plain(self, CreateWaveformLayerInputModel), **_pickers_of(self)}
+        return CreateWaveformLayerInputModel.model_validate(
+            {**_plain(self, CreateWaveformLayerInputModel), **_pickers_of(self)}
         )
 
 
@@ -1319,8 +1339,8 @@ class UpdateWaveformLayerInput:
     order: int | None = None
 
     def to_pydantic(self) -> UpdateWaveformLayerInputModel:
-        return UpdateWaveformLayerInputModel(
-            **{**_plain(self, UpdateWaveformLayerInputModel), **_pickers_of(self)}
+        return UpdateWaveformLayerInputModel.model_validate(
+            {**_plain(self, UpdateWaveformLayerInputModel), **_pickers_of(self)}
         )
 
 
@@ -1427,8 +1447,8 @@ class CreateSeriesLayerInput:
     )
 
     def to_pydantic(self) -> CreateSeriesLayerInputModel:
-        return CreateSeriesLayerInputModel(
-            **{**_plain(self, CreateSeriesLayerInputModel), **_pickers_of(self)}
+        return CreateSeriesLayerInputModel.model_validate(
+            {**_plain(self, CreateSeriesLayerInputModel), **_pickers_of(self)}
         )
 
 
@@ -1480,8 +1500,8 @@ class UpdateSeriesLayerInput:
     order: int | None = None
 
     def to_pydantic(self) -> UpdateSeriesLayerInputModel:
-        return UpdateSeriesLayerInputModel(
-            **{**_plain(self, UpdateSeriesLayerInputModel), **_pickers_of(self)}
+        return UpdateSeriesLayerInputModel.model_validate(
+            {**_plain(self, UpdateSeriesLayerInputModel), **_pickers_of(self)}
         )
 
 
@@ -1565,8 +1585,8 @@ class CreatePointLayerInput:
     )
 
     def to_pydantic(self) -> CreatePointLayerInputModel:
-        return CreatePointLayerInputModel(
-            **{**_plain(self, CreatePointLayerInputModel), **_pickers_of(self)}
+        return CreatePointLayerInputModel.model_validate(
+            {**_plain(self, CreatePointLayerInputModel), **_pickers_of(self)}
         )
 
 
@@ -1615,8 +1635,8 @@ class UpdatePointLayerInput:
     order: int | None = None
 
     def to_pydantic(self) -> UpdatePointLayerInputModel:
-        return UpdatePointLayerInputModel(
-            **{**_plain(self, UpdatePointLayerInputModel), **_pickers_of(self)}
+        return UpdatePointLayerInputModel.model_validate(
+            {**_plain(self, UpdatePointLayerInputModel), **_pickers_of(self)}
         )
 
 

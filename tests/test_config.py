@@ -3,26 +3,29 @@
 Standalone — needs no database; run with ``uv run pytest tests/test_config.py``.
 """
 
+import pytest
 from arkitekt_service.contract.unread import unread
 from arkitekt_service.server.settings import written
 
 from elektro_server.configuration import Settings
 
 
-def test_config_yaml_validates():
+def test_config_yaml_validates() -> None:
     """The service's own config.yaml parses into the typed schema."""
     s = Settings()
     assert s.postgres.db_name
     assert s.redis.host
 
 
-def test_env_override(monkeypatch):
+def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """Env vars override the YAML file (nested via ``__``)."""
     monkeypatch.setenv("POSTGRES__PASSWORD", "from-env-test")
     assert Settings().postgres.password == "from-env-test"
 
 
-def test_embeddings_block_defaults_and_override(monkeypatch):
+def test_embeddings_block_defaults_and_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The ``embeddings`` block defaults to potion-base-8M at 256 dims and is env-overridable."""
     s = Settings()
     assert s.embeddings.enabled is True
@@ -32,12 +35,12 @@ def test_embeddings_block_defaults_and_override(monkeypatch):
     assert Settings().embeddings.distance_threshold == 0.42
 
 
-def test_the_services_own_config_is_read_as_written():
+def test_the_services_own_config_is_read_as_written() -> None:
     """Nothing in the repo's config.yaml goes unread."""
     assert not unread(Settings, written())
 
 
-def test_an_unknown_key_in_a_block_of_this_service_is_reported():
+def test_an_unknown_key_in_a_block_of_this_service_is_reported() -> None:
     """A key no setting claims is said, where the block is this service's and closed."""
     found = unread(
         Settings,

@@ -18,15 +18,18 @@ service's static tokens offer: ``can_delete`` waves org admins through before it
 the creator, so an admin-only test cannot tell a working guard from a broken one.
 """
 
+from collections.abc import Mapping, Sequence
 from types import SimpleNamespace
 
 import pytest
 from asgiref.sync import sync_to_async
 from authentikate.models import Membership, User
+from kante.context import HttpContext
 
 from core import enums, guards, models
 from tests import seed
 from tests.coords._helpers import create_experiment
+from tests.fixture_types import AExecute, GraphQLData
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -80,8 +83,12 @@ ATLAS_AXES = [
 
 
 async def _create_space(
-    aexecute, name: str = "Atlas", axes=None, registrations=None, context=None
-) -> dict:  # noqa: ANN001
+    aexecute: AExecute,
+    name: str = "Atlas",
+    axes: Sequence[Mapping[str, str]] | None = None,
+    registrations: Sequence[Mapping[str, object]] | None = None,
+    context: HttpContext | None = None,
+) -> GraphQLData:
     result = await aexecute(
         CREATE_CS,
         {
@@ -94,12 +101,14 @@ async def _create_space(
         context=context,
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createCoordinateSystem"]
 
 
-async def _system(aexecute, system_id) -> dict:  # noqa: ANN001
+async def _system(aexecute: AExecute, system_id: int | str) -> GraphQLData:
     result = await aexecute(SYSTEM, {"id": str(system_id)})
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["coordinateSystem"]
 
 
@@ -107,8 +116,8 @@ async def _system(aexecute, system_id) -> dict:  # noqa: ANN001
 
 
 async def test_a_scenes_world_is_an_ordinary_shared_space(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A world an experiment composes over is the same thing as an atlas: a space nothing lives in.
 
     Experiments never own a space, so other experiments may adopt it and it outlives them
@@ -127,8 +136,8 @@ async def test_a_scenes_world_is_an_ordinary_shared_space(
 
 
 async def test_a_lens_lives_in_its_own_space_and_a_scene_may_root_there(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A lens' crop is a space like any other, related to the dataset's grid by an edge."""
     dataset = await seed.create_dataset(
         authenticated_context, "A", seed.YX_AXES, [64, 64]
@@ -160,8 +169,8 @@ async def test_a_lens_lives_in_its_own_space_and_a_scene_may_root_there(
 
 
 async def test_residents_name_the_data_living_in_a_space(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`residents` resolves to the data itself, and a calibrated space has none.
 
     The sharpest case is the calibration -- here, a clock. It is simply a space with an edge
@@ -198,8 +207,8 @@ async def test_residents_name_the_data_living_in_a_space(
 
 
 async def test_a_dataset_is_listed_before_a_lens_over_it(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`residents` is in `graph.CONTAINERS` order: the outermost thing first."""
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
@@ -217,7 +226,9 @@ async def test_a_dataset_is_listed_before_a_lens_over_it(
 # --- renaming and anchoring ---------------------------------------------------------------------
 
 
-async def test_a_shared_space_can_be_renamed_and_its_clock_anchored(aexecute):
+async def test_a_shared_space_can_be_renamed_and_its_clock_anchored(
+    aexecute: AExecute,
+) -> None:
     """The fields that describe the space itself. Where its data sits stays an edge."""
     space = await _create_space(aexecute, "Atals")  # the typo this mutation exists for
 
@@ -232,6 +243,7 @@ async def test_a_shared_space_can_be_renamed_and_its_clock_anchored(aexecute):
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["updateCoordinateSystem"]["name"] == "Atlas"
     assert result.data["updateCoordinateSystem"]["epoch"] is not None
 
@@ -240,12 +252,13 @@ async def test_a_shared_space_can_be_renamed_and_its_clock_anchored(aexecute):
         UPDATE_CS, {"input": {"id": space["id"], "name": "Atlas v2"}}
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["updateCoordinateSystem"]["epoch"] is not None
 
 
 async def test_a_space_data_lives_in_cannot_be_renamed_or_deleted_directly(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Both mutations refuse a space with residents: it is described by the data in it.
 
     The guard asks the thing directly -- does anything live here -- and the error names the
@@ -274,7 +287,9 @@ async def test_a_space_data_lives_in_cannot_be_renamed_or_deleted_directly(
 # --- deleting -----------------------------------------------------------------------------------
 
 
-async def test_an_unused_space_is_deletable_by_its_creator(aexecute, other_org_context):
+async def test_an_unused_space_is_deletable_by_its_creator(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """The whole point: a space created by mistake can be taken back.
 
     Runs as a non-admin, so `can_delete` actually consults the creator rather than
@@ -286,13 +301,14 @@ async def test_an_unused_space_is_deletable_by_its_creator(aexecute, other_org_c
         DELETE_CS, {"input": {"id": space["id"]}}, context=other_org_context
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["deleteCoordinateSystem"] == space["id"]
     assert not await models.CoordinateSystem.objects.filter(pk=space["id"]).aexists()
 
 
 async def test_a_space_someone_else_created_is_not_yours_to_delete(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The ownership guard, reached only because the caller is not an org admin.
 
     mikro runs this through the mutation as a second, non-admin user of the same
@@ -323,8 +339,8 @@ async def test_a_space_someone_else_created_is_not_yours_to_delete(
 
 
 async def test_a_space_in_use_is_refused_rather_than_cascaded_away(
-    aexecute, other_org_context
-):
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """Each refusal guards a CASCADE that would take something the caller never named."""
     dataset = await seed.create_dataset(other_org_context, "A", seed.YX_AXES, [64, 64])
     registration = {
@@ -357,8 +373,8 @@ async def test_a_space_in_use_is_refused_rather_than_cascaded_away(
 
 
 async def test_a_space_a_scene_composes_over_is_refused(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Experiment.world is RESTRICT; the mutation names the experiments instead of raising an IntegrityError.
 
     The prose is this service's, not mikro's ("is the world of N scene(s)"): four relations
@@ -383,8 +399,8 @@ async def test_a_space_a_scene_composes_over_is_refused(
 
 
 async def test_refining_an_edge_leaves_a_readable_audit_trail(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """ "updateTransformation refines an edge in place; provenance holds the history" is only true if a client can read it.
 
     A refinement rewrites the row, so the audit trail is the *only* place the placement's
@@ -407,6 +423,7 @@ async def test_refining_an_edge_leaves_a_readable_audit_trail(
         },
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     edge_id = created.data["createTransformation"]["id"]
 
     refined = await aexecute(
@@ -414,10 +431,12 @@ async def test_refining_an_edge_leaves_a_readable_audit_trail(
         {"input": {"id": edge_id, "scale": [0.51, 0.51]}},
     )
     assert not refined.errors, refined.errors
+    assert refined.data is not None
     assert refined.data["updateTransformation"]["version"] == 2
 
     result = await aexecute(AUDIT, {"id": edge_id})
     assert not result.errors, result.errors
+    assert result.data is not None
     edge = result.data["transformation"]
 
     assert edge["scale"] == [0.51, 0.51], (
@@ -432,7 +451,9 @@ async def test_refining_an_edge_leaves_a_readable_audit_trail(
 # --- axes -----------------------------------------------------------------------------------
 
 
-async def test_a_shared_space_takes_its_axes_as_given_but_must_have_some(aexecute):
+async def test_a_shared_space_takes_its_axes_as_given_but_must_have_some(
+    aexecute: AExecute,
+) -> None:
     """No type ordering is asked of a shared space; a space with no axes is still not a space.
 
     Having *no* axes is the different case -- such a space composes into nothing and every

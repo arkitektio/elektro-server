@@ -22,7 +22,12 @@ import strawberry
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core import enums
-from core.input_unions import parse_union_member, prose_errors, union_memberships
+from core.input_unions import (
+    PydanticInputDecorator,
+    parse_union_member,
+    prose_errors,
+    union_memberships,
+)
 from core.logic import coords as coords_logic
 from kanne_server import scalars as kanne_scalars
 
@@ -979,8 +984,8 @@ class DerivedFromInput:
 
 
 def _derived_from_member(
-    model: type, key: "enums.DerivationSourceKind", description: str
-):  # noqa: ANN202 - a decorator factory
+    model: type[BaseModel], key: "enums.DerivationSourceKind", description: str
+) -> PydanticInputDecorator:
     """Publish one member input of the DerivedFromInput union."""
     return kante.pydantic_input(
         model,

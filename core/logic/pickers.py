@@ -56,7 +56,9 @@ def _names_table(table_id: str) -> Q:
     return query
 
 
-def layers_naming_table(table) -> "QuerySet[models.ExperimentLayer]":  # noqa: ANN001 - a TableDataset
+def layers_naming_table(
+    table: models.TableDataset,
+) -> "QuerySet[models.ExperimentLayer]":
     """The layers whose colour or filter picker names this table, by any route.
 
     Not organization-scoped, deliberately: a guard that only looked at the caller's own
@@ -82,7 +84,7 @@ def _refuse(what: str, layers: list, total: int, verb: str) -> None:
     )
 
 
-def assert_table_not_in_a_picker(table) -> None:  # noqa: ANN001 - a TableDataset
+def assert_table_not_in_a_picker(table: models.TableDataset) -> None:
     """Refuse to delete a table some layer still colours or filters by."""
     layers = list(layers_naming_table(table)[:5])
     if layers:
@@ -102,7 +104,9 @@ def _names_sparse_dataset(dataset_id: str) -> Q:
     return query
 
 
-def layers_naming_sparse_dataset(dataset) -> "QuerySet[models.ExperimentLayer]":  # noqa: ANN001 - a SparseDataset
+def layers_naming_sparse_dataset(
+    dataset: models.SparseDataset,
+) -> "QuerySet[models.ExperimentLayer]":
     """Every layer whose pickers name this sparse dataset."""
     return (
         models.ExperimentLayer.objects.filter(_names_sparse_dataset(str(dataset.pk)))
@@ -111,7 +115,7 @@ def layers_naming_sparse_dataset(dataset) -> "QuerySet[models.ExperimentLayer]":
     )
 
 
-def assert_sparse_dataset_not_in_a_picker(dataset) -> None:  # noqa: ANN001 - a SparseDataset
+def assert_sparse_dataset_not_in_a_picker(dataset: models.SparseDataset) -> None:
     """Refuse to delete a sparse dataset some layer's picker still names.
 
     A spikes layer *drawing* the raster is not a picker: it has a real foreign key and

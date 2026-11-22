@@ -188,7 +188,7 @@ def _section_geometry(section: SectionModel) -> _Geometry:
             )
         area = 0.0
         length = 0.0
-        for (x1, y1, z1, r1), (x2, y2, z2, r2) in zip(pts, pts[1:]):
+        for (x1, y1, z1, r1), (x2, y2, z2, r2) in zip(pts, pts[1:], strict=False):
             slant = math.dist((x1, y1, z1), (x2, y2, z2))
             area += math.pi * (r1 + r2) * slant
             length += slant

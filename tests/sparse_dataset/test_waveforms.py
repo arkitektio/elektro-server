@@ -9,9 +9,11 @@ derivation edge.
 """
 
 import pytest
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute, CreateArrayDatasetFactory, GraphQLData
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -22,7 +24,13 @@ TEMPLATE_AXES = [
 ]
 
 
-async def _templates(aexecute, ctx, create_array_dataset):  # noqa: ANN001, ANN202
+async def _templates(
+    aexecute: AExecute,
+    ctx: HttpContext,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> tuple[
+    models.TableDataset, models.SparseDataset, GraphQLData, models.CoordinateSystem
+]:
     """A units table, a raster identified by it, templates derived from the raster, and a peri-spike clock the templates' `w` is timed on."""
     units = await seed.create_table_dataset(
         ctx,
@@ -69,8 +77,10 @@ WAVEFORM_FIELDS = "kind name unitAxis unitTable { name } duration placement asAf
 
 
 async def test_templates_are_drawn_in_peri_spike_time(
-    aexecute, authenticated_context, create_array_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     units, _, templates, peri = await _templates(
         aexecute, authenticated_context, create_array_dataset
     )
@@ -81,8 +91,7 @@ async def test_templates_are_drawn_in_peri_spike_time(
         organization=authenticated_context.request.organization,
     )
     res = await aexecute(
-        "mutation ($input: CreateWaveformLayerInput!) { createWaveformLayer(input: $input) { %s } }"
-        % WAVEFORM_FIELDS,
+        f"mutation ($input: CreateWaveformLayerInput!) {{ createWaveformLayer(input: $input) {{ {WAVEFORM_FIELDS} }} }}",
         {
             "input": {
                 "experiment": str(experiment.pk),
@@ -95,6 +104,7 @@ async def test_templates_are_drawn_in_peri_spike_time(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     layer = res.data["createWaveformLayer"]
     assert (
         layer["kind"],
@@ -116,8 +126,10 @@ async def test_templates_are_drawn_in_peri_spike_time(
 
 
 async def test_the_bootstrap_draws_templates_as_waveforms(
-    aexecute, authenticated_context, create_array_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     _, _, templates, peri = await _templates(
         aexecute, authenticated_context, create_array_dataset
     )
@@ -126,6 +138,7 @@ async def test_the_bootstrap_draws_templates_as_waveforms(
         {"input": {"coordinateSystem": str(peri.pk)}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     (layer,) = res.data["createExperimentFromCoordinateSystem"]["layers"]
     assert (layer["kind"], layer["name"], layer["unitTable"]) == (
         "WAVEFORM",
@@ -135,8 +148,10 @@ async def test_the_bootstrap_draws_templates_as_waveforms(
 
 
 async def test_an_array_not_derived_from_a_raster_has_no_units_table(
-    aexecute, authenticated_context, create_array_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """Drawn as waveforms on request, but nothing to colour its units by: the pickers are refused rather than guessed."""
     loose = await create_array_dataset(
         "loose templates", [8, 4, 60], axes=TEMPLATE_AXES
@@ -167,6 +182,7 @@ async def test_an_array_not_derived_from_a_raster_has_no_units_table(
         {"input": {"experiment": str(experiment.pk), "dataset": loose["id"]}},
     )
     assert not plain.errors, plain.errors
+    assert plain.data is not None
     assert plain.data["createWaveformLayer"]["unitTable"] is None
     coloured = await aexecute(
         "mutation ($input: CreateWaveformLayerInput!) { createWaveformLayer(input: $input) { id } }",
@@ -182,8 +198,10 @@ async def test_an_array_not_derived_from_a_raster_has_no_units_table(
 
 
 async def test_a_template_has_one_unit_axis(
-    aexecute, authenticated_context, create_array_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     two = await create_array_dataset(
         "two index axes",
         [8, 4, 60],

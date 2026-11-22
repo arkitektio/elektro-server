@@ -7,10 +7,18 @@ thing, never where the data sits -- and deleting a folder *unfiles* what was in 
 """
 
 import pytest
+from arkitekt_datalayer.models import BigFileStore
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core.models import ArrayDataset, File, Folder, SparseDataset, TableDataset
 from tests import seed
+from tests.fixture_types import (
+    AExecute,
+    BigFileStoreFactory,
+    CreateArrayDatasetFactory,
+    DatasetFactory,
+)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -54,7 +62,7 @@ query ($parent: ID!, $filters: FolderChildrenFilter, $order: ChildrenOrder) {
 """
 
 
-async def _make_folder(ctx, name="F", **kwargs) -> Folder:
+async def _make_folder(ctx: HttpContext, name: str = "F", **kwargs: object) -> Folder:
     return await Folder.objects.acreate(
         name=name,
         creator=ctx.request.user,
@@ -64,7 +72,9 @@ async def _make_folder(ctx, name="F", **kwargs) -> Folder:
     )
 
 
-async def _make_file(ctx, store, folder=None) -> File:
+async def _make_file(
+    ctx: HttpContext, store: BigFileStore, folder: Folder | None = None
+) -> File:
     return await File.objects.acreate(
         name="f",
         store=store,
@@ -78,12 +88,15 @@ async def _make_file(ctx, store, folder=None) -> File:
 # --- happy path --------------------------------------------------------------
 
 
-async def test_create_folder(aexecute, authenticated_context):
+async def test_create_folder(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     parent = await _make_folder(authenticated_context, "Parent")
     res = await aexecute(
         CREATE_FOLDER, {"input": {"name": "My Folder", "parent": str(parent.id)}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createFolder"] == {
         "id": res.data["createFolder"]["id"],
         "name": "My Folder",
@@ -92,7 +105,7 @@ async def test_create_folder(aexecute, authenticated_context):
     assert await Folder.objects.filter(name="My Folder", parent=parent).aexists()
 
 
-async def test_ensure_folder_is_idempotent(aexecute):
+async def test_ensure_folder_is_idempotent(aexecute: AExecute) -> None:
     first = await aexecute(ENSURE_FOLDER, {"input": {"name": "Imports"}})
     second = await aexecute(ENSURE_FOLDER, {"input": {"name": "Imports"}})
     assert not first.errors and not second.errors, (first.errors, second.errors)
@@ -100,21 +113,27 @@ async def test_ensure_folder_is_idempotent(aexecute):
     assert await Folder.objects.filter(name="Imports").acount() == 1
 
 
-async def test_update_folder(aexecute, authenticated_context):
+async def test_update_folder(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     folder = await _make_folder(authenticated_context, "Before")
     res = await aexecute(
         UPDATE_FOLDER, {"input": {"id": str(folder.id), "name": "After"}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["updateFolder"]["name"] == "After"
     await folder.arefresh_from_db()
     assert folder.name == "After"
 
 
-async def test_pin_folder(aexecute, authenticated_context):
+async def test_pin_folder(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     folder = await _make_folder(authenticated_context, "Pinnable")
     res = await aexecute(PIN_FOLDER, {"input": {"id": str(folder.id), "pin": True}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["pinFolder"]["pinned"] is True
     assert await folder.pinned_by.filter(
         id=authenticated_context.request.user.id
@@ -124,7 +143,9 @@ async def test_pin_folder(aexecute, authenticated_context):
     assert res.data["pinFolder"]["pinned"] is False
 
 
-async def test_folders_nest(aexecute, authenticated_context):
+async def test_folders_nest(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     parent, child = (
         await _make_folder(authenticated_context, "Parent"),
         await _make_folder(authenticated_context, "Child"),
@@ -145,8 +166,10 @@ async def test_folders_nest(aexecute, authenticated_context):
 
 
 async def test_files_are_filed_and_unfiled(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     folder = await _make_folder(authenticated_context, "Container")
     file = await _make_file(authenticated_context, await bigfile_store())
 
@@ -154,6 +177,7 @@ async def test_files_are_filed_and_unfiled(
         PUT_FILES, {"input": {"selfs": [str(file.id)], "other": str(folder.id)}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     await file.arefresh_from_db()
     assert file.folder_id == folder.id
 
@@ -161,20 +185,22 @@ async def test_files_are_filed_and_unfiled(
         RELEASE_FILES, {"input": {"selfs": [str(file.id)], "other": str(folder.id)}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["releaseFilesFromFolder"]["id"] == str(folder.id)
     await file.arefresh_from_db()
     assert file.folder_id is None
 
 
 async def test_array_datasets_are_filed_and_unfiled(
-    aexecute, authenticated_context, make_dataset
-):
+    aexecute: AExecute, authenticated_context: HttpContext, make_dataset: DatasetFactory
+) -> None:
     folder = await _make_folder(authenticated_context, "Container")
     dataset = await make_dataset()
     res = await aexecute(
         PUT_DATASETS, {"input": {"selfs": [str(dataset.id)], "other": str(folder.id)}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["putArrayDatasetsInFolder"]["id"] == str(folder.id)
     await dataset.arefresh_from_db()
     assert dataset.folder_id == folder.id
@@ -189,8 +215,10 @@ async def test_array_datasets_are_filed_and_unfiled(
 
 
 async def test_a_derived_dataset_follows_its_parent_and_cannot_be_filed_alone(
-    aexecute, authenticated_context, create_array_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """mikro's rule: only root data is filed explicitly, and re-filing a parent moves everything derived from it."""
     archive = await _make_folder(authenticated_context, "Archive")
     raw = await create_array_dataset("raw", [8000])
@@ -235,8 +263,8 @@ async def test_a_derived_dataset_follows_its_parent_and_cannot_be_filed_alone(
 
 
 async def test_tables_and_rasters_are_filed_like_datasets(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """A table (events, units) and a sparse dataset (a spike raster) are filed exactly as an array dataset is."""
     folder = await _make_folder(authenticated_context, "Sorting")
     table = await seed.create_table_dataset(authenticated_context, "units")
@@ -255,8 +283,11 @@ async def test_tables_and_rasters_are_filed_like_datasets(
 
 
 async def test_children_lists_everything_filed_in_a_folder(
-    aexecute, authenticated_context, make_dataset, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    make_dataset: DatasetFactory,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     folder = await _make_folder(authenticated_context, "Everything")
     await _make_folder(authenticated_context, "sub", parent=folder)
     await _make_file(authenticated_context, await bigfile_store(), folder=folder)
@@ -266,6 +297,7 @@ async def test_children_lists_everything_filed_in_a_folder(
 
     res = await aexecute(CHILDREN, {"parent": str(folder.id)})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [(child["__typename"], child["name"]) for child in res.data["children"]] == [
         ("Folder", "sub"),
         ("File", "f"),
@@ -281,8 +313,11 @@ async def test_children_lists_everything_filed_in_a_folder(
 
 
 async def test_deleting_a_folder_unfiles_what_was_in_it(
-    aexecute, authenticated_context, make_dataset, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    make_dataset: DatasetFactory,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     """`SET_NULL`, not `CASCADE`: this service's old `Dataset` took every file and trace in it along."""
     folder = await _make_folder(authenticated_context, "Doomed")
     file = await _make_file(authenticated_context, await bigfile_store(), folder=folder)
@@ -290,6 +325,7 @@ async def test_deleting_a_folder_unfiles_what_was_in_it(
 
     res = await aexecute(DELETE_FOLDER, {"input": {"id": str(folder.id)}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["deleteFolder"] == str(folder.id)
     assert not await Folder.objects.filter(id=folder.id).aexists()
     await file.arefresh_from_db()
@@ -300,19 +336,22 @@ async def test_deleting_a_folder_unfiles_what_was_in_it(
 # --- negatives ---------------------------------------------------------------
 
 
-async def test_delete_folder_not_found(aexecute):
+async def test_delete_folder_not_found(aexecute: AExecute) -> None:
     res = await aexecute(DELETE_FOLDER, {"input": {"id": "999999"}})
     assert res.errors
 
 
-async def test_create_folder_missing_required_name(aexecute):
+async def test_create_folder_missing_required_name(aexecute: AExecute) -> None:
     res = await aexecute(CREATE_FOLDER, {"input": {}})
     assert res.errors
 
 
 async def test_another_organization_cannot_file_into_or_delete_this_folder(
-    aexecute, authenticated_context, other_org_context, make_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+    make_dataset: DatasetFactory,
+) -> None:
     folder = await _make_folder(authenticated_context, "Mine")
     theirs = await make_dataset(context=other_org_context, name="theirs")
 

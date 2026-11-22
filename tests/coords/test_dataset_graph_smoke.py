@@ -6,6 +6,7 @@ the *logic* writes, so a failure here is a failure of the port and not of a reso
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
 
 from core import enums
@@ -16,7 +17,9 @@ from tests import seed
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
 
-async def test_a_dataset_lives_in_a_sample_grid_with_no_units(authenticated_context):
+async def test_a_dataset_lives_in_a_sample_grid_with_no_units(
+    authenticated_context: HttpContext,
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.TC_AXES, [30000, 4]
     )
@@ -36,8 +39,8 @@ async def test_a_dataset_lives_in_a_sample_grid_with_no_units(authenticated_cont
 
 
 async def test_an_unsliced_lens_shares_the_grid_and_a_sliced_one_records_the_shift(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.TC_AXES, [30000, 4]
     )
@@ -64,7 +67,9 @@ async def test_an_unsliced_lens_shares_the_grid_and_a_sliced_one_records_the_shi
     )
 
 
-async def test_a_lens_refuses_an_axis_its_dataset_does_not_have(authenticated_context):
+async def test_a_lens_refuses_an_axis_its_dataset_does_not_have(
+    authenticated_context: HttpContext,
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
     )
@@ -74,7 +79,9 @@ async def test_a_lens_refuses_an_axis_its_dataset_does_not_have(authenticated_co
         )
 
 
-async def test_a_sampling_law_is_one_affine_edge_onto_a_clock(authenticated_context):
+async def test_a_sampling_law_is_one_affine_edge_onto_a_clock(
+    authenticated_context: HttpContext,
+) -> None:
     """30 kHz starting 2 s in: t_seconds = sample / 30000 + 2, stated once, on one edge."""
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [30000]
@@ -101,7 +108,9 @@ async def test_a_sampling_law_is_one_affine_edge_onto_a_clock(authenticated_cont
     assert edges[0].validity == enums.PlacementValidityChoices.INFERRED.value
 
 
-async def test_a_metric_edge_is_refused_over_an_index_axis(authenticated_context):
+async def test_a_metric_edge_is_refused_over_an_index_axis(
+    authenticated_context: HttpContext,
+) -> None:
     """Spike number has no metric, so a spike train cannot be given a sampling rate."""
     spikes = await seed.create_dataset(
         authenticated_context, "unit 3", seed.SPIKE_AXES, [412], value_unit="second"
@@ -119,15 +128,17 @@ async def test_a_metric_edge_is_refused_over_an_index_axis(authenticated_context
 
 
 async def test_a_times_dataset_alone_in_its_system_can_be_a_field(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     times = await seed.create_dataset(
         authenticated_context, "times", seed.T_AXES, [500], value_unit="second"
     )
     await sync_to_async(graph.assert_field_is_dereferenceable)(times.coordinate_system)
 
 
-async def test_a_system_two_datasets_share_cannot_be_a_field(authenticated_context):
+async def test_a_system_two_datasets_share_cannot_be_a_field(
+    authenticated_context: HttpContext,
+) -> None:
     """Co-sampled datasets may share a grid, and then "the array whose values are the map" is not a function of the system."""
     first = await seed.create_dataset(
         authenticated_context, "soma.v", seed.T_AXES, [500]
@@ -148,7 +159,9 @@ async def test_a_system_two_datasets_share_cannot_be_a_field(authenticated_conte
         )
 
 
-async def test_an_empty_space_cannot_be_a_field(authenticated_context):
+async def test_an_empty_space_cannot_be_a_field(
+    authenticated_context: HttpContext,
+) -> None:
     world = await seed.create_world(authenticated_context)
     with pytest.raises(ValueError, match="No dataset lives in coordinate system"):
         await sync_to_async(graph.assert_field_is_dereferenceable)(world)
@@ -158,8 +171,8 @@ async def test_an_empty_space_cannot_be_a_field(authenticated_context):
 
 
 async def test_a_clock_sees_the_datasets_sampled_onto_it_and_where_they_sit(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """A 1 s recording at 1 kHz starting at t = 2 s occupies [2 s, 3 s) of its clock -- derived from the shape and the edge, stored nowhere."""
     from core.logic import space_graph
 
@@ -192,7 +205,9 @@ async def test_a_clock_sees_the_datasets_sampled_onto_it_and_where_they_sit(
     )
 
 
-async def test_a_window_is_in_view_through_its_own_edge(authenticated_context):
+async def test_a_window_is_in_view_through_its_own_edge(
+    authenticated_context: HttpContext,
+) -> None:
     """A sliced lens composes lens -> grid -> clock, so its box is the window's, not the recording's."""
     from core.logic import space_graph
 

@@ -18,6 +18,7 @@ a mask supplies one id, and the other axis is accounted for without it.
 import pytest
 from asgiref.sync import sync_to_async
 from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from core import enums, models
 from elektro_server.schema import schema
@@ -45,7 +46,11 @@ YX_AXES = [seed.axis("y", enums.AxisType.SPACE), seed.axis("x", enums.AxisType.S
 
 #: The declared axes of the matrix, in the order its stores' `shape` is written.
 def _axes(
-    mask=None, features=None, *, keyed: str = "object", table_axis: str = "feature"
+    mask: models.ArrayDataset | None = None,
+    features: str | None = None,
+    *,
+    keyed: str = "object",
+    table_axis: str = "feature",
 ) -> list[dict]:
     """The two axes, each carrying what identifies it.
 
@@ -73,7 +78,7 @@ def _axes(
 SHAPE = [40, 12]
 
 
-async def _mask(ctx: HttpContext, name: str = "cell labels"):
+async def _mask(ctx: HttpContext, name: str = "cell labels") -> models.ArrayDataset:
     """A label mask whose level-0 array has a zarr store, so a plan has something to name.
 
     `resolve_field_store` refuses a storeless array outright -- a plan is instructions for a
@@ -143,10 +148,11 @@ async def _features_table(ctx: HttpContext, name: str = "features") -> str:
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createTableDataset"]["id"]
 
 
-async def _create(ctx: HttpContext, name: str, **extra: object) -> object:
+async def _create(ctx: HttpContext, name: str, **extra: object) -> ExecutionResult:
     return await schema.execute(
         CREATE, context_value=ctx, variable_values={"input": {"name": name, **extra}}
     )
@@ -156,7 +162,7 @@ async def _create(ctx: HttpContext, name: str, **extra: object) -> object:
 @pytest.mark.asyncio
 async def test_both_layouts_land_as_two_arrays_of_one_dataset(
     authenticated_context: HttpContext,
-):
+) -> None:
     """One matrix, two stores, and the axis each indexes derived from its own encoding."""
     mask = await _mask(authenticated_context)
     features = await _features_table(authenticated_context)
@@ -169,6 +175,7 @@ async def test_both_layouts_land_as_two_arrays_of_one_dataset(
         axes=_axes(mask, features),
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     dataset = result.data["createSparseDataset"]
 
     assert dataset["axisNames"] == ["feature", "object"]
@@ -199,7 +206,7 @@ async def test_both_layouts_land_as_two_arrays_of_one_dataset(
 @pytest.mark.asyncio
 async def test_one_layout_is_legal_and_offers_one_capability(
     authenticated_context: HttpContext,
-):
+) -> None:
     """A dataset with a single store is not half-built: it answers one question, and says so."""
     mask = await _mask(authenticated_context)
     features = await _features_table(authenticated_context)
@@ -212,6 +219,7 @@ async def test_one_layout_is_legal_and_offers_one_capability(
         axes=_axes(mask, features),
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["createSparseDataset"]["indexableAxes"] == ["feature"], (
         "one store, one capability"
     )
@@ -221,7 +229,7 @@ async def test_one_layout_is_legal_and_offers_one_capability(
 @pytest.mark.asyncio
 async def test_the_keyed_axis_is_produced_and_the_referenced_one_is_not(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The rule this whole shape rests on: a mask supplies one id, and that is enough.
 
     `assert_edge_rank` accounts for every axis of a FIELD's target -- by the edge, or by the
@@ -239,6 +247,7 @@ async def test_the_keyed_axis_is_produced_and_the_referenced_one_is_not(
         axes=_axes(mask, features),
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     def edges() -> list[models.Transformation]:
         system = models.CoordinateSystem.objects.get(
@@ -264,7 +273,7 @@ async def test_the_keyed_axis_is_produced_and_the_referenced_one_is_not(
 @pytest.mark.asyncio
 async def test_an_axis_identified_by_nothing_is_refused(
     authenticated_context: HttpContext,
-):
+) -> None:
     """`identifiedBy` is a list now, so the empty case is expressible and comes back as prose.
 
     It was a singular required field, and "identified by nothing" was a document GraphQL would
@@ -295,7 +304,7 @@ async def test_an_axis_identified_by_nothing_is_refused(
 @pytest.mark.asyncio
 async def test_an_axis_identified_two_ways_at_once_is_refused(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The union reads one id field, chosen by `kind`, and rejects any other."""
     mask = await _mask(authenticated_context)
     features = await _features_table(authenticated_context)
@@ -319,7 +328,7 @@ async def test_an_axis_identified_two_ways_at_once_is_refused(
 @pytest.mark.asyncio
 async def test_a_keyed_axis_the_source_cannot_supply_is_refused(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The check the caller's statement buys: the derivation now has something to disagree with.
 
     Naming the axis is not naming the split -- `consumed` and the passthrough are still derived --
@@ -360,7 +369,7 @@ async def test_a_keyed_axis_the_source_cannot_supply_is_refused(
 @pytest.mark.asyncio
 async def test_two_stores_indexing_one_axis_are_refused(
     authenticated_context: HttpContext,
-):
+) -> None:
     """One capability twice, and nothing to say which a reader should use."""
     mask = await _mask(authenticated_context)
     features = await _features_table(authenticated_context)
@@ -383,7 +392,7 @@ async def test_two_stores_indexing_one_axis_are_refused(
 @pytest.mark.asyncio
 async def test_a_store_whose_shape_contradicts_the_axes_is_refused(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The check only possible because the store read its own shape rather than being told it.
 
     Two *stores* disagreeing about the shape is no longer representable -- one matrix is one
@@ -407,7 +416,9 @@ async def test_a_store_whose_shape_contradicts_the_axes_is_refused(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_unfinished_store_is_refused(authenticated_context: HttpContext):
+async def test_an_unfinished_store_is_refused(
+    authenticated_context: HttpContext,
+) -> None:
     """An unfinished store knows nothing about itself, so a dataset over it would know nothing."""
     mask = await _mask(authenticated_context)
     features = await _features_table(authenticated_context)
@@ -441,7 +452,7 @@ async def test_an_unfinished_store_is_refused(authenticated_context: HttpContext
 CUBE_SHAPE = [40, 12, 3]
 
 
-def _cube_axes(mask, features, timepoints) -> list[dict]:
+def _cube_axes(mask: models.ArrayDataset, features: str, timepoints: str) -> list[dict]:
     """Three axes, one keyed and two referenced. The rule does not change with rank."""
     return [
         {"name": "feature", "identifiedBy": [{"kind": "TABLE", "table": features}]},
@@ -457,7 +468,7 @@ def _cube_axes(mask, features, timepoints) -> list[dict]:
 @pytest.mark.asyncio
 async def test_a_rank_three_matrix_is_a_sparse_dataset(
     authenticated_context: HttpContext,
-):
+) -> None:
     """A layout is one axis made contiguous, so an array of rank n has up to n of them.
 
     The store, the datalayer reader and this mutation are all written that way. A
@@ -487,6 +498,7 @@ async def test_a_rank_three_matrix_is_a_sparse_dataset(
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     dataset = result.data["createSparseDataset"]
 
     assert dataset["axisNames"] == ["feature", "object", "timepoint"]
@@ -517,7 +529,7 @@ async def test_a_rank_three_matrix_is_a_sparse_dataset(
 @pytest.mark.asyncio
 async def test_a_rank_three_edge_still_produces_exactly_one_id(
     authenticated_context: HttpContext,
-):
+) -> None:
     """The FIELD rule is unchanged by rank: a mask supplies one id, and the rest identify themselves."""
     mask = await _mask(authenticated_context)
     features = await _features_table(authenticated_context, "features")
@@ -536,6 +548,7 @@ async def test_a_rank_three_edge_still_produces_exactly_one_id(
         },
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     def edges() -> list[models.Transformation]:
         system = models.CoordinateSystem.objects.get(

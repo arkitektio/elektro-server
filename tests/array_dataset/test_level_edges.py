@@ -17,6 +17,7 @@ it.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import enums, models
 from tests import seed
@@ -32,8 +33,8 @@ _PHYSICAL_AXES = [
 
 
 async def test_level_zero_has_no_parent_edge_even_when_the_dataset_is_registered(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """Level 0's space IS intrinsic, so it has no edge -- however many edges leave that space."""
     ctx = authenticated_context
     dataset = await seed.create_array_dataset(
@@ -55,8 +56,8 @@ async def test_level_zero_has_no_parent_edge_even_when_the_dataset_is_registered
 
 
 async def test_level_zero_of_a_timed_recording_has_no_parent_edge(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """The ephys reading of the same shape: a decimated (t, c) recording whose grid is registered onto a clock."""
     ctx = authenticated_context
     dataset = await seed.create_array_dataset(
@@ -79,7 +80,9 @@ async def test_level_zero_of_a_timed_recording_has_no_parent_edge(
     )
 
 
-async def test_a_downsampled_level_returns_its_own_edge(authenticated_context):
+async def test_a_downsampled_level_returns_its_own_edge(
+    authenticated_context: HttpContext,
+) -> None:
     """A level that owns a space answers with the edge `create_level_edge` wrote for it."""
     ctx = authenticated_context
     dataset = await seed.create_array_dataset(
@@ -106,7 +109,9 @@ async def test_a_downsampled_level_returns_its_own_edge(authenticated_context):
     )
 
 
-async def test_an_unsliced_lens_has_no_parent_edge(authenticated_context):
+async def test_an_unsliced_lens_has_no_parent_edge(
+    authenticated_context: HttpContext,
+) -> None:
     """The lens half of the same rule: no slices, no shift, no edge -- and no borrowed one either."""
     ctx = authenticated_context
     dataset = await seed.create_array_dataset(ctx, "Lensed")

@@ -7,14 +7,17 @@ the versions of it that would be silently wrong.
 """
 
 import datetime
+from collections.abc import Awaitable
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
 
 from core import enums
+from core.inputs.coords import AxisInputModel
 from core.logic import clocks, graph, space_graph
-from core.models import Transformation
+from core.models import CoordinateSystem, Transformation
 from tests import seed
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -23,13 +26,24 @@ KHZ_30 = 30_000 * 10**9  # nanohertz
 SECONDS_2 = 2 * 10**12  # picoseconds
 
 
-def _clock(ctx, name="session", unit="second", epoch=None):
+def _clock(
+    ctx: HttpContext,
+    name: str = "session",
+    unit: str = "second",
+    epoch: datetime.datetime | None = None,
+) -> Awaitable[CoordinateSystem]:
     return sync_to_async(clocks.create_clock)(
         name=name, unit=unit, epoch=epoch, ctx=seed._creation(ctx)
     )
 
 
-def _law(ctx, grid, clock, rate=KHZ_30, start=SECONDS_2):
+def _law(
+    ctx: HttpContext,
+    grid: CoordinateSystem,
+    clock: CoordinateSystem,
+    rate: int = KHZ_30,
+    start: int = SECONDS_2,
+) -> Awaitable[Transformation]:
     return sync_to_async(clocks.write_sampling_law)(
         grid=grid,
         clock=clock,
@@ -48,8 +62,8 @@ def _law(ctx, grid, clock, rate=KHZ_30, start=SECONDS_2):
     ids=["t", "t,c"],
 )
 async def test_a_sampling_law_is_one_edge_whatever_the_rank(
-    authenticated_context, axes, shape
-):
+    authenticated_context: HttpContext, axes: list[AxisInputModel], shape: list[int]
+) -> None:
     """A (t) and a (t, c) dataset read identically: the law names the time axis and says nothing about channels."""
     dataset = await seed.create_dataset(authenticated_context, "Vm", axes, shape)
     clock = await _clock(authenticated_context)
@@ -72,7 +86,9 @@ async def test_a_sampling_law_is_one_edge_whatever_the_rank(
     )
 
 
-async def test_the_rate_and_start_are_read_back_off_the_edge(authenticated_context):
+async def test_the_rate_and_start_are_read_back_off_the_edge(
+    authenticated_context: HttpContext,
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [30000]
     )
@@ -87,7 +103,9 @@ async def test_the_rate_and_start_are_read_back_off_the_edge(authenticated_conte
     )
 
 
-async def test_the_law_is_written_in_the_clocks_unit(authenticated_context):
+async def test_the_law_is_written_in_the_clocks_unit(
+    authenticated_context: HttpContext,
+) -> None:
     """The same 30 kHz on a millisecond clock is a period of 1/30 ms -- and still reads back as 30 kHz."""
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [30000]
@@ -102,8 +120,8 @@ async def test_the_law_is_written_in_the_clocks_unit(authenticated_context):
 
 
 async def test_a_sampled_dataset_is_placeable_and_in_view_on_its_clock(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.TC_AXES, [30000, 4]
     )
@@ -115,7 +133,7 @@ async def test_a_sampled_dataset_is_placeable_and_in_view_on_its_clock(
         clock, dataset.coordinate_system, require_affine=True
     )
 
-    def look():
+    def look() -> list[space_graph.Hit]:
         return space_graph.SpaceGraph(clock, organization=organization).in_view(
             space_graph.region_from_bounds(clock, [0.0], [10.0]), with_anchors=False
         )
@@ -127,7 +145,9 @@ async def test_a_sampled_dataset_is_placeable_and_in_view_on_its_clock(
     )
 
 
-async def test_a_sampling_law_needs_a_time_axis_to_act_on(authenticated_context):
+async def test_a_sampling_law_needs_a_time_axis_to_act_on(
+    authenticated_context: HttpContext,
+) -> None:
     spikes = await seed.create_dataset(
         authenticated_context, "unit 3", seed.SPIKE_AXES, [412], value_unit="second"
     )
@@ -136,7 +156,7 @@ async def test_a_sampling_law_needs_a_time_axis_to_act_on(authenticated_context)
         await _law(authenticated_context, spikes.coordinate_system, clock)
 
 
-async def test_a_sampling_rate_is_positive(authenticated_context):
+async def test_a_sampling_rate_is_positive(authenticated_context: HttpContext) -> None:
     dataset = await seed.create_dataset(authenticated_context, "Vm", seed.T_AXES, [100])
     clock = await _clock(authenticated_context)
     with pytest.raises(ValueError, match="A sampling rate is positive"):
@@ -147,8 +167,8 @@ async def test_a_sampling_rate_is_positive(authenticated_context):
 
 
 async def test_an_irregular_signal_is_timed_by_a_lookup_through_its_times_dataset(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     signal = await seed.create_dataset(
         authenticated_context, "Ca", seed.T_AXES, [500], value_unit="a.u."
     )
@@ -189,7 +209,9 @@ async def test_an_irregular_signal_is_timed_by_a_lookup_through_its_times_datase
     )
 
 
-async def test_a_spike_train_is_its_own_lookup(authenticated_context):
+async def test_a_spike_train_is_its_own_lookup(
+    authenticated_context: HttpContext,
+) -> None:
     """Its values ARE its times, so the field is the input -- stored as null, which keeps the dataset deletable."""
     spikes = await seed.create_dataset(
         authenticated_context, "unit 3", seed.SPIKE_AXES, [412], value_unit="second"
@@ -213,7 +235,9 @@ async def test_a_spike_train_is_its_own_lookup(authenticated_context):
     )
 
 
-async def test_a_lookup_cannot_convert_units_so_it_refuses_to(authenticated_context):
+async def test_a_lookup_cannot_convert_units_so_it_refuses_to(
+    authenticated_context: HttpContext,
+) -> None:
     """Milliseconds read against a clock in seconds would put every sample a thousandfold early, and nothing downstream could tell."""
     signal = await seed.create_dataset(authenticated_context, "Ca", seed.T_AXES, [500])
     times = await seed.create_dataset(
@@ -239,7 +263,9 @@ async def test_a_lookup_cannot_convert_units_so_it_refuses_to(authenticated_cont
     ],
     ids=["no unit", "not a time"],
 )
-async def test_a_times_dataset_holds_times(authenticated_context, unit, message):
+async def test_a_times_dataset_holds_times(
+    authenticated_context: HttpContext, unit: str | None, message: str
+) -> None:
     signal = await seed.create_dataset(authenticated_context, "Ca", seed.T_AXES, [500])
     times = await seed.create_dataset(
         authenticated_context, "Ca/times", seed.T_AXES, [500], value_unit=unit
@@ -260,8 +286,8 @@ async def test_a_times_dataset_holds_times(authenticated_context, unit, message)
 
 
 async def test_an_offset_between_two_clocks_in_one_unit_is_a_translation(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     segment = await _clock(authenticated_context, "segment 2")
     session = await _clock(
         authenticated_context,
@@ -283,7 +309,9 @@ async def test_an_offset_between_two_clocks_in_one_unit_is_a_translation(
     assert await sync_to_async(clocks.offset_of)(segment, session) == 90 * 10**12
 
 
-async def test_an_offset_between_two_units_states_the_factor(authenticated_context):
+async def test_an_offset_between_two_units_states_the_factor(
+    authenticated_context: HttpContext,
+) -> None:
     """A simulation clock counts milliseconds; laid into a world in seconds, the edge must say 0.001 -- a bare translation cannot."""
     simulation = await _clock(authenticated_context, "simulation", unit="millisecond")
     world = await _clock(authenticated_context, "world")
@@ -299,8 +327,8 @@ async def test_an_offset_between_two_units_states_the_factor(authenticated_conte
 
 
 async def test_a_recording_composes_through_its_clock_into_a_world(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """sample grid -> segment clock -> world: two edges, composed on read, stored nowhere."""
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
@@ -322,7 +350,7 @@ async def test_a_recording_composes_through_its_clock_into_a_world(
     )
     organization = authenticated_context.request.organization
 
-    def look():
+    def look() -> list[space_graph.Hit]:
         return space_graph.SpaceGraph(world, organization=organization).in_view(
             space_graph.region_from_bounds(world, [0.0], [100.0]), with_anchors=False
         )
@@ -338,7 +366,9 @@ async def test_a_recording_composes_through_its_clock_into_a_world(
 # one space and fetches the edges touching it; here the chain of clocks is the ordinary layout.
 
 
-async def test_a_recording_is_placed_through_a_three_clock_chain(authenticated_context):
+async def test_a_recording_is_placed_through_a_three_clock_chain(
+    authenticated_context: HttpContext,
+) -> None:
     """sample grid -> segment clock -> session clock -> world: every hop past the first is frame-to-frame."""
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
@@ -374,7 +404,7 @@ async def test_a_recording_is_placed_through_a_three_clock_chain(authenticated_c
         graph.placeable_system_ids_in
     )(world)
 
-    def look():
+    def look() -> list[space_graph.Hit]:
         return space_graph.SpaceGraph(world, organization=organization).in_view(
             space_graph.region_from_bounds(world, [0.0], [1000.0]), with_anchors=False
         )
@@ -385,8 +415,8 @@ async def test_a_recording_is_placed_through_a_three_clock_chain(authenticated_c
 
 
 async def test_a_shared_clock_does_not_leak_one_world_into_another(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """One session clock laid into two worlds: each sees the session's recording, neither sees what is only in the other.
 
     The chain is walked backwards only. Following the clock's *other* outgoing edge would drag
@@ -433,7 +463,9 @@ async def test_a_shared_clock_does_not_leak_one_world_into_another(
     assert world_b.pk not in await sync_to_async(graph.frames_into)(world_a)
 
 
-async def test_a_chain_of_frames_may_be_a_cycle_without_hanging(authenticated_context):
+async def test_a_chain_of_frames_may_be_a_cycle_without_hanging(
+    authenticated_context: HttpContext,
+) -> None:
     a = await _clock(authenticated_context, "a")
     b = await _clock(authenticated_context, "b")
     ctx = seed._creation(authenticated_context)

@@ -14,12 +14,15 @@ mikro's helpers patch ``ZarrStore.fill_info``; these go through the ``create_arr
 fixture, over a real ``zarr.json`` in the compose RustFS.
 """
 
-from typing import Any
+from collections.abc import Mapping, Sequence
 
 import pytest
+from django.db.models import Model
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute, CreateArrayDatasetFactory, GraphQLData
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -45,28 +48,36 @@ _T = [{"name": "t", "type": "TIME"}]
 
 
 async def _create_annotation_collection(
-    aexecute, name: str, derived_from=None
-) -> dict[str, Any]:  # noqa: ANN001
+    aexecute: AExecute,
+    name: str,
+    derived_from: Sequence[Mapping[str, object]] | None = None,
+) -> GraphQLData:
     """A collection, made the way a client makes one. `createAnnotationCollection` takes no `folder` here (mikro's does)."""
-    payload: dict[str, Any] = {"name": name, "axes": _T}
+    payload: dict[str, object] = {"name": name, "axes": _T}
     if derived_from is not None:
         payload["derivedFrom"] = derived_from
     result = await aexecute(CREATE_ANNOTATION_COLLECTION, {"input": payload})
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createAnnotationCollection"]
 
 
-async def _create_table(aexecute, ctx, name: str, folder=None) -> dict[str, Any]:  # noqa: ANN001
+async def _create_table(
+    aexecute: AExecute, ctx: HttpContext, name: str, folder: models.Folder | None = None
+) -> GraphQLData:
     """An event table, made the way a client makes one: a finished parquet store, then `createTableDataset`."""
-    payload: dict[str, Any] = await seed.table_input(ctx, name, _EVENTS)
+    payload: dict[str, object] = await seed.table_input(ctx, name, _EVENTS)
     if folder is not None:
         payload["folder"] = str(folder.pk)
     result = await aexecute(CREATE_TABLE, {"input": payload})
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createTableDataset"]
 
 
-async def _file_collection(aexecute, collection: dict, folder) -> None:  # noqa: ANN001
+async def _file_collection(
+    aexecute: AExecute, collection: GraphQLData, folder: models.Folder
+) -> None:
     moved = await aexecute(
         "mutation M($input: AssociateInput!) { putAnnotationCollectionsInFolder(input: $input) { id } }",
         {"input": {"selfs": [collection["id"]], "other": str(folder.pk)}},
@@ -74,15 +85,17 @@ async def _file_collection(aexecute, collection: dict, folder) -> None:  # noqa:
     assert not moved.errors, moved.errors
 
 
-def _derived_from(parent: dict) -> list[dict]:
+def _derived_from(parent: GraphQLData) -> list[dict[str, object]]:
     return [
         {"kind": "DATASET", "dataset": parent["id"], "transform": {"kind": "IDENTITY"}}
     ]
 
 
 async def test_every_container_files_into_a_named_folder(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """Everything that takes a folder on create accepts it and reads it back."""
     ctx = authenticated_context
     folder = await seed.create_folder(ctx, "Experiment A")
@@ -100,8 +113,10 @@ async def test_every_container_files_into_a_named_folder(
 
 
 async def test_a_container_created_without_a_folder_lands_in_the_default(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """Omitting the folder files it in the user's default, exactly as a file has always been.
 
     The column is nullable and unfiled rows are legal, but nothing created *through the API*
@@ -130,8 +145,8 @@ async def test_a_container_created_without_a_folder_lands_in_the_default(
     ),
 )
 async def test_an_annotation_collection_created_without_a_folder_lands_in_the_default(
-    aexecute,
-):
+    aexecute: AExecute,
+) -> None:
     """mikro's assertion for the fourth container: nothing created through the API is left unfiled."""
     collection = await _create_annotation_collection(aexecute, "Drawn")
 
@@ -153,8 +168,10 @@ async def test_an_annotation_collection_created_without_a_folder_lands_in_the_de
     ),
 )
 async def test_a_derived_annotation_collection_is_filed_with_its_parent(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """Filing is a historical question, not a spatial one: marks detected on a recording live where the recording lives."""
     home = await seed.create_folder(authenticated_context, "Home")
     parent = await create_array_dataset("Acquired", [1000], folder=home.pk)
@@ -169,8 +186,10 @@ async def test_a_derived_annotation_collection_is_filed_with_its_parent(
 
 
 async def test_a_folder_lists_every_kind_of_container_it_holds(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """The reverse lists on Folder, one per fileable type."""
     ctx = authenticated_context
     folder = await seed.create_folder(ctx, "Everything")
@@ -198,6 +217,7 @@ async def test_a_folder_lists_every_kind_of_container_it_holds(
         {"id": str(folder.pk)},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     contents = result.data["folder"]
     assert [d["name"] for d in contents["arrayDatasets"]] == ["Acquired"]
@@ -208,8 +228,10 @@ async def test_a_folder_lists_every_kind_of_container_it_holds(
 
 
 async def test_children_returns_the_containers_alongside_files(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """`children` is the folder's contents, so it has to include what folders can now hold.
 
     It returned only sub-folders and files while the containers were unfileable;
@@ -229,14 +251,17 @@ async def test_children_returns_the_containers_alongside_files(
         {"parent": str(folder.pk)},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     kinds = {child["__typename"] for child in result.data["children"]}
     assert kinds == {"File", "ArrayDataset", "AnnotationCollection", "TableDataset"}
 
 
 async def test_children_orders_and_searches_across_every_source(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """The `order` and `search` branches, which fan across all five sources.
 
     Worth its own test because `children` builds its querysets from a table, and both
@@ -271,6 +296,7 @@ async def test_children_orders_and_searches_across_every_source(
         {"parent": str(folder.pk), "order": {"field": "NAME", "direction": "ASC"}},
     )
     assert not ordered.errors, ordered.errors
+    assert ordered.data is not None
     assert len(ordered.data["children"]) == 5, "ordering by name must not drop a source"
     by_kind: dict[str, list[str]] = {}
     for child in ordered.data["children"]:
@@ -291,6 +317,7 @@ async def test_children_orders_and_searches_across_every_source(
         },
     )
     assert not by_created.errors, by_created.errors
+    assert by_created.data is not None
     assert len(by_created.data["children"]) == 5
 
     searched = await aexecute(
@@ -298,6 +325,7 @@ async def test_children_orders_and_searches_across_every_source(
         {"parent": str(folder.pk), "filters": {"search": "Alpha"}},
     )
     assert not searched.errors, searched.errors
+    assert searched.data is not None
     assert [c["__typename"] for c in searched.data["children"]] == ["TableDataset"], (
         "search must reach the containers, and only match one here"
     )
@@ -307,6 +335,7 @@ async def test_children_orders_and_searches_across_every_source(
         {"parent": str(folder.pk), "filters": {"search": None, "showChildren": None}},
     )
     assert not unasked.errors, unasked.errors
+    assert unasked.data is not None
     assert len(unasked.data["children"]) == 5, "an explicit null is no constraint"
 
 
@@ -325,8 +354,10 @@ query Children($parent: ID!, $filters: FolderChildrenFilter) {
 
 
 async def test_children_hides_what_was_converted_from_a_file_until_asked(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """A dataset converted from a file is that file again, so the listing shows the file alone.
 
     Only the ingest direction hides: an exported dataset was not made from its file, and
@@ -361,6 +392,7 @@ async def test_children_hides_what_was_converted_from_a_file_until_asked(
             CHILD_NAMES, {"parent": str(folder.pk), "filters": filters}
         )
         assert not result.errors, result.errors
+        assert result.data is not None
         return {child["name"] for child in result.data["children"]}
 
     everything = {"cell3.abf", "sweep.nwb", "Converted", "Exported", "Acquired"}
@@ -370,8 +402,10 @@ async def test_children_hides_what_was_converted_from_a_file_until_asked(
 
 
 async def test_containers_are_filterable_by_folder(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """`folder` and `folders` on each container filter, and they filter independently."""
     ctx = authenticated_context
     here = await seed.create_folder(ctx, "Here")
@@ -394,6 +428,7 @@ async def test_containers_are_filterable_by_folder(
         {"here": str(here.pk), "both": [str(here.pk), str(there.pk)]},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     assert [d["name"] for d in result.data["here"]] == ["Mine"]
     assert {d["name"] for d in result.data["both"]} == {"Mine", "Theirs"}
@@ -404,8 +439,10 @@ async def test_containers_are_filterable_by_folder(
 
 
 async def test_deleting_a_folder_unfiles_its_contents_and_destroys_nothing(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """`on_delete=SET_NULL` everywhere: a folder is organisational, so deleting one says
     nothing about whether its contents should exist.
 
@@ -436,7 +473,7 @@ async def test_deleting_a_folder_unfiles_its_contents_and_destroys_nothing(
     )
     assert not deleted.errors, deleted.errors
 
-    async def survives_unfiled(model, pk) -> bool:  # noqa: ANN001
+    async def survives_unfiled(model: type[Model], pk: int | str) -> bool:
         """Still there, and no longer filed. Asked as a query so `<fk>_id` is never read."""
         return await model.objects.filter(pk=pk, folder__isnull=True).aexists()
 
@@ -451,8 +488,10 @@ async def test_deleting_a_folder_unfiles_its_contents_and_destroys_nothing(
 
 
 async def test_a_container_can_be_refiled_and_unfiled(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """`put<Things>InFolder` / `release<Things>FromFolder` for every fileable kind.
 
     Without these a container could be filed once, at creation, and never moved: `folder`
@@ -515,8 +554,8 @@ async def test_a_container_can_be_refiled_and_unfiled(
 
 
 async def test_releasing_a_file_from_a_folder_no_longer_violates_not_null(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`File.folder` was NOT NULL while `releaseFilesFromFolder` set it to None.
 
     Every call was an IntegrityError. Making the column nullable -- which SET_NULL needed
@@ -536,8 +575,10 @@ async def test_releasing_a_file_from_a_folder_no_longer_violates_not_null(
 
 
 async def test_derived_data_is_filed_with_its_parent_and_cannot_be_filed_alone(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """Only root data is filed explicitly; a derivation inherits and refuses a folder of its own.
 
     Kind-blind: the dataset below derives UNMAPPABLY from its parent -- per-sweep summary
@@ -588,8 +629,10 @@ async def test_derived_data_is_filed_with_its_parent_and_cannot_be_filed_alone(
 
 
 async def test_moving_a_parent_moves_everything_derived_from_it(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """The stored copy stays honest: re-filing a root rewrites its descendants, transitively."""
     ctx = authenticated_context
     home = await seed.create_folder(ctx, "Home")
@@ -631,8 +674,10 @@ async def test_moving_a_parent_moves_everything_derived_from_it(
 
 
 async def test_a_secondary_parent_does_not_carry_the_filing(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """A fusion sits with its *primary* parent, matching the rule placement already uses."""
     ctx = authenticated_context
     first_home = await seed.create_folder(ctx, "First")
@@ -662,8 +707,10 @@ async def test_a_secondary_parent_does_not_carry_the_filing(
 
 
 async def test_filing_says_nothing_about_placement(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """Two datasets in one folder share no space, and one dataset's folder is not its system.
 
     The point of the whole feature: `folder` is organisational and the coordinate graph is
@@ -686,6 +733,7 @@ async def test_filing_says_nothing_about_placement(
         {"a": first["id"], "b": second["id"]},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     a, b = result.data["a"], result.data["b"]
     assert a["folder"]["id"] == b["folder"]["id"], "same folder"
@@ -707,8 +755,11 @@ async def test_filing_says_nothing_about_placement(
 
 
 async def test_another_organization_cannot_file_this_organizations_data(
-    aexecute, create_array_dataset, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     """Both ends of a filing are organization-scoped lookups: their folder cannot take our data, and ours cannot take theirs."""
     ours = await seed.create_folder(authenticated_context, "Ours")
     theirs = await seed.create_folder(other_org_context, "Theirs")

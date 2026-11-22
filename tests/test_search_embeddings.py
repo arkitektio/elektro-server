@@ -8,15 +8,19 @@ description through ``save()`` -- the path a user edit takes.
 """
 
 import math
+from collections.abc import Awaitable, Mapping, Sequence
+from typing import Protocol, TypeAlias
 
 import numpy as np
 import pytest
 from asgiref.sync import sync_to_async
 from django.test import override_settings
+from kante.context import HttpContext
 
 from core.models import ArrayDataset, SparseDataset, TableDataset
 from embeddings import engine
 from embeddings.healer import reembed_all, reembed_stale
+from tests.fixture_types import AExecute
 from tests.seed import create_array_dataset, create_sparse_dataset, create_table_dataset
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -32,7 +36,19 @@ def _query(field: str, filter_name: str, order_name: str) -> str:
     """
 
 
-async def _dataset(seed, ctx, name: str, description: str | None = None):
+#: A row ``search`` ranks: each embeds its name + description on save.
+Searchable: TypeAlias = ArrayDataset | TableDataset | SparseDataset
+
+
+class Seeder(Protocol):
+    """A ``tests.seed`` builder of one searchable kind."""
+
+    def __call__(self, ctx: HttpContext, name: str = ...) -> Awaitable[Searchable]: ...
+
+
+async def _dataset(
+    seed: Seeder, ctx: HttpContext, name: str, description: str | None = None
+) -> Searchable:
     row = await seed(ctx, name=name)
     if description is not None:
         row.description = description
@@ -78,23 +94,40 @@ def _vec(e0: np.ndarray, distance: float) -> list[float]:
     )
 
 
-async def _pin(model, row, e0, distance, embedding_model=None):
+async def _pin(
+    model: type[Searchable],
+    row: Searchable,
+    e0: np.ndarray,
+    distance: float | None,
+    embedding_model: str | None = None,
+) -> None:
     await model.objects.filter(pk=row.pk).aupdate(
         embedding=_vec(e0, distance) if distance is not None else None,
         embedding_model=embedding_model or engine.model_id(),
     )
 
 
-async def _names(aexecute, query, search, ordering=None):
+async def _names(
+    aexecute: AExecute,
+    query: str,
+    search: str,
+    ordering: Sequence[Mapping[str, str]] | None = None,
+) -> list[str]:
     res = await aexecute(
         query, {"filters": {"search": search}, "ordering": ordering or []}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     return [row["name"] for row in next(iter(res.data.values()))]
 
 
 @pytest.mark.parametrize(("model", "seed", "query"), MODELS)
-async def test_create_embeds(authenticated_context, model, seed, query):
+async def test_create_embeds(
+    authenticated_context: HttpContext,
+    model: type[Searchable],
+    seed: Seeder,
+    query: str,
+) -> None:
     row = await _dataset(
         seed,
         authenticated_context,
@@ -107,7 +140,9 @@ async def test_create_embeds(authenticated_context, model, seed, query):
     assert row.embedding_model == engine.model_id()
 
 
-async def test_editing_the_description_reembeds_without_history(authenticated_context):
+async def test_editing_the_description_reembeds_without_history(
+    authenticated_context: HttpContext,
+) -> None:
     row = await _dataset(
         create_array_dataset,
         authenticated_context,
@@ -126,7 +161,9 @@ async def test_editing_the_description_reembeds_without_history(authenticated_co
     )
 
 
-async def test_healer_reembeds_rows_of_another_model(authenticated_context):
+async def test_healer_reembeds_rows_of_another_model(
+    authenticated_context: HttpContext,
+) -> None:
     models = [ArrayDataset, TableDataset, SparseDataset]
     rows = [
         await _dataset(seed, authenticated_context, "Blur", "Gaussian blur")
@@ -147,8 +184,12 @@ async def test_healer_reembeds_rows_of_another_model(authenticated_context):
 
 @pytest.mark.parametrize(("model", "seed", "query"), MODELS)
 async def test_semantic_match_without_substring(
-    aexecute, authenticated_context, model, seed, query
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    model: type[Searchable],
+    seed: Seeder,
+    query: str,
+) -> None:
     await _dataset(
         seed,
         authenticated_context,
@@ -167,8 +208,12 @@ async def test_semantic_match_without_substring(
 
 @pytest.mark.parametrize(("model", "seed", "query"), MODELS)
 async def test_lexical_only_when_disabled(
-    aexecute, authenticated_context, model, seed, query
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    model: type[Searchable],
+    seed: Seeder,
+    query: str,
+) -> None:
     await _dataset(seed, authenticated_context, "Detect cells")
     await _dataset(
         seed, authenticated_context, "Segment nuclei", "detect cells in an image"
@@ -179,8 +224,12 @@ async def test_lexical_only_when_disabled(
 
 @pytest.mark.parametrize(("model", "seed", "query"), MODELS)
 async def test_ranking_lexical_first_then_by_distance(
-    aexecute, authenticated_context, model, seed, query
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    model: type[Searchable],
+    seed: Seeder,
+    query: str,
+) -> None:
     e0 = np.asarray(engine.embed_query(QUERY))
     await _pin(model, await _dataset(seed, authenticated_context, "Far"), e0, 0.5)
     await _pin(model, await _dataset(seed, authenticated_context, "Near"), e0, 0.1)
@@ -202,8 +251,12 @@ async def test_ranking_lexical_first_then_by_distance(
 
 @pytest.mark.parametrize(("model", "seed", "query"), MODELS)
 async def test_stale_embedding_model_is_not_a_vector_hit(
-    aexecute, authenticated_context, model, seed, query
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    model: type[Searchable],
+    seed: Seeder,
+    query: str,
+) -> None:
     e0 = np.asarray(engine.embed_query(QUERY))
     await _pin(
         model,
@@ -224,8 +277,12 @@ async def test_stale_embedding_model_is_not_a_vector_hit(
 
 @pytest.mark.parametrize(("model", "seed", "query"), MODELS)
 async def test_explicit_ordering_replaces_the_ranking(
-    aexecute, authenticated_context, model, seed, query
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    model: type[Searchable],
+    seed: Seeder,
+    query: str,
+) -> None:
     e0 = np.asarray(engine.embed_query(QUERY))
     await _pin(model, await _dataset(seed, authenticated_context, "Zeta"), e0, 0.1)
     await _pin(model, await _dataset(seed, authenticated_context, "Alpha"), e0, 0.4)
@@ -236,7 +293,9 @@ async def test_explicit_ordering_replaces_the_ranking(
     ]
 
 
-async def test_null_search_means_no_constraint(aexecute, authenticated_context):
+async def test_null_search_means_no_constraint(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Under USE_DEPRECATED_FILTERS an explicit ``null`` reaches the resolver; it filters nothing."""
     await _dataset(create_array_dataset, authenticated_context, "Anything")
     res = await aexecute(
@@ -244,10 +303,13 @@ async def test_null_search_means_no_constraint(aexecute, authenticated_context):
         {"filters": {"search": None}, "ordering": []},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert [row["name"] for row in res.data["arrayDatasets"]] == ["Anything"]
 
 
-async def test_unloadable_model_degrades_to_substring(aexecute, authenticated_context):
+async def test_unloadable_model_degrades_to_substring(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     e0 = np.asarray(engine.embed_query(QUERY))
     await _pin(
         ArrayDataset,

@@ -9,9 +9,11 @@ heatmap, its range read off the dataset's recorded value histogram.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -32,7 +34,9 @@ mutation ($input: CreateHeatmapLayerInput!) {
 """
 
 
-async def _session(ctx, dataset) -> tuple:  # noqa: ANN001
+async def _session(
+    ctx: HttpContext, dataset: models.ArrayDataset
+) -> tuple[models.CoordinateSystem, models.Experiment]:
     """A session clock the dataset is timed on at 1 kHz, and an experiment over it."""
     clock = await seed.create_clock(ctx, "session")
     await seed.time_on(ctx, dataset.coordinate_system, clock, rate="1 kHz")
@@ -61,8 +65,8 @@ def _histogram(dataset: models.ArrayDataset, p1: float, p99: float) -> None:
 
 
 async def test_a_spectrogram_is_drawn_with_frequency_down_the_image(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     spectrogram = await seed.create_array_dataset(
         authenticated_context, "LFP spectrogram", TF_AXES, [[2000, 64]]
     )
@@ -81,6 +85,7 @@ async def test_a_spectrogram_is_drawn_with_frequency_down_the_image(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     layer = res.data["createHeatmapLayer"]
     assert (layer["kind"], layer["rowAxis"], layer["colormap"], layer["gamma"]) == (
         "HEATMAP",
@@ -97,8 +102,8 @@ async def test_a_spectrogram_is_drawn_with_frequency_down_the_image(
 
 
 async def test_a_multichannel_recording_is_a_depth_plot(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     recording = await seed.create_array_dataset(
         authenticated_context, "LFP", seed.TC_AXES, [[2000, 32]]
     )
@@ -108,12 +113,15 @@ async def test_a_multichannel_recording_is_a_depth_plot(
         {"input": {"experiment": str(experiment.pk), "dataset": str(recording.pk)}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createHeatmapLayer"]["rowAxis"] == "c", (
         "no FREQUENCY axis: CHANNEL is drawn down"
     )
 
 
-async def test_a_heatmap_is_one_image_not_a_stack(aexecute, authenticated_context):
+async def test_a_heatmap_is_one_image_not_a_stack(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """(t, c, f) has two axes besides time; fix one of them to a single position and it draws."""
     cube = await seed.create_array_dataset(
         authenticated_context, "per-channel spectrogram", TCF_AXES, [[2000, 4, 64]]
@@ -133,6 +141,7 @@ async def test_a_heatmap_is_one_image_not_a_stack(aexecute, authenticated_contex
         {"input": {"experiment": str(experiment.pk), "lens": str(one_channel.pk)}},
     )
     assert not fixed.errors, fixed.errors
+    assert fixed.data is not None
     assert (
         fixed.data["createHeatmapLayer"]["rowAxis"],
         fixed.data["createHeatmapLayer"]["lens"]["shape"],
@@ -150,8 +159,11 @@ async def test_a_heatmap_is_one_image_not_a_stack(aexecute, authenticated_contex
     ids=["time-down", "unknown-axis", "qualitative", "inverted-range"],
 )
 async def test_a_heatmap_setting_is_checked(
-    aexecute, authenticated_context, settings, refusal
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    settings: dict[str, object],
+    refusal: str,
+) -> None:
     spectrogram = await seed.create_array_dataset(
         authenticated_context, "spectrogram", TF_AXES, [[2000, 64]]
     )
@@ -170,8 +182,8 @@ async def test_a_heatmap_setting_is_checked(
 
 
 async def test_the_bootstrap_draws_a_spectrogram_as_a_heatmap_in_its_recorded_range(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     spectrogram = await seed.create_array_dataset(
         authenticated_context, "spectrogram", TF_AXES, [[2000, 64]]
     )
@@ -196,6 +208,7 @@ async def test_the_bootstrap_draws_a_spectrogram_as_a_heatmap_in_its_recorded_ra
         {"input": {"coordinateSystem": str(clock.pk), "name": "staged"}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     heatmap, trace_layer = res.data["createExperimentFromCoordinateSystem"]["layers"]
     assert (
         heatmap["kind"],

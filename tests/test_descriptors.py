@@ -17,7 +17,8 @@ from elektro_server.hook_agent import agent
 from elektro_server.service import service
 from embeddings import engine
 from tests import seed
-from tests.test_signals import intake  # noqa: F401  the fixture
+from tests.fixture_types import AExecute, CreateArrayDatasetFactory
+from tests.test_signals import _Intake, intake  # noqa: F401  intake: the fixture
 
 DESCRIBED = """
     query Described($dataset: ID!, $lens: ID!, $folder: ID!) {
@@ -32,8 +33,8 @@ DESCRIBED = """
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_an_object_answers_the_descriptors_its_structure_declares(
-    aexecute, authenticated_context: HttpContext
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_array_dataset(
         authenticated_context, "recording", axes=seed.TC_AXES, shapes=[[1000, 4]]
     )
@@ -47,6 +48,7 @@ async def test_an_object_answers_the_descriptors_its_structure_declares(
         {"dataset": str(dataset.pk), "lens": str(lens.pk), "folder": str(folder.pk)},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
 
     whole = {
         "@elektro/n_space_axes": 0,
@@ -82,10 +84,10 @@ async def test_an_object_answers_the_descriptors_its_structure_declares(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_the_field_answers_what_the_signal_carried(
-    intake,  # noqa: F811
-    aexecute,
-    create_array_dataset,
-):
+    intake: _Intake,  # noqa: F811 - the imported fixture, requested by name
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     # Through ``createArrayDataset``: one transaction, so the signal is described at its commit, axes and levels written.
     dataset = await create_array_dataset("signalled recording", [1000, 4])
 
@@ -110,6 +112,7 @@ async def test_the_field_answers_what_the_signal_carried(
         {"id": dataset["id"]},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert result.data["arrayDataset"]["descriptors"] == created[0]["descriptors"]
     assert created[0]["descriptors"]["@elektro/n_samples"] == 1000
 
@@ -118,7 +121,7 @@ async def test_the_field_answers_what_the_signal_carried(
 @pytest.mark.asyncio
 async def test_a_sweep_for_one_organization_claims_only_its_rows(
     authenticated_context: HttpContext, other_org_context: HttpContext
-):
+) -> None:
     """Every organization has the agent and its own schedule: a run must not do another's work."""
     mine = await seed.create_table_dataset(authenticated_context, "mine")
     theirs = await seed.create_table_dataset(other_org_context, "theirs")
@@ -151,7 +154,9 @@ REQUIRED = "query Required($requires: [DescriptorConstraintInput!]!) { arrayData
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_port_asks_for_what_the_values_measure(aexecute, create_array_dataset):
+async def test_a_port_asks_for_what_the_values_measure(
+    aexecute: AExecute, create_array_dataset: CreateArrayDatasetFactory
+) -> None:
     """What a voltage port asks: the dimension of the dataset-wide value unit, stored when the anchor stating it is written."""
     voltage = await create_array_dataset(
         "membrane potential", [1000, 4], value_unit="mV"
@@ -161,6 +166,7 @@ async def test_a_port_asks_for_what_the_values_measure(aexecute, create_array_da
     async def required(requires: list[dict]) -> tuple[set[str], set[str]]:
         result = await aexecute(REQUIRED, {"requires": requires})
         assert not result.errors, result.errors
+        assert result.data is not None
         return {row["id"] for row in result.data["arrayDatasets"]}, {
             row["dataset"]["id"] for row in result.data["lenses"]
         }
@@ -223,7 +229,9 @@ async def test_a_port_asks_for_what_the_values_measure(aexecute, create_array_da
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_setup_job_gives_a_row_what_it_owes(create_array_dataset):
+async def test_the_setup_job_gives_a_row_what_it_owes(
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     made = await create_array_dataset("old recording", [1000, 4], value_unit="mV")
     expected = (
         await models.ArrayDataset.objects.aget(pk=made["id"])

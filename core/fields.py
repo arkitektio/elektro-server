@@ -1,7 +1,19 @@
 import re
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.backends.base.base import BaseDatabaseWrapper
+from django.db.models.expressions import Expression
+from django.db.models.sql.compiler import SQLCompiler
+
+if TYPE_CHECKING:
+    # django-stubs' name for what `as_sql` returns; it exists only in the stubs.
+    from django.db.models.sql.compiler import _AsSqlType
+
+#: A cube corner: one coordinate per dimension.
+Corner = Sequence[float]
 
 
 def validate_s3(value: str) -> None:
@@ -16,7 +28,7 @@ def validate_s3(value: str) -> None:
 class S3Field(models.CharField):
     description = "CharField to store S3 path for Zarr dataset with validation"
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs["max_length"] = kwargs.get("max_length", 500)
 
         super().__init__(*args, **kwargs)
@@ -31,10 +43,10 @@ class S3Field(models.CharField):
 # binding mode must never be relied on to cast an untyped text parameter implicitly.
 
 
-def cube_literal(low, high=None) -> str:
+def cube_literal(low: Corner, high: Corner | None = None) -> str:
     """The cube text literal for a point or a (low, high) box, e.g. ``(0.0, 1.0),(2.0, 3.0)``."""
 
-    def corner(values) -> str:
+    def corner(values: Corner) -> str:
         return "(" + ", ".join(repr(float(value)) for value in values) + ")"
 
     return corner(low) if high is None else f"{corner(low)},{corner(high)}"
@@ -50,11 +62,13 @@ class CubeField(models.Field):
 
     description = "An axis-aligned N-dimensional box (PostgreSQL cube)"
 
-    def db_type(self, connection) -> str:
+    def db_type(self, connection: BaseDatabaseWrapper) -> str:
         """The column type: the extension's ``cube``."""
         return "cube"
 
-    def get_placeholder(self, value, compiler, connection) -> str:
+    def get_placeholder(
+        self, value: object, compiler: SQLCompiler, connection: BaseDatabaseWrapper
+    ) -> str:
         """The write placeholder, with an explicit cast.
 
         A bare text parameter is `text`, not `unknown`, under client- and
@@ -62,7 +76,7 @@ class CubeField(models.Field):
         """
         return "%s::cube"
 
-    def get_prep_value(self, value) -> str | None:
+    def get_prep_value(self, value: object) -> str | None:
         """Serialize a bbox dict, (low, high) pair, or bare point to a cube text literal."""
         if value is None or isinstance(value, str):
             return value
@@ -77,7 +91,12 @@ class CubeField(models.Field):
             return cube_literal(value[0], value[1])
         return cube_literal(value)
 
-    def from_db_value(self, value, expression, connection) -> str | None:
+    def from_db_value(
+        self,
+        value: str | None,
+        expression: Expression,
+        connection: BaseDatabaseWrapper,
+    ) -> str | None:
         """The raw cube text representation -- never parsed, the column is query-only."""
         return value
 
@@ -87,11 +106,13 @@ class CubeOverlaps(models.Lookup):
 
     lookup_name = "overlaps"
 
-    def as_sql(self, compiler, connection) -> tuple[str, list]:
+    def as_sql(
+        self, compiler: SQLCompiler, connection: BaseDatabaseWrapper
+    ) -> "_AsSqlType":
         """``lhs && rhs::cube``."""
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
-        return f"{lhs} && {rhs}::cube", lhs_params + rhs_params
+        return f"{lhs} && {rhs}::cube", (*lhs_params, *rhs_params)
 
 
 class CubeContainsPoint(models.Lookup):
@@ -99,11 +120,13 @@ class CubeContainsPoint(models.Lookup):
 
     lookup_name = "contains_point"
 
-    def as_sql(self, compiler, connection) -> tuple[str, list]:
+    def as_sql(
+        self, compiler: SQLCompiler, connection: BaseDatabaseWrapper
+    ) -> "_AsSqlType":
         """``lhs @> rhs::cube``."""
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
-        return f"{lhs} @> {rhs}::cube", lhs_params + rhs_params
+        return f"{lhs} @> {rhs}::cube", (*lhs_params, *rhs_params)
 
 
 CubeField.register_lookup(CubeOverlaps)

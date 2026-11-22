@@ -22,23 +22,37 @@ The two safety properties matter more than the feature:
 """
 
 import datetime
+from collections.abc import Awaitable, Callable, Iterator
+from dataclasses import dataclass
 from io import StringIO
-from types import SimpleNamespace
+from typing import ParamSpec, TypeVar
 
 import pytest
 from arkitekt_datalayer import storage
-from arkitekt_datalayer.datalayer import get_current_datalayer
+from arkitekt_datalayer.datalayer import Datalayer, get_current_datalayer
 from arkitekt_datalayer.models import BigFileStore, DatalayerStore, ZarrStore
 from asgiref.sync import sync_to_async
+from botocore.client import BaseClient
 from django.core.management import call_command
 from django.db import transaction
 from django.utils import timezone
+from kante.context import HttpContext
+from pytest_django.fixtures import SettingsWrapper
 
 from core import models
 from core.mutations.delete import delete_flagging_stores
+from tests.fixture_types import (
+    AExecute,
+    BigFileStoreFactory,
+    CreateArrayDatasetFactory,
+    ZarrStoreFactory,
+)
 from tests.seed import create_file, create_folder
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 DELETE_FILE = "mutation D($input: DeleteFileInput!) { deleteFile(input: $input) }"
 DELETE_ARRAY_DATASET = (
@@ -55,8 +69,17 @@ ZYX = [
 ]
 
 
+@dataclass(frozen=True)
+class Buckets:
+    """The datalayer, the S3 client it talks to, and the ``(bucket, key)`` pairs a test put beside its stores."""
+
+    layer: Datalayer
+    client: BaseClient
+    extra: list[tuple[str, str]]
+
+
 @pytest.fixture()
-def buckets(s3_client):
+def buckets(s3_client: BaseClient) -> Iterator[Buckets]:
     """The real S3 the datalayer is configured against, with its buckets created.
 
     mikro's fixture of this name swaps in ``moto`` and resets the memoized ``GLOBAL_DL`` around
@@ -66,12 +89,12 @@ def buckets(s3_client):
     objects is removed again on the way out.
     """
     extra: list[tuple[str, str]] = []
-    yield SimpleNamespace(layer=get_current_datalayer(), client=s3_client, extra=extra)
+    yield Buckets(layer=get_current_datalayer(), client=s3_client, extra=extra)
     for bucket, key in extra:
         s3_client.delete_object(Bucket=bucket, Key=key)
 
 
-def keys_in(buckets, bucket_key: str, prefix: str) -> set[str]:  # noqa: ANN001
+def keys_in(buckets: Buckets, bucket_key: str, prefix: str) -> set[str]:
     """Every object key currently under ``prefix`` in one of the datalayer's buckets."""
     bucket = buckets.layer.get_bucket_config(bucket_key).bucket
     keys: set[str] = set()
@@ -82,14 +105,14 @@ def keys_in(buckets, bucket_key: str, prefix: str) -> set[str]:  # noqa: ANN001
     return keys
 
 
-def put(buckets, bucket_key: str, key: str) -> None:  # noqa: ANN001
+def put(buckets: Buckets, bucket_key: str, key: str) -> None:
     """Put one object into a datalayer bucket."""
     bucket = buckets.layer.get_bucket_config(bucket_key).bucket
     buckets.client.put_object(Bucket=bucket, Key=key, Body=b"bytes")
     buckets.extra.append((bucket, key))
 
 
-def purge(**options) -> str:
+def purge(**options: object) -> str:
     """Run the sweeper and return its output."""
     out = StringIO()
     call_command("purge_orphaned_stores", stdout=out, stderr=out, **options)
@@ -103,7 +126,7 @@ def age(store: DatalayerStore, days: int) -> None:
     )
 
 
-def sync(fn):  # noqa: ANN001, ANN201
+def sync(fn: Callable[P, R]) -> Callable[P, Awaitable[R]]:
     """Run a blocking ORM/boto call from an async test."""
     return sync_to_async(fn)
 
@@ -114,8 +137,11 @@ def sync(fn):  # noqa: ANN001, ANN201
 
 
 async def test_deleting_a_file_flags_its_store_and_the_sweeper_purges_it(
-    aexecute, authenticated_context, bigfile_store, buckets
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    buckets: Buckets,
+) -> None:
     ctx = authenticated_context
     store = await bigfile_store(content=b"bytes", populated=True)
     folder = await create_folder(ctx, "DS")
@@ -139,8 +165,10 @@ async def test_deleting_a_file_flags_its_store_and_the_sweeper_purges_it(
 
 
 async def test_deleting_a_dataset_purges_every_pyramid_level(
-    aexecute, create_array_dataset, buckets
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    buckets: Buckets,
+) -> None:
     """The stores hang off DataArray rows, not off the dataset -- a one-hop walk misses them.
 
     And each is a zarr, so each needs the prefix delete: `delete_object` against the level's key
@@ -211,8 +239,10 @@ async def test_deleting_a_dataset_purges_every_pyramid_level(
 
 
 async def test_deleting_one_level_flags_only_that_levels_store(
-    aexecute, create_array_dataset, buckets
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    buckets: Buckets,
+) -> None:
     """`deleteDataArray` goes through the same straddle, and the dataset's other bytes are not its business."""
     dataset = await create_array_dataset("Long", [10000], levels=[([100], "MAX")])
     base, overview = [
@@ -251,8 +281,11 @@ async def test_deleting_one_level_flags_only_that_levels_store(
 
 
 async def test_a_shared_store_is_never_purged(
-    aexecute, authenticated_context, bigfile_store, buckets
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    buckets: Buckets,
+) -> None:
     """Two Files on one store: deleting one must not destroy the other's bytes.
 
     Nothing stops this today -- no `store` FK has a unique constraint and store ids are
@@ -281,7 +314,9 @@ async def test_a_shared_store_is_never_purged(
     )
 
 
-async def test_an_upload_in_flight_is_never_touched(bigfile_store, buckets):
+async def test_an_upload_in_flight_is_never_touched(
+    bigfile_store: BigFileStoreFactory, buckets: Buckets
+) -> None:
     """An unreferenced store is not garbage -- it is the normal state of a live upload.
 
     `requestFileUpload` creates the row before the client has uploaded anything and long
@@ -297,8 +332,11 @@ async def test_an_upload_in_flight_is_never_touched(bigfile_store, buckets):
 
 
 async def test_the_grace_period_holds(
-    aexecute, authenticated_context, bigfile_store, buckets
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    buckets: Buckets,
+) -> None:
     """A store flagged just now survives a default run -- that is the recovery window."""
     ctx = authenticated_context
     store = await bigfile_store(content=b"bytes", populated=True)
@@ -320,8 +358,12 @@ async def test_the_grace_period_holds(
 
 
 async def test_the_grace_period_is_a_setting(
-    aexecute, authenticated_context, bigfile_store, buckets, settings
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    buckets: Buckets,
+    settings: SettingsWrapper,
+) -> None:
     """`datalayer.store_grace_days` is what a run with no `--older-than` reads; seven days when unset."""
     ctx = authenticated_context
     store = await bigfile_store(content=b"bytes", populated=True)
@@ -340,7 +382,9 @@ async def test_the_grace_period_is_a_setting(
     assert await sync(keys_in)(buckets, "bigfile", store.key) == set()
 
 
-async def test_dry_run_deletes_nothing(bigfile_store, buckets):
+async def test_dry_run_deletes_nothing(
+    bigfile_store: BigFileStoreFactory, buckets: Buckets
+) -> None:
     store = await bigfile_store(content=b"bytes", populated=True)
     await sync(age)(store, 30)
 
@@ -357,8 +401,8 @@ async def test_dry_run_deletes_nothing(bigfile_store, buckets):
 
 
 async def test_a_delete_that_rolls_back_flags_nothing(
-    authenticated_context, bigfile_store
-):
+    authenticated_context: HttpContext, bigfile_store: BigFileStoreFactory
+) -> None:
     """Collection happens before the delete and flagging after it, in one transaction.
 
     mikro pins this by patching `File.delete` to raise. Nothing is patched here: the production
@@ -396,8 +440,11 @@ async def test_a_delete_that_rolls_back_flags_nothing(
 
 
 async def test_a_refused_delete_flags_nothing(
-    aexecute, authenticated_context, bot_context, create_array_dataset
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bot_context: HttpContext,
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """The guard runs before the straddle, so a caller who may not delete cannot start anyone's grace period either."""
     dataset = await create_array_dataset("Guarded", [10000], levels=[([100], "MAX")])
 
@@ -413,8 +460,8 @@ async def test_a_refused_delete_flags_nothing(
 
 
 async def test_stores_orphaned_by_walks_the_cascade_to_every_level(
-    create_array_dataset,
-):
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """`DataArray` takes Django's fast-delete shortcut, so its rows are in `collector.fast_deletes` and never in `collector.data`: reading only the latter flagged nothing at all."""
     dataset = await create_array_dataset(
         "Cells", [8, 64, 64], axes=ZYX, levels=[([8, 32, 32], "AREA")]
@@ -436,8 +483,10 @@ async def test_stores_orphaned_by_walks_the_cascade_to_every_level(
 
 
 async def test_referrers_of_sees_a_store_a_file_points_at(
-    authenticated_context, bigfile_store, zarr_store
-):
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    zarr_store: ZarrStoreFactory,
+) -> None:
     """A store something still points at is never purged, however it is pointed at.
 
     Read off the *real* (downcast) class's relations: `File.store` points at `BigFileStore` and
@@ -474,8 +523,8 @@ async def test_referrers_of_sees_a_store_a_file_points_at(
 
 
 async def test_deleting_a_store_row_purges_its_bytes_prefix_and_all(
-    zarr_store, bigfile_store, buckets
-):
+    zarr_store: ZarrStoreFactory, bigfile_store: BigFileStoreFactory, buckets: Buckets
+) -> None:
     """`DatalayerStore.delete()` ignores the grace period: bytes first, then the row, and a zarr by prefix."""
     zarr = await zarr_store(shape=[8, 8])
     await sync(put)(buckets, "zarr", f"{zarr.key}/c/0/0")

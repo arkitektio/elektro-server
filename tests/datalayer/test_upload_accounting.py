@@ -17,32 +17,44 @@ can vouch for.
 """
 
 import uuid
+from collections.abc import Awaitable, Callable
+from typing import NoReturn, ParamSpec, TypeVar
 
 import arkitekt_datalayer.datalayer as datalayer_module
 import pytest
 from arkitekt_datalayer.models import BigFileStore, ZarrStore
 from asgiref.sync import sync_to_async
+from botocore.client import BaseClient
 
 from core import models
+from tests.fixture_types import (
+    AExecute,
+    BigFileStoreFactory,
+    CreateArrayDatasetFactory,
+    ZarrStoreFactory,
+)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 T = [{"name": "t", "type": "TIME"}]
 
 
-def sync(fn):  # noqa: ANN001, ANN201
+def sync(fn: Callable[P, R]) -> Callable[P, Awaitable[R]]:
     """Run a blocking ORM/boto call from an async test."""
     return sync_to_async(fn)
 
 
-def put_chunks(s3_client, key: str, sizes: list[int]) -> int:
+def put_chunks(s3_client: BaseClient, key: str, sizes: list[int]) -> int:
     """Write chunk objects beside a store's ``zarr.json`` and return their combined size."""
     for index, size in enumerate(sizes):
         s3_client.put_object(Bucket="zarr", Key=f"{key}/c/{index}", Body=b"x" * size)
     return sum(sizes)
 
 
-def prefix_bytes(s3_client, key: str) -> int:
+def prefix_bytes(s3_client: BaseClient, key: str) -> int:
     """The true size of everything under a store's prefix, read independently of the code under test."""
     total = 0
     for page in s3_client.get_paginator("list_objects_v2").paginate(
@@ -53,8 +65,11 @@ def prefix_bytes(s3_client, key: str) -> int:
 
 
 async def test_a_dataset_made_the_ordinary_way_records_every_levels_size(
-    create_array_dataset, zarr_store, s3_client, aexecute
-):
+    create_array_dataset: CreateArrayDatasetFactory,
+    zarr_store: ZarrStoreFactory,
+    s3_client: BaseClient,
+    aexecute: AExecute,
+) -> None:
     """The path that carries the traffic, and the one that used to record nothing.
 
     Each pyramid level is its own zarr store, so each is measured on its own -- there is no
@@ -87,8 +102,8 @@ async def test_a_dataset_made_the_ordinary_way_records_every_levels_size(
 
 
 async def test_a_size_is_the_sum_over_the_prefix_not_the_object_at_it(
-    zarr_store, s3_client
-):
+    zarr_store: ZarrStoreFactory, s3_client: BaseClient
+) -> None:
     """A zarr's key names a directory. ``head_object`` on it answers for nothing.
 
     The same confusion that made ``DeleteObject`` on a prefix delete nothing, which is why
@@ -107,7 +122,9 @@ async def test_a_size_is_the_sum_over_the_prefix_not_the_object_at_it(
     assert store.size_bytes == expected
 
 
-async def test_a_single_object_store_measures_the_object(bigfile_store):
+async def test_a_single_object_store_measures_the_object(
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     """The other half of the ``is_prefix`` split: one key, one HEAD.
 
     Worth pinning beside the zarr case because the two take entirely different S3 calls, and
@@ -124,7 +141,9 @@ async def test_a_single_object_store_measures_the_object(bigfile_store):
     assert store.size_bytes == len(body)
 
 
-async def test_a_file_reports_the_size_its_store_measured(aexecute, bigfile_store):
+async def test_a_file_reports_the_size_its_store_measured(
+    aexecute: AExecute, bigfile_store: BigFileStoreFactory
+) -> None:
     """``File.size`` and ``store.sizeBytes`` are one number, read once.
 
     ``fromFileLike`` used to take its own HEAD -- passing the raw ``key`` rather than
@@ -141,14 +160,15 @@ async def test_a_file_reports_the_size_its_store_measured(aexecute, bigfile_stor
     )
 
     assert not result.errors, result.errors
+    assert result.data is not None
     file = result.data["fromFileLike"]
     assert file["size"] == len(body)
     assert file["store"]["sizeBytes"] == len(body)
 
 
 async def test_a_finalization_survives_a_measurement_it_cannot_take(
-    zarr_store, monkeypatch
-):
+    zarr_store: ZarrStoreFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Accounting must never cost an upload.
 
     The bytes are written and the manifest is parsed by the time this runs, so a listing that
@@ -157,7 +177,7 @@ async def test_a_finalization_survives_a_measurement_it_cannot_take(
     """
     store = await zarr_store(shape=[1000], dimension_names=["t"])
 
-    def refuse(*args, **kwargs):
+    def refuse(*args: object, **kwargs: object) -> NoReturn:
         raise RuntimeError("listing is unavailable")
 
     monkeypatch.setattr(datalayer_module.Datalayer, "measure_prefix_bytes", refuse)
@@ -170,8 +190,8 @@ async def test_a_finalization_survives_a_measurement_it_cannot_take(
 
 
 async def test_a_failed_measurement_does_not_erase_a_recorded_size(
-    zarr_store, s3_client, monkeypatch
-):
+    zarr_store: ZarrStoreFactory, s3_client: BaseClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A re-``fill_info`` that cannot measure must leave the last good number alone.
 
     Null means "not measured". Overwriting a real size with it would turn a transient listing
@@ -186,7 +206,7 @@ async def test_a_failed_measurement_does_not_erase_a_recorded_size(
     store = await ZarrStore.objects.aget(pk=store.pk)
     assert store.size_bytes == expected
 
-    def refuse(*args, **kwargs):
+    def refuse(*args: object, **kwargs: object) -> NoReturn:
         raise RuntimeError("listing is unavailable")
 
     monkeypatch.setattr(datalayer_module.Datalayer, "measure_prefix_bytes", refuse)
@@ -196,7 +216,9 @@ async def test_a_failed_measurement_does_not_erase_a_recorded_size(
     assert store.size_bytes == expected
 
 
-async def test_an_absent_prefix_measures_zero_rather_than_raising(zarr_store):
+async def test_an_absent_prefix_measures_zero_rather_than_raising(
+    zarr_store: ZarrStoreFactory,
+) -> None:
     """An unfinished or already-purged store reports the truth instead of an error.
 
     ``measure_prefix_bytes`` is reached by the sweeper's neighbours and by any re-finalization,

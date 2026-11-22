@@ -7,9 +7,11 @@ events, and the bootstrap tells the two apart by exactly that.
 """
 
 import pytest
+from kante.context import HttpContext
 
 from core import models
 from tests import seed
+from tests.fixture_types import AExecute, GraphQLData
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -51,11 +53,18 @@ TTL = [
 ]
 
 
-async def _placed(aexecute, ctx, name: str, columns: list[dict], clock) -> dict:  # noqa: ANN001
+async def _placed(
+    aexecute: AExecute,
+    ctx: HttpContext,
+    name: str,
+    columns: list[dict],
+    clock: models.CoordinateSystem,
+) -> GraphQLData:
     created = await aexecute(
         CREATE_TABLE, {"input": await seed.table_input(ctx, name, columns)}
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     table = created.data["createTableDataset"]
     space = await models.CoordinateSystem.objects.aget(
         pk=table["coordinateSystem"]["id"]
@@ -65,8 +74,8 @@ async def _placed(aexecute, ctx, name: str, columns: list[dict], clock) -> dict:
 
 
 async def test_a_wheel_table_is_drawn_as_a_line_over_time(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     clock = await seed.create_clock(authenticated_context, "session")
     wheel = await _placed(aexecute, authenticated_context, "wheel", WHEEL, clock)
     experiment = await models.Experiment.objects.acreate(
@@ -88,6 +97,7 @@ async def test_a_wheel_table_is_drawn_as_a_line_over_time(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     layer = res.data["createSeriesLayer"]
     assert (
         layer["kind"],
@@ -116,8 +126,8 @@ async def test_a_wheel_table_is_drawn_as_a_line_over_time(
     ids=["time", "text", "missing"],
 )
 async def test_the_value_is_a_numeric_column_that_is_not_the_time(
-    aexecute, authenticated_context, value, refusal
-):
+    aexecute: AExecute, authenticated_context: HttpContext, value: str, refusal: str
+) -> None:
     clock = await seed.create_clock(authenticated_context, "session")
     wheel = await _placed(aexecute, authenticated_context, "wheel", WHEEL, clock)
     experiment = await models.Experiment.objects.acreate(
@@ -140,8 +150,8 @@ async def test_the_value_is_a_numeric_column_that_is_not_the_time(
 
 
 async def test_a_table_with_no_single_value_needs_it_named(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     clock = await seed.create_clock(authenticated_context, "session")
     ttl = await _placed(aexecute, authenticated_context, "TTL", TTL, clock)
     experiment = await models.Experiment.objects.acreate(
@@ -158,8 +168,8 @@ async def test_a_table_with_no_single_value_needs_it_named(
 
 
 async def test_the_bootstrap_tells_a_series_from_a_list_of_events(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     clock = await seed.create_clock(authenticated_context, "session")
     await _placed(aexecute, authenticated_context, "wheel", WHEEL, clock)
     await _placed(aexecute, authenticated_context, "TTL", TTL, clock)
@@ -174,6 +184,7 @@ async def test_the_bootstrap_tells_a_series_from_a_list_of_events(
         {"input": {"coordinateSystem": str(clock.pk)}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createExperimentFromCoordinateSystem"]["layers"] == [
         {"kind": "SERIES", "name": "wheel", "valueColumn": "speed"},
         {"kind": "EVENTS", "name": "TTL", "stopColumn": "stop", "labelColumn": "line"},

@@ -12,10 +12,12 @@ mutations delete spaces nobody named, so what they must *not* take matters more 
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import models
 from core.logic import clocks
 from tests import seed
+from tests.fixture_types import AExecute, SimulationChainFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -42,13 +44,14 @@ SWEEP = "mutation { deleteOrphanedCoordinateSystems }"
 
 
 async def test_a_lookup_timed_run_is_in_view_of_its_own_clock_without_a_box(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     chain = await make_simulation_chain(timing="lookup")
     res = await aexecute(
         IN_VIEW, {"id": str(chain.clock.pk), "region": {"min": [0.0], "max": [1000.0]}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     space = res.data["coordinateSystem"]
 
     hits = {hit["source"]["name"]: hit for hit in space["inView"]}
@@ -69,12 +72,15 @@ async def test_a_lookup_timed_run_is_in_view_of_its_own_clock_without_a_box(
     assert [system["id"] for system in space["placedSystems"]] == [str(chain.clock.pk)]
 
 
-async def test_a_sampled_run_still_has_its_box(aexecute, make_simulation_chain):
+async def test_a_sampled_run_still_has_its_box(
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     chain = await make_simulation_chain()
     res = await aexecute(
         IN_VIEW, {"id": str(chain.clock.pk), "region": {"min": [0.0], "max": [1000.0]}}
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert {hit["extentState"] for hit in res.data["coordinateSystem"]["inView"]} == {
         "KNOWN"
     }
@@ -87,8 +93,8 @@ async def test_a_sampled_run_still_has_its_box(aexecute, make_simulation_chain):
 
 
 async def test_clearing_a_world_removes_what_was_laid_into_it_and_nothing_else(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     ctx = seed._creation(authenticated_context)
     world = await seed.create_world(authenticated_context, "timeline")
     wider = await seed.create_world(authenticated_context, "wider")
@@ -102,6 +108,7 @@ async def test_clearing_a_world_removes_what_was_laid_into_it_and_nothing_else(
 
     res = await aexecute(CLEAR, {"input": {"id": str(world.pk)}})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["clearCoordinateSystem"] == [str(into.pk)]
     assert not await models.Transformation.objects.filter(pk=into.pk).aexists()
     assert await models.Transformation.objects.filter(pk=out_of.pk).aexists(), (
@@ -115,7 +122,9 @@ async def test_clearing_a_world_removes_what_was_laid_into_it_and_nothing_else(
     )
 
 
-async def test_a_space_data_lives_in_cannot_be_cleared(aexecute, authenticated_context):
+async def test_a_space_data_lives_in_cannot_be_cleared(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_dataset(authenticated_context, "Vm", seed.T_AXES, [100])
     res = await aexecute(CLEAR, {"input": {"id": str(dataset.coordinate_system_id)}})
     assert res.errors and "data lives in it" in str(res.errors[0])
@@ -125,8 +134,10 @@ async def test_a_space_data_lives_in_cannot_be_cleared(aexecute, authenticated_c
 
 
 async def test_the_sweep_takes_only_spaces_that_are_nobodys(
-    aexecute, authenticated_context, make_simulation_chain
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    make_simulation_chain: SimulationChainFactory,
+) -> None:
     """Nothing living in it, nothing laid out over it, no edge touching it, nothing naming it."""
     ctx = seed._creation(authenticated_context)
     orphan = await seed.create_world(authenticated_context, "forgotten")
@@ -146,6 +157,7 @@ async def test_the_sweep_takes_only_spaces_that_are_nobodys(
 
     res = await aexecute(SWEEP)
     assert not res.errors, res.errors
+    assert res.data is not None
     assert sorted(res.data["deleteOrphanedCoordinateSystems"]) == sorted(
         [str(orphan.pk), str(unused_clock.pk)]
     ), (
@@ -166,8 +178,8 @@ async def test_the_sweep_takes_only_spaces_that_are_nobodys(
 
 
 async def test_the_sweep_leaves_a_space_a_lookup_still_reads_through(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Delete a times dataset and its system is empty and touched by no edge's *endpoints* -- but the signal's lookup still names it as its field, under PROTECT. One such row used to be able to fail the whole sweep."""
     ctx = seed._creation(authenticated_context)
     signal = await seed.create_dataset(authenticated_context, "Ca", seed.T_AXES, [50])
@@ -188,17 +200,21 @@ async def test_the_sweep_leaves_a_space_a_lookup_still_reads_through(
 
     res = await aexecute(SWEEP)
     assert not res.errors, res.errors
+    assert res.data is not None
     assert str(field_system) not in res.data["deleteOrphanedCoordinateSystems"]
     assert await models.CoordinateSystem.objects.filter(pk=field_system).aexists()
 
 
 async def test_another_organization_sweeps_and_clears_nothing_here(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     orphan = await seed.create_world(authenticated_context, "mine, and forgotten")
 
     swept = await aexecute(SWEEP, context=other_org_context)
     assert not swept.errors, swept.errors
+    assert swept.data is not None
     assert swept.data["deleteOrphanedCoordinateSystems"] == []
     cleared = await aexecute(
         CLEAR, {"input": {"id": str(orphan.pk)}}, context=other_org_context

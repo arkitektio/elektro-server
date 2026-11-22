@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 from kante.types import Info
@@ -7,6 +7,10 @@ from strawberry.experimental import pydantic
 from ..cell import CellModel
 from .biophysics import Biophysics
 from .topology import Topology
+
+if TYPE_CHECKING:
+    # Only for the lazy annotations below: core.types imports this module back.
+    from core.types import NeuronModel, NeuronModelSession
 
 
 @pydantic.type(

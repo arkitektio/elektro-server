@@ -5,17 +5,22 @@ Standalone — pure Python over the pydantic config, no database or object store
 """
 
 import math
+from collections.abc import Iterable, Mapping, Sequence
 
 import pytest
 
 from core.analysis import compute_dominance
-from core.analysis.dominance import _section_geometry
+from core.analysis.dominance import SectionDominance, _section_geometry
 from core.base_models.type.model import ModelConfigModel
 
 # --- fixtures / builders -----------------------------------------------------
 
 
-def _cell(sections, compartments=None, cid="cell0"):
+def _cell(
+    sections: Sequence[Mapping[str, object]],
+    compartments: Sequence[Mapping[str, object]] | None = None,
+    cid: str = "cell0",
+) -> dict[str, object]:
     return {
         "id": cid,
         "biophysics": {"compartments": compartments or []},
@@ -23,11 +28,13 @@ def _cell(sections, compartments=None, cid="cell0"):
     }
 
 
-def _config(cells, **kw):
+def _config(cells: Sequence[Mapping[str, object]], **kw: object) -> ModelConfigModel:
     return ModelConfigModel(**{"cells": cells, **kw})
 
 
-def _by_id(results):
+def _by_id(
+    results: Iterable[SectionDominance],
+) -> dict[tuple[str, str], SectionDominance]:
     return {(r.cell_id, r.section_id): r for r in results}
 
 
@@ -43,7 +50,7 @@ THIN_DEND = {
 }
 
 
-def _uniform_param(param, mechanism, value):
+def _uniform_param(param: str, mechanism: str, value: str) -> dict[str, object]:
     return {
         "param": param,
         "mechanism": mechanism,
@@ -54,7 +61,7 @@ def _uniform_param(param, mechanism, value):
 # --- tests -------------------------------------------------------------------
 
 
-def test_soma_outscores_thin_distal_dendrite():
+def test_soma_outscores_thin_distal_dendrite() -> None:
     config = _config([_cell([SOMA, THIN_DEND])])
     r = _by_id(compute_dominance(config))
     soma = r[("cell0", "soma")]
@@ -64,7 +71,7 @@ def test_soma_outscores_thin_distal_dendrite():
     assert soma.reference_score > dend.reference_score
 
 
-def test_reference_attenuates_with_electrotonic_distance():
+def test_reference_attenuates_with_electrotonic_distance() -> None:
     config = _config([_cell([SOMA, THIN_DEND])])
     r = _by_id(compute_dominance(config))
     soma = r[("cell0", "soma")]
@@ -78,7 +85,7 @@ def test_reference_attenuates_with_electrotonic_distance():
     assert dend.reference_score < dend.global_score
 
 
-def test_active_conductance_raises_score():
+def test_active_conductance_raises_score() -> None:
     # Two geometrically identical dendrites; one carries a dense active conductance.
     active_sec = {"id": "a", "category": "active", "diam": "1 um", "length": "200 um"}
     bare_sec = {
@@ -99,7 +106,7 @@ def test_active_conductance_raises_score():
     assert r[("cell0", "a")].global_score > r[("cell0", "b")].global_score
 
 
-def test_pt3d_area_matches_equivalent_cylinder():
+def test_pt3d_area_matches_equivalent_cylinder() -> None:
     stylized = _config([_cell([{"id": "s", "diam": "2 um", "length": "100 um"}])])
     pt3d = _config(
         [
@@ -124,14 +131,14 @@ def test_pt3d_area_matches_equivalent_cylinder():
     assert a_stylized == pytest.approx(expected, rel=1e-9)
 
 
-def test_scores_normalize_to_one():
+def test_scores_normalize_to_one() -> None:
     config = _config([_cell([SOMA, THIN_DEND])])
     results = compute_dominance(config)
     assert sum(r.global_score for r in results) == pytest.approx(1.0)
     assert sum(r.reference_score for r in results) == pytest.approx(1.0)
 
 
-def test_single_section_scores_one():
+def test_single_section_scores_one() -> None:
     config = _config(
         [
             _cell(
@@ -145,11 +152,11 @@ def test_single_section_scores_one():
     assert only.is_reference is True
 
 
-def test_empty_model_returns_empty():
+def test_empty_model_returns_empty() -> None:
     assert compute_dominance(_config([])) == []
 
 
-def test_reference_selection_explicit_beats_soma():
+def test_reference_selection_explicit_beats_soma() -> None:
     config = _config([_cell([SOMA, THIN_DEND])])
     r = _by_id(compute_dominance(config, reference={"section_id": "dend"}))
     assert r[("cell0", "dend")].is_reference is True
@@ -159,7 +166,7 @@ def test_reference_selection_explicit_beats_soma():
     assert r[("cell0", "soma")].transfer_weight < 1.0
 
 
-def test_reference_selection_falls_back_to_root_without_soma():
+def test_reference_selection_falls_back_to_root_without_soma() -> None:
     # No section carries category 'soma', so the tree root becomes the reference.
     root = {"id": "root", "category": "dend", "diam": "5 um", "length": "50 um"}
     child = {
@@ -174,7 +181,7 @@ def test_reference_selection_falls_back_to_root_without_soma():
     assert r[("cell0", "child")].is_reference is False
 
 
-def test_weights_shift_the_global_score():
+def test_weights_shift_the_global_score() -> None:
     # Same model, two extreme weightings. A capacitance-only blend and an axial-only blend
     # must produce different soma/dend global-score splits than each other (both factors
     # are non-zero for this geometry-only fixture).
@@ -192,14 +199,14 @@ def test_weights_shift_the_global_score():
     assert cap_ratio != pytest.approx(axial_ratio)
 
 
-def test_custom_weights_still_normalize_to_one():
+def test_custom_weights_still_normalize_to_one() -> None:
     config = _config([_cell([SOMA, THIN_DEND])])
     results = compute_dominance(config, weights=(0.2, 0.7, 0.1))
     assert sum(r.global_score for r in results) == pytest.approx(1.0)
     assert sum(r.reference_score for r in results) == pytest.approx(1.0)
 
 
-def test_geometry_helper_stylized_cylinder():
+def test_geometry_helper_stylized_cylinder() -> None:
     config = _config([_cell([{"id": "s", "diam": "3 um", "length": "40 um"}])])
     section = config.cells[0].topology.sections[0]
     geom = _section_geometry(section)

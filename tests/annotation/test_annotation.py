@@ -7,12 +7,21 @@ space, and what that space is related to decides what the marks mean -- so these
 each of the three surfaces a client has: a dataset, a segment's clock, an experiment's timeline.
 """
 
+from collections.abc import Mapping, Sequence
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
 
 from core import models
 from tests import seed
+from tests.fixture_types import (
+    AExecute,
+    GraphQLData,
+    SimulationChain,
+    SimulationChainFactory,
+)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -49,16 +58,19 @@ ANNOTATION_FIELDS = """
 """
 
 CREATE_ANNOTATION = (
-    "mutation ($input: CreateAnnotationInput!) { createAnnotation(input: $input) { %s } }"
-    % ANNOTATION_FIELDS
+    "mutation ($input: CreateAnnotationInput!) { createAnnotation(input: $input) { "
+    + ANNOTATION_FIELDS
+    + " } }"
 )
 CREATE_ANNOTATIONS = (
-    "mutation ($input: CreateAnnotationsInput!) { createAnnotations(input: $input) { %s } }"
-    % ANNOTATION_FIELDS
+    "mutation ($input: CreateAnnotationsInput!) { createAnnotations(input: $input) { "
+    + ANNOTATION_FIELDS
+    + " } }"
 )
 UPDATE_ANNOTATION = (
-    "mutation ($input: UpdateAnnotationInput!) { updateAnnotation(input: $input) { %s } }"
-    % ANNOTATION_FIELDS
+    "mutation ($input: UpdateAnnotationInput!) { updateAnnotation(input: $input) { "
+    + ANNOTATION_FIELDS
+    + " } }"
 )
 DELETE_ANNOTATION = (
     "mutation ($input: DeleteAnnotationInput!) { deleteAnnotation(input: $input) }"
@@ -71,21 +83,26 @@ OVER_T = {"kind": "BY_DIMENSION", "inputAxes": ["t"], "outputAxes": ["t"]}
 
 
 async def _collection(
-    aexecute, name="marks", axes=None, derived_from=None, context=None
-):
+    aexecute: AExecute,
+    name: str = "marks",
+    axes: Sequence[Mapping[str, object]] | None = None,
+    derived_from: Sequence[Mapping[str, object]] | None = None,
+    context: HttpContext | None = None,
+) -> GraphQLData:
     res = await aexecute(
         CREATE_COLLECTION,
         {"input": {"name": name, "axes": axes or T, "derivedFrom": derived_from}},
         context=context,
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     return res.data["createAnnotationCollection"]
 
 
 # --- the SDL ----------------------------------------------------------------------------
 
 
-async def test_the_kinds_are_electrophysiologys_and_the_roi_is_gone():
+async def test_the_kinds_are_electrophysiologys_and_the_roi_is_gone() -> None:
     from elektro_server.schema import schema
 
     sdl = schema.as_str()
@@ -118,8 +135,8 @@ async def test_the_kinds_are_electrophysiologys_and_the_roi_is_gone():
 
 
 async def test_a_collection_drawn_over_a_dataset_marks_it_in_samples(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [30000]
     )
@@ -154,6 +171,7 @@ async def test_a_collection_drawn_over_a_dataset_marks_it_in_samples(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     event = res.data["createAnnotation"]
     assert (event["kind"], event["vectors"], event["name"]) == (
         "EVENT",
@@ -171,6 +189,7 @@ async def test_a_collection_drawn_over_a_dataset_marks_it_in_samples(
         {"id": str(dataset.pk)},
     )
     assert not asked.errors, asked.errors
+    assert asked.data is not None
     assert asked.data["arrayDataset"]["annotationCollections"] == [
         {"name": "detected spikes", "annotations": [{"name": "spike"}]}
     ]
@@ -184,7 +203,9 @@ async def test_a_collection_drawn_over_a_dataset_marks_it_in_samples(
     assert by_dataset.data["annotations"] == [{"name": "spike", "kind": "EVENT"}]
 
 
-async def test_an_epoch_is_two_corners_whatever_axes_the_space_has(aexecute):
+async def test_an_epoch_is_two_corners_whatever_axes_the_space_has(
+    aexecute: AExecute,
+) -> None:
     """One kind, stored one way: an interval in (t), an interval over a run of channels in (t, c), over a range of values in (t, v)."""
     plain = await _collection(aexecute, "bursts")
     res = await aexecute(
@@ -199,6 +220,7 @@ async def test_an_epoch_is_two_corners_whatever_axes_the_space_has(aexecute):
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createAnnotation"]["intrinsicBbox"] == {
         "min": [3.0],
         "max": [4.5],
@@ -221,13 +243,14 @@ async def test_an_epoch_is_two_corners_whatever_axes_the_space_has(aexecute):
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createAnnotation"]["intrinsicBbox"] == {
         "min": [10.0, 3.0],
         "max": [12.0, 7.0],
     }
 
 
-async def test_a_measurement_is_drawn_against_a_value_axis(aexecute):
+async def test_a_measurement_is_drawn_against_a_value_axis(aexecute: AExecute) -> None:
     """A line from baseline to peak needs somewhere to be drawn: the VALUE axis, which only a drawing space has."""
     collection = await _collection(
         aexecute,
@@ -251,6 +274,7 @@ async def test_a_measurement_is_drawn_against_a_value_axis(aexecute):
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createAnnotation"]["intrinsicBbox"] == {
         "min": [12.0, -65.0],
         "max": [14.5, -58.2],
@@ -261,8 +285,8 @@ async def test_a_measurement_is_drawn_against_a_value_axis(aexecute):
 
 
 async def test_a_collection_drawn_on_a_clock_marks_everything_timed_against_it(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """What Neo's events and epochs are: they belong to the segment, not to one signal of it."""
     from core.logic import clocks
 
@@ -303,6 +327,7 @@ async def test_a_collection_drawn_on_a_clock_marks_everything_timed_against_it(
         },
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createAnnotation"]["intrinsicBbox"] == {
         "min": [0.25],
         "max": [0.25],
@@ -313,6 +338,7 @@ async def test_a_collection_drawn_on_a_clock_marks_everything_timed_against_it(
         {"id": str(clock.pk)},
     )
     assert not asked.errors, asked.errors
+    assert asked.data is not None
     assert asked.data["coordinateSystem"]["annotations"] == [{"name": "stimulus onset"}]
 
     over_clock = await aexecute(
@@ -346,13 +372,16 @@ query ($id: ID!) {
 """
 
 
-async def _experiment_with_a_trace(aexecute, chain, name: str) -> dict:  # noqa: ANN001
+async def _experiment_with_a_trace(
+    aexecute: AExecute, chain: SimulationChain, name: str
+) -> GraphQLData:
     """An experiment over a minted world, the run's clock placed on it at zero, and a trace of its recording."""
     created = await aexecute(
         "mutation ($input: CreateExperimentInput!) { createExperiment(input: $input) { id world { id } } }",
         {"input": {"name": name}},
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     experiment = created.data["createExperiment"]
     placed = await aexecute(
         "mutation ($input: CreateClockOffsetInput!) { createClockOffset(input: $input) { id } }",
@@ -374,8 +403,8 @@ async def _experiment_with_a_trace(aexecute, chain, name: str) -> dict:  # noqa:
 
 
 async def test_drawing_on_an_experiment_mints_its_collection_once(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     chain = await make_simulation_chain()
     experiment_id = (await _experiment_with_a_trace(aexecute, chain, "Paired pulse"))[
         "id"
@@ -393,6 +422,7 @@ async def test_drawing_on_an_experiment_mints_its_collection_once(
         },
     )
     assert not first.errors, first.errors
+    assert first.data is not None
     second = await aexecute(
         CREATE_ANNOTATION,
         {
@@ -405,6 +435,7 @@ async def test_drawing_on_an_experiment_mints_its_collection_once(
         },
     )
     assert not second.errors, second.errors
+    assert second.data is not None
     assert (
         first.data["createAnnotation"]["collection"]
         == second.data["createAnnotation"]["collection"]
@@ -420,6 +451,7 @@ async def test_drawing_on_an_experiment_mints_its_collection_once(
 
     asked = await aexecute(EXPERIMENT_ANNOTATIONS, {"id": experiment_id})
     assert not asked.errors, asked.errors
+    assert asked.data is not None
     experiment = asked.data["experiment"]
     assert experiment["annotationCollection"]["coordinateSystem"]["axes"] == [
         {"name": "t", "type": "TIME", "unit": None}
@@ -462,8 +494,8 @@ async def test_drawing_on_an_experiment_mints_its_collection_once(
 
 
 async def test_deleting_the_experiment_keeps_what_was_drawn_on_it(
-    aexecute, make_simulation_chain
-):
+    aexecute: AExecute, make_simulation_chain: SimulationChainFactory
+) -> None:
     """An annotation belongs to a collection, never to an experiment: the space it is drawn in has not gone anywhere."""
     chain = await make_simulation_chain()
     experiment = await _experiment_with_a_trace(aexecute, chain, "Short lived")
@@ -503,7 +535,9 @@ async def test_deleting_the_experiment_keeps_what_was_drawn_on_it(
 # --- search ---------------------------------------------------------------------------------------
 
 
-async def test_range_search_is_an_index_scan_within_one_frame(aexecute):
+async def test_range_search_is_an_index_scan_within_one_frame(
+    aexecute: AExecute,
+) -> None:
     collection = await _collection(aexecute, "events")
     specs = [
         {"kind": "EVENT", "name": "a", "vectors": [[1.0]]},
@@ -521,6 +555,7 @@ async def test_range_search_is_an_index_scan_within_one_frame(aexecute):
         {"input": {"collection": collection["id"], "annotations": specs}},
     )
     assert not drawn.errors, drawn.errors
+    assert drawn.data is not None
     assert [a["name"] for a in drawn.data["createAnnotations"]] == [
         "a",
         "b",
@@ -532,11 +567,12 @@ async def test_range_search_is_an_index_scan_within_one_frame(aexecute):
         "max": [20.2],
     }, "several instants, one box"
 
-    async def names(filters):
+    async def names(filters: Mapping[str, object]) -> list[str]:
         res = await aexecute(
             ANNOTATIONS, {"filters": {"collection": collection["id"], **filters}}
         )
         assert not res.errors, res.errors
+        assert res.data is not None
         return sorted(a["name"] for a in res.data["annotations"])
 
     assert await names({"intersects": {"min": [1.8], "max": [2.5]}}) == ["b", "long"]
@@ -552,10 +588,11 @@ async def test_range_search_is_an_index_scan_within_one_frame(aexecute):
         {"c": collection["id"]},
     )
     assert not nearest.errors, nearest.errors
+    assert nearest.data is not None
     assert [a["name"] for a in nearest.data["nearestAnnotations"]] == ["train", "long"]
 
 
-async def test_a_range_query_must_say_which_frame_it_is_in(aexecute):
+async def test_a_range_query_must_say_which_frame_it_is_in(aexecute: AExecute) -> None:
     """Boxes only compare within one frame: unscoped, this would compare samples with seconds and call the mismatches results."""
     res = await aexecute(
         ANNOTATIONS, {"filters": {"intersects": {"min": [0.0], "max": [1.0]}}}
@@ -566,7 +603,7 @@ async def test_a_range_query_must_say_which_frame_it_is_in(aexecute):
 # --- editing ------------------------------------------------------------------------------------------
 
 
-async def test_moving_an_annotation_moves_its_box(aexecute):
+async def test_moving_an_annotation_moves_its_box(aexecute: AExecute) -> None:
     """The box is a cache of the vectors. The ROI's `min_t`/`max_t` were written at creation only, so a dragged ROI kept answering range queries from where it was first drawn."""
     collection = await _collection(aexecute)
     drawn = await aexecute(
@@ -593,6 +630,7 @@ async def test_moving_an_annotation_moves_its_box(aexecute):
         },
     )
     assert not moved.errors, moved.errors
+    assert moved.data is not None
     assert moved.data["updateAnnotation"]["intrinsicBbox"] == {
         "min": [30.0],
         "max": [45.0],
@@ -618,7 +656,7 @@ async def test_moving_an_annotation_moves_its_box(aexecute):
     assert [a["name"] for a in found.data["annotations"]] == ["moved"]
 
 
-async def test_delete_annotation_and_collection(aexecute):
+async def test_delete_annotation_and_collection(aexecute: AExecute) -> None:
     collection = await _collection(aexecute, "temporary")
     drawn = await aexecute(
         CREATE_ANNOTATION,
@@ -647,8 +685,8 @@ async def test_delete_annotation_and_collection(aexecute):
 
 
 async def test_deleting_a_dataset_keeps_the_marks_made_on_it_and_the_frame_their_boxes_are_in(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The collection outlives the dataset it was drawn over -- and its stored boxes must not be silently relabelled."""
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
@@ -718,7 +756,9 @@ async def test_deleting_a_dataset_keeps_the_marks_made_on_it_and_the_frame_their
         "colour out of range",
     ],
 )
-async def test_a_shape_its_vertices_cannot_describe_is_refused(aexecute, spec, message):
+async def test_a_shape_its_vertices_cannot_describe_is_refused(
+    aexecute: AExecute, spec: dict[str, object], message: str
+) -> None:
     collection = await _collection(aexecute)
     res = await aexecute(
         CREATE_ANNOTATION, {"input": {"collection": collection["id"], **spec}}
@@ -730,7 +770,9 @@ async def test_a_shape_its_vertices_cannot_describe_is_refused(aexecute, spec, m
 @pytest.mark.parametrize(
     "target", [{}, {"collection": "1", "experiment": "1"}], ids=["neither", "both"]
 )
-async def test_an_annotation_is_drawn_into_exactly_one_place(aexecute, target):
+async def test_an_annotation_is_drawn_into_exactly_one_place(
+    aexecute: AExecute, target: dict[str, str]
+) -> None:
     res = await aexecute(
         CREATE_ANNOTATION, {"input": {**target, "kind": "EVENT", "vectors": [[1.0]]}}
     )
@@ -740,8 +782,8 @@ async def test_an_annotation_is_drawn_into_exactly_one_place(aexecute, target):
 
 
 async def test_a_collection_that_cannot_be_related_to_its_source_is_not_left_behind(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The edge names an axis the dataset does not have; the collection row written before it must not survive."""
     dataset = await seed.create_dataset(
         authenticated_context, "Vm", seed.T_AXES, [1000]
@@ -767,8 +809,8 @@ async def test_a_collection_that_cannot_be_related_to_its_source_is_not_left_beh
 
 
 async def test_another_organization_sees_and_touches_none_of_it(
-    aexecute, other_org_context
-):
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     collection = await _collection(aexecute, "mine")
     drawn = await aexecute(
         CREATE_ANNOTATION,
@@ -788,6 +830,7 @@ async def test_another_organization_sees_and_touches_none_of_it(
         context=other_org_context,
     )
     assert not listed.errors, listed.errors
+    assert listed.data is not None
     assert listed.data == {"annotations": [], "annotationCollections": []}
 
     for document, variables in (

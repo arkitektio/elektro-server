@@ -1,32 +1,24 @@
 import datetime
 from enum import Enum
-from itertools import chain
-from typing import Annotated, Any, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Annotated, cast
 
 import kante
 import strawberry
 import strawberry_django
 from arkitekt_datalayer import types as dt
-from arkitekt_datalayer.datalayer import get_current_datalayer
-from asgiref.sync import sync_to_async
-from authentikate.strawberry.types import Client, User
-from django.contrib.auth import get_user_model
+from authentikate.strawberry.types import User
 from kante.types import Info
 from koherent.strawberry.types import ProvenanceEntry
-from pydantic import BaseModel
 from strawberry import auto
-from strawberry.experimental import pydantic
 from strawberry.scalars import JSON
 
-from core import enums, filters, models, scalars, scoping
+from core import filters, models, scalars, scoping
 from core.analysis import compute_dominance
 from core.analysis.dominance import DEFAULT_WEIGHTS
-from core.base_models.type.graphql.cell import Cell
+from core.base_models.type.graphql.cell import Cell as Cell
 from core.base_models.type.graphql.model import ModelConfig
-from core.base_models.type.graphql.topology import Topology
 from core.base_models.type.model import ModelConfigModel
 from core.parameters import Parameter, ParameterModel
-from core.type_gen import create_stats_type
 from core.types._shared import (  # noqa: E402,F401  (re-exported: mutations and tests import them from here)
     DESCRIPTORS_DESCRIPTION,
     OrgScoped,
@@ -34,7 +26,9 @@ from core.types._shared import (  # noqa: E402,F401  (re-exported: mutations and
     build_prescoper,
     resolve_descriptors,
 )
-from kanne_server import scalars as quantities
+
+if TYPE_CHECKING:
+    from core.types.coords import Resident
 
 
 @kante.django_type(
@@ -160,7 +154,7 @@ class Change:
     value_b: scalars.Any | None
 
 
-def quantity_display(value: Any) -> str | None:
+def quantity_display(value: object) -> str | None:
     """If ``value`` is a serialized quantity struct, render it as a single compact,
     human-readable string; otherwise return None.
 
@@ -182,13 +176,13 @@ def quantity_display(value: Any) -> str | None:
     return None
 
 
-def _leaf(value: Any) -> Any:
+def _leaf(value: object) -> scalars.Any:
     """Condense a quantity struct to its human string for a change value; else pass through."""
     display = quantity_display(value)
-    return display if display is not None else value
+    return scalars.Any(display if display is not None else value)
 
 
-def _compare_values(val_a: Any, val_b: Any, path: list[str]) -> list[Change]:
+def _compare_values(val_a: object, val_b: object, path: list[str]) -> list[Change]:
     """Diff two values at ``path``, treating quantity structs as single human-readable leaves."""
     changes: list[Change] = []
 
@@ -201,7 +195,12 @@ def _compare_values(val_a: Any, val_b: Any, path: list[str]) -> list[Change]:
         right = disp_b if disp_b is not None else val_b
         if left != right:
             changes.append(
-                Change(type=ChangeType.CHANGED, path=path, value_a=left, value_b=right)
+                Change(
+                    type=ChangeType.CHANGED,
+                    path=path,
+                    value_a=scalars.Any(left),
+                    value_b=scalars.Any(right),
+                )
             )
         return changes
 
@@ -211,7 +210,12 @@ def _compare_values(val_a: Any, val_b: Any, path: list[str]) -> list[Change]:
             changes.extend(deeper_changes)
         elif val_a != val_b:
             changes.append(
-                Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b)
+                Change(
+                    type=ChangeType.CHANGED,
+                    path=path,
+                    value_a=scalars.Any(val_a),
+                    value_b=scalars.Any(val_b),
+                )
             )
     elif isinstance(val_a, list) and isinstance(val_b, list):
         min_len = min(len(val_a), len(val_b))
@@ -237,7 +241,12 @@ def _compare_values(val_a: Any, val_b: Any, path: list[str]) -> list[Change]:
             )
     elif val_a != val_b:
         changes.append(
-            Change(type=ChangeType.CHANGED, path=path, value_a=val_a, value_b=val_b)
+            Change(
+                type=ChangeType.CHANGED,
+                path=path,
+                value_a=scalars.Any(val_a),
+                value_b=scalars.Any(val_b),
+            )
         )
 
     return changes

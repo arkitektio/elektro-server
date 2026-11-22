@@ -25,12 +25,14 @@ offset visible where one would not.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pytest import approx
 
 from core import models
 from core.logic import graph as graph_logic
 from tests import seed
 from tests.coords._helpers import add_layer, create_experiment
+from tests.fixture_types import AExecute
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -77,12 +79,12 @@ _OVER_YX = {"kind": "BY_DIMENSION", "inputAxes": ["y", "x"], "outputAxes": ["y",
 
 
 async def _register(
-    aexecute,
+    aexecute: AExecute,
     input_id: int,
     output_id: int,
     transform: dict,
     selector: dict | None = None,
-) -> dict:  # noqa: ANN001 - the conftest fixture
+) -> dict:
     payload: dict = {
         "input": str(input_id),
         "output": str(output_id),
@@ -92,12 +94,13 @@ async def _register(
         payload["selector"] = selector
     result = await aexecute(CREATE_TRANSFORM, {"input": payload})
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createTransformation"]
 
 
 async def _errors(
-    aexecute, input_id: int, output_id: int, transform: dict, selector: dict
-) -> list:  # noqa: ANN001
+    aexecute: AExecute, input_id: int, output_id: int, transform: dict, selector: dict
+) -> list:
     result = await aexecute(
         CREATE_TRANSFORM,
         {
@@ -113,10 +116,14 @@ async def _errors(
 
 
 async def _view_at(
-    aexecute, experiment: models.Experiment, at: list | None, query: str = AT_AFFINE
-) -> dict:  # noqa: ANN001
+    aexecute: AExecute,
+    experiment: models.Experiment,
+    at: list | None,
+    query: str = AT_AFFINE,
+) -> dict:
     result = await aexecute(query, {"id": str(experiment.pk), "at": at})
     assert not result.errors, result.errors
+    assert result.data is not None
     (view,) = result.data["experiment"]["layers"]
     return view
 
@@ -126,7 +133,9 @@ def _translation(matrix: list[list[float]]) -> list[float]:
     return [row[-1] for row in matrix]
 
 
-async def _chromatic_experiment(ctx) -> tuple[models.Experiment, models.ArrayDataset]:  # noqa: ANN001
+async def _chromatic_experiment(
+    ctx: HttpContext,
+) -> tuple[models.Experiment, models.ArrayDataset]:
     """A (c,y,x) dataset on one view, with no unscoped route into its experiment's world."""
     experiment = await create_experiment(ctx, "Chromatic")
     dataset = await seed.create_array_dataset(ctx, "Stack", shapes=[[3, 64, 64]])
@@ -135,8 +144,8 @@ async def _chromatic_experiment(ctx) -> tuple[models.Experiment, models.ArrayDat
 
 
 async def test_one_layer_resolves_differently_per_channel(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The whole point: two channels, one view, two placements.
 
     Each channel's correction is its own edge into the same world -- the shape that used to
@@ -172,8 +181,8 @@ async def test_one_layer_resolves_differently_per_channel(
 
 
 async def test_without_a_fixed_coordinate_a_scoped_edge_is_not_crossed(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """No `at`, no answer -- rather than an arbitrary one.
 
     Where the data sits depends on the channel. A query that has not said which channel has no
@@ -201,8 +210,8 @@ async def test_without_a_fixed_coordinate_a_scoped_edge_is_not_crossed(
 
 
 async def test_an_unscoped_edge_still_answers_without_at(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Every edge written before selectors existed is unscoped, and none of them changed.
 
     This is the compatibility claim the whole design rests on: `selector_admits` returns True for
@@ -229,8 +238,8 @@ async def test_an_unscoped_edge_still_answers_without_at(
 
 
 async def test_a_selector_must_name_an_axis_that_can_be_indexed(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Three rejections, all at write time where the author is still in the room."""
     experiment, dataset = await _chromatic_experiment(authenticated_context)
     source, world = dataset.coordinate_system_id, experiment.world_id
@@ -257,8 +266,8 @@ async def test_a_selector_must_name_an_axis_that_can_be_indexed(
 
 
 async def test_refining_one_channel_moves_only_that_channel(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """Piecewise as several facts, not one row with a list in it.
 
     Each index is its own edge, so it carries its own `version` and its own provenance, and a
@@ -295,7 +304,7 @@ async def test_refining_one_channel_moves_only_that_channel(
     ) == approx([2.0, 2.0]), "channel 1 did not move"
 
 
-async def test_the_selector_predicate_is_the_only_reader_of_the_convention():
+async def test_the_selector_predicate_is_the_only_reader_of_the_convention() -> None:
     """A unit-level pin on `selector_admits`, so the three cases stay stated in one place."""
     unscoped = models.Transformation(selector=None)
     scoped = models.Transformation(selector={"axis": "c", "index": 2})
@@ -311,8 +320,8 @@ async def test_the_selector_predicate_is_the_only_reader_of_the_convention():
 
 
 async def test_a_per_index_registration_is_a_registration_everywhere_it_is_asked(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The plumbing around the selector, which the walk had and nothing else did.
 
     `adjacency_of` was the only reader of `selector_admits`, and every other consumer walked
@@ -360,8 +369,8 @@ async def test_a_per_index_registration_is_a_registration_everywhere_it_is_asked
 
 
 async def test_a_layer_can_be_created_over_a_scoped_only_registration(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """The creation gate refused the view the feature exists to allow.
 
     Every gate asks `is_placeable_in`, whose walk could not see a scoped edge at all. The shape
@@ -401,6 +410,7 @@ async def test_a_layer_can_be_created_over_a_scoped_only_registration(
         },
     )
     assert not aligned.errors, aligned.errors
+    assert aligned.data is not None
     aligned_id = int(aligned.data["createCoordinateSystem"]["id"])
 
     # grid -> aligned, per channel. Then aligned -> world, unscoped: nothing unscoped
@@ -432,8 +442,8 @@ async def test_a_layer_can_be_created_over_a_scoped_only_registration(
 
 
 async def test_a_scoped_source_is_in_view_of_the_space_it_is_registered_into(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     """`inView` never passed `at`, so a per-channel registration was invisible to it.
 
     The source is in the space -- returning nothing for it was the graph withholding what it
@@ -451,6 +461,7 @@ async def test_a_scoped_source_is_in_view_of_the_space_it_is_registered_into(
 
     unfixed = await aexecute(IN_VIEW, {"id": str(experiment.world_id), "at": None})
     assert not unfixed.errors, unfixed.errors
+    assert unfixed.data is not None
     seen = unfixed.data["coordinateSystem"]["inView"]
     assert [hit["source"]["id"] for hit in seen] == [str(dataset.pk)], (
         "in the space, whether or not the question fixed a channel"
@@ -461,6 +472,7 @@ async def test_a_scoped_source_is_in_view_of_the_space_it_is_registered_into(
         IN_VIEW, {"id": str(experiment.world_id), "at": [{"name": "c", "value": 2}]}
     )
     assert not fixed.errors, fixed.errors
+    assert fixed.data is not None
     assert fixed.data["coordinateSystem"]["inView"][0]["extentState"] == "KNOWN", (
         "fixing the channel is what makes a box computable"
     )

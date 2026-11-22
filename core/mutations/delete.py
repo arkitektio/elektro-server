@@ -11,8 +11,11 @@ Models that already ship a named delete mutation with its own input type
 same guard and the same store straddle (:mod:`core.mutations._generic`).
 """
 
+from collections.abc import Callable
+
 import kante
 import strawberry
+from django.db.models import Model
 from kante.types import Info
 from pydantic import BaseModel
 
@@ -32,7 +35,7 @@ class DeleteInput:
     id: strawberry.ID = strawberry.field(description="The id of the object to delete")
 
 
-def delete_flagging_stores(instance) -> None:  # noqa: ANN001 - any model row
+def delete_flagging_stores(instance: Model) -> None:
     """Delete a row, and flag the stores that delete leaves with nobody pointing at them.
 
     mikro's ``make_delete`` straddle, as one function every delete resolver here goes through.
@@ -51,14 +54,16 @@ def delete_flagging_stores(instance) -> None:  # noqa: ANN001 - any model row
         storage.flag_orphaned(orphaned)
 
 
-def _delete(info: Info, model_cls: type, id: str) -> strawberry.ID:
+def _delete(info: Info, model_cls: type[Model], id: str) -> strawberry.ID:
     instance = get_for_org(model_cls, info, id=id)
     enforce_delete(info, instance)
     delete_flagging_stores(instance)
     return strawberry.ID(id)
 
 
-def _make_delete(model_cls: type):
+def _make_delete(
+    model_cls: type[Model],
+) -> Callable[[Info, DeleteInput], strawberry.ID]:
     """Build a guarded delete resolver for ``model_cls``."""
 
     def resolver(info: Info, input: DeleteInput) -> strawberry.ID:

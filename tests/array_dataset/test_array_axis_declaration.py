@@ -20,8 +20,10 @@ the bytes carry.
 """
 
 import pytest
+from strawberry.types import ExecutionResult
 
 from core.models import ArrayDataset, CoordinateSystem
+from tests.fixture_types import AExecute, ZarrStoreFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -40,14 +42,14 @@ _ZYX = [
 
 
 async def _create(
-    aexecute,
-    zarr_store,
+    aexecute: AExecute,
+    zarr_store: ZarrStoreFactory,
     name: str,
     dimension_names: list | None,
     axes: list,
     shape: list | None = None,
     scales: list | None = None,
-):  # noqa: ANN001, ANN202
+) -> ExecutionResult:
     store = await zarr_store(
         shape=shape or [8, 64, 64], dimension_names=dimension_names
     )
@@ -64,10 +66,13 @@ async def _create(
     )
 
 
-async def test_axes_that_name_the_stores_dimensions_are_accepted(aexecute, zarr_store):
+async def test_axes_that_name_the_stores_dimensions_are_accepted(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     result = await _create(aexecute, zarr_store, "agrees", ["z", "y", "x"], _ZYX)
 
     assert not result.errors, result.errors
+    assert result.data is not None
     axes = result.data["createArrayDataset"]["intrinsicSystem"]["axes"]
     assert [a["name"] for a in axes] == ["z", "y", "x"]
 
@@ -78,8 +83,8 @@ async def test_axes_that_name_the_stores_dimensions_are_accepted(aexecute, zarr_
     ids=["z-first", "c-first", "c-between"],
 )
 async def test_an_acquisitions_own_dimension_order_is_accepted(
-    aexecute, zarr_store, dimension_names: list
-):
+    aexecute: AExecute, zarr_store: ZarrStoreFactory, dimension_names: list
+) -> None:
     """The orderings the RFC-5 type rule used to refuse, which is most real stores.
 
     A channel axis after a spatial one, or between two of them, is how acquisitions are
@@ -107,6 +112,7 @@ async def test_an_acquisitions_own_dimension_order_is_accepted(
     )
 
     assert not result.errors, str(result.errors and result.errors[0])
+    assert result.data is not None
     stored = result.data["createArrayDataset"]["intrinsicSystem"]["axes"]
     assert [a["name"] for a in stored] == dimension_names, (
         "stored in the store's order, not sorted into the RFC-5 one"
@@ -116,7 +122,9 @@ async def test_an_acquisitions_own_dimension_order_is_accepted(
     )
 
 
-async def test_a_recordings_own_dimension_order_is_accepted(aexecute, zarr_store):
+async def test_a_recordings_own_dimension_order_is_accepted(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """The ephys reading of the case above: (t, c) and (c, t) are both ordinary ways to write a recording."""
     for names in (["t", "c"], ["c", "t"]):
         axes = [
@@ -133,13 +141,16 @@ async def test_a_recordings_own_dimension_order_is_accepted(aexecute, zarr_store
             shape=shape,
         )
         assert not result.errors, str(result.errors and result.errors[0])
+        assert result.data is not None
         assert [
             a["name"]
             for a in result.data["createArrayDataset"]["intrinsicSystem"]["axes"]
         ] == names
 
 
-async def test_a_transposed_declaration_is_refused(aexecute, zarr_store):
+async def test_a_transposed_declaration_is_refused(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """The whole point: this used to be accepted and read the wrong samples.
 
     `(z, y, x)` in the store, `(x, y, z)` declared. Both are well-formed -- all three
@@ -168,7 +179,9 @@ async def test_a_transposed_declaration_is_refused(aexecute, zarr_store):
     ).aexists(), "refused before anything is written"
 
 
-async def test_a_store_that_names_no_dimensions_is_not_refused(aexecute, zarr_store):
+async def test_a_store_that_names_no_dimensions_is_not_refused(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """zarr v2, or an array written before the field existed.
 
     The check is on what the bytes say, and these bytes say nothing. Refusing here
@@ -179,7 +192,9 @@ async def test_a_store_that_names_no_dimensions_is_not_refused(aexecute, zarr_st
     assert not result.errors, result.errors
 
 
-async def test_a_null_dimension_name_is_skipped_not_compared(aexecute, zarr_store):
+async def test_a_null_dimension_name_is_skipped_not_compared(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """zarr v3 permits a null per dimension -- the store declining to name that one.
 
     `ZarrMetadata.dimension_names` is typed `list[str | None] | None` for exactly this.
@@ -206,7 +221,9 @@ async def test_a_null_dimension_name_is_skipped_not_compared(aexecute, zarr_stor
     )
 
 
-async def test_a_rank_mismatch_is_prose_rather_than_an_assertion(aexecute, zarr_store):
+async def test_a_rank_mismatch_is_prose_rather_than_an_assertion(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """It was a bare `assert` until 2026-08-20.
 
     Which vanishes under `-O` -- so the guard was off in exactly the deployment most
@@ -229,7 +246,9 @@ async def test_a_rank_mismatch_is_prose_rather_than_an_assertion(aexecute, zarr_
     assert "3 dimensions but 2 axes were declared" in str(result.errors[0])
 
 
-async def test_a_pyramid_level_is_checked_against_the_same_axes(aexecute, zarr_store):
+async def test_a_pyramid_level_is_checked_against_the_same_axes(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """A level is the same array at a coarser grid, so it has the same axes in the same order.
 
     A level whose zarr names its dimensions differently is the transposition bug one zoom
@@ -259,7 +278,9 @@ async def test_a_pyramid_level_is_checked_against_the_same_axes(aexecute, zarr_s
     )
 
 
-async def test_a_pyramid_level_that_agrees_is_accepted(aexecute, zarr_store):
+async def test_a_pyramid_level_that_agrees_is_accepted(
+    aexecute: AExecute, zarr_store: ZarrStoreFactory
+) -> None:
     """The same shape, passing -- so the test above is failing on the names, not the pyramid."""
     level = await zarr_store(shape=[4, 32, 32], dimension_names=["z", "y", "x"])
     result = await _create(

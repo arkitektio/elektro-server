@@ -15,10 +15,12 @@ mikro's version patches ``ZarrStore.fill_info``; this one creates through the
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from core import models
 from rigkit.models import RigStateModel
 from tests import seed
+from tests.fixture_types import AExecute, CreateArrayDatasetFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -87,8 +89,10 @@ def _sent() -> RigStateModel:
 
 
 async def test_a_rig_state_is_written_as_a_typed_anchor_spoke(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """Ingest pins the recorded rig state to its coordinate, through composable typed input.
 
     Quantities arrive as unit-carrying strings and are stored canonically; the stored
@@ -133,6 +137,7 @@ async def test_a_rig_state_is_written_as_a_typed_anchor_spoke(
     lens = await seed.create_lens(authenticated_context, dataset, slices=[])
     read = await aexecute(ACTIVE_ANCHORS, {"id": str(lens.pk)})
     assert not read.errors, read.errors
+    assert read.data is not None
     (read_anchor,) = read.data["lens"]["activeAnchors"]
     state = read_anchor["rig"]["state"]
     assert state["mode"] == "VOLTAGE_CLAMP"
@@ -152,8 +157,8 @@ async def test_a_rig_state_is_written_as_a_typed_anchor_spoke(
     ),
 )
 async def test_the_stored_rig_state_reconstructs_the_state_that_was_sent(
-    create_array_dataset,
-):
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """mikro's assertion, verbatim: reconstructing the stored JSON recovers the state the client sent, quantities compared canonically rather than by their spelling."""
     created = await create_array_dataset(
         "Acquired",
@@ -167,7 +172,9 @@ async def test_the_stored_rig_state_reconstructs_the_state_that_was_sent(
     assert stored == _sent()
 
 
-async def test_a_setting_holds_exactly_one_value(create_array_dataset):
+async def test_a_setting_holds_exactly_one_value(
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """A setting filling two value slots is refused: it is two settings."""
     rig = {
         "devices": [
@@ -210,8 +217,8 @@ async def test_a_setting_holds_exactly_one_value(create_array_dataset):
     ids=["voltage-clamp", "current-clamp", "zero-current"],
 )
 async def test_a_holding_level_may_not_contradict_the_clamp_mode(
-    create_array_dataset, rig: dict, fragment: str
-):
+    create_array_dataset: CreateArrayDatasetFactory, rig: dict, fragment: str
+) -> None:
     """The holding level is the level of whatever was *clamped*: stating the other one is a contradiction, not extra information."""
     result = await create_array_dataset(
         "Contradiction",
@@ -225,8 +232,10 @@ async def test_a_holding_level_may_not_contradict_the_clamp_mode(
 
 
 async def test_a_lens_reads_the_spokes_of_the_channels_it_keeps(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """Every spoke kind this service has, on one dataset, read back through a lens that keeps one channel.
 
     The dataset-wide anchor is global along every axis, so it is always in; a channel's anchor
@@ -253,6 +262,7 @@ async def test_a_lens_reads_the_spokes_of_the_channels_it_keeps(
     )
     read = await aexecute(ACTIVE_ANCHORS, {"id": str(command_only.pk)})
     assert not read.errors, read.errors
+    assert read.data is not None
     by_coordinates = {
         str(anchor["coordinates"]): anchor
         for anchor in read.data["lens"]["activeAnchors"]
@@ -273,7 +283,9 @@ async def test_a_lens_reads_the_spokes_of_the_channels_it_keeps(
     )
 
 
-async def test_acquisition_metadata_must_be_a_json_object(create_array_dataset):
+async def test_acquisition_metadata_must_be_a_json_object(
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     for bad, fragment in (
         ("not json", "is not valid JSON"),
         ("[1, 2]", "must be a JSON object"),
@@ -293,7 +305,9 @@ async def test_acquisition_metadata_must_be_a_json_object(create_array_dataset):
 # --- elektro's addition: an anchor is checked against the axes it pins --------------------------
 
 
-async def test_an_anchor_may_not_name_an_axis_twice(create_array_dataset):
+async def test_an_anchor_may_not_name_an_axis_twice(
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """One position per axis; a second position is a second anchor."""
     twice = {
         "axisAnchors": [{"axis": "c", "value": 0}, {"axis": "c", "value": 1}],
@@ -306,7 +320,9 @@ async def test_an_anchor_may_not_name_an_axis_twice(create_array_dataset):
     assert not await models.ArrayDataset.objects.filter(name="Twice").aexists()
 
 
-async def test_an_anchor_may_not_name_an_axis_the_dataset_lacks(create_array_dataset):
+async def test_an_anchor_may_not_name_an_axis_the_dataset_lacks(
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     result = await create_array_dataset(
         "Unknown",
         [1000, 2],
@@ -322,7 +338,9 @@ async def test_an_anchor_may_not_name_an_axis_the_dataset_lacks(create_array_dat
     assert not await models.ArrayDataset.objects.filter(name="Unknown").aexists()
 
 
-async def test_two_anchors_may_not_share_their_coordinates(create_array_dataset):
+async def test_two_anchors_may_not_share_their_coordinates(
+    create_array_dataset: CreateArrayDatasetFactory,
+) -> None:
     """A spoke is one-to-one with its anchor, so a second anchor at the same place is a rival answer to the first."""
     rivals = [
         {"axisAnchors": [], "valueUnit": {"unit": "mV"}},
@@ -365,8 +383,8 @@ query Within($id: ID!, $within: [AnchorWindowInput!], $pagination: OffsetPaginat
 
 
 async def _channel_and_time_anchors(
-    create_array_dataset, authenticated_context
-) -> models.Lens:  # noqa: ANN001
+    create_array_dataset: CreateArrayDatasetFactory, authenticated_context: HttpContext
+) -> models.Lens:
     anchors = [
         {"axisAnchors": [], "valueUnit": {"unit": "mV"}},
         {"axisAnchors": [{"axis": "c", "value": 0}], "label": {"label": "Vm"}},
@@ -386,8 +404,10 @@ async def _channel_and_time_anchors(
 
 
 async def test_within_narrows_a_lens_to_one_channel_and_a_time_window(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     """What a trace row's card asks: the anchors on this channel, in the samples on screen -- not every anchor of the recording."""
     lens = await _channel_and_time_anchors(create_array_dataset, authenticated_context)
 
@@ -402,6 +422,7 @@ async def test_within_narrows_a_lens_to_one_channel_and_a_time_window(
         },
     )
     assert not read.errors, read.errors
+    assert read.data is not None
     coordinates = [
         anchor["coordinates"] for anchor in read.data["lens"]["activeAnchors"]
     ]
@@ -412,8 +433,10 @@ async def test_within_narrows_a_lens_to_one_channel_and_a_time_window(
 
 
 async def test_active_anchors_page_oldest_first(
-    aexecute, create_array_dataset, authenticated_context
-):
+    aexecute: AExecute,
+    create_array_dataset: CreateArrayDatasetFactory,
+    authenticated_context: HttpContext,
+) -> None:
     lens = await _channel_and_time_anchors(create_array_dataset, authenticated_context)
 
     pages = []
@@ -422,6 +445,7 @@ async def test_active_anchors_page_oldest_first(
             WITHIN, {"id": str(lens.pk), "pagination": {"offset": offset, "limit": 2}}
         )
         assert not read.errors, read.errors
+        assert read.data is not None
         pages.append(
             [anchor["coordinates"] for anchor in read.data["lens"]["activeAnchors"]]
         )

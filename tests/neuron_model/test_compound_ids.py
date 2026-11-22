@@ -7,6 +7,9 @@ queries take, and ``id`` stays the config's own id, which the recording sites na
 """
 
 import pytest
+from kante.context import HttpContext
+
+from tests.fixture_types import AExecute, NeuronModelFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -36,11 +39,12 @@ SECTION = "query ($id: ID!) { section(id: $id) { id compoundId model { id } cell
 
 
 async def test_every_cell_and_section_carries_the_compound_id_its_detail_query_takes(
-    aexecute, make_neuron_model
-):
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     nm = await make_neuron_model(name="two cells", json_model=CONFIG)
     res = await aexecute(CONFIG_IDS, {"id": str(nm.id)})
     assert not res.errors, res.errors
+    assert res.data is not None
     cells = res.data["neuronModel"]["config"]["cells"]
     assert [(c["id"], c["compoundId"]) for c in cells] == [
         ("pyr", f"{nm.id}:pyr"),
@@ -54,6 +58,7 @@ async def test_every_cell_and_section_carries_the_compound_id_its_detail_query_t
     for cell in cells:
         got = await aexecute(CELL, {"id": cell["compoundId"]})
         assert not got.errors, got.errors
+        assert got.data is not None
         assert (
             got.data["cell"]["id"],
             got.data["cell"]["compoundId"],
@@ -62,6 +67,7 @@ async def test_every_cell_and_section_carries_the_compound_id_its_detail_query_t
         for section in cell["topology"]["sections"]:
             detail = await aexecute(SECTION, {"id": section["compoundId"]})
             assert not detail.errors, detail.errors
+            assert detail.data is not None
             assert (
                 detail.data["section"]["id"] == section["id"]
                 and detail.data["section"]["compoundId"] == section["compoundId"]
@@ -73,11 +79,14 @@ async def test_every_cell_and_section_carries_the_compound_id_its_detail_query_t
             assert detail.data["section"]["sessions"] == []
 
 
-async def test_a_section_id_is_its_cells(aexecute, make_neuron_model):
+async def test_a_section_id_is_its_cells(
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     """`soma` of `int` is not `soma` of `pyr`: the compound id says which."""
     nm = await make_neuron_model(name="two cells", json_model=CONFIG)
     res = await aexecute(CELL, {"id": f"{nm.id}:int"})
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["cell"]["topology"]["sections"] == [{"id": "soma"}]
 
 
@@ -105,16 +114,22 @@ async def test_a_section_id_is_its_cells(aexecute, make_neuron_model):
     ],
 )
 async def test_a_compound_id_names_something_the_model_has(
-    aexecute, make_neuron_model, query, compound, refusal
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    query: str,
+    compound: str,
+    refusal: str,
+) -> None:
     nm = await make_neuron_model(name="two cells", json_model=CONFIG)
     res = await aexecute(query, {"id": compound.format(model=nm.id)})
     assert res.errors and refusal in str(res.errors[0]), res.errors
 
 
 async def test_a_compound_id_is_scoped_by_its_model(
-    aexecute, make_neuron_model, other_org_context
-):
+    aexecute: AExecute,
+    make_neuron_model: NeuronModelFactory,
+    other_org_context: HttpContext,
+) -> None:
     theirs = await make_neuron_model(
         context=other_org_context, name="theirs", json_model=CONFIG
     )

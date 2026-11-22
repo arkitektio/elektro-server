@@ -39,6 +39,7 @@ reciprocal ``rate -> period -> rate`` round-trips exactly through nanohertz up t
 """
 
 import datetime
+from collections.abc import Iterable
 
 from core import enums, models
 from core.creation import CreationContext
@@ -166,7 +167,7 @@ def write_sampling_law(
     )
 
 
-def _run_facts(grids) -> dict[tuple, list[str]]:  # noqa: ANN001 - any iterable of system ids
+def _run_facts(grids: Iterable[int]) -> dict[tuple, list[str]]:
     """The integrator facts the datasets living in ``grids`` carry, each with the datasets stating it."""
     facts: dict[tuple, list[str]] = {}
     spokes = (
@@ -562,7 +563,9 @@ def timing_clocks_of(
     return timing_clocks_by_grid([grid.pk]).get(grid.pk, [])
 
 
-def timing_clocks_by_grid(grid_ids) -> "dict[int, list[models.CoordinateSystem]]":  # noqa: ANN001 - any iterable of system ids
+def timing_clocks_by_grid(
+    grid_ids: Iterable[int | None],
+) -> "dict[int, list[models.CoordinateSystem]]":
     """:func:`timing_clocks_of` for many grids in one query: each grid's clocks, in edge order."""
     ids = {pk for pk in grid_ids if pk is not None}
     if not ids:

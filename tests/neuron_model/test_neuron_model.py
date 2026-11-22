@@ -5,9 +5,13 @@ recent to_pydantic refactor touched), including the optional-field-omission
 regression (environment/parent) and the in-environment mechanism validation.
 """
 
+from collections.abc import Mapping, Sequence
+
 import pytest
+from kante.context import HttpContext
 
 from core.models import Mechanism, ModEnvironment, NeuronModel, Transformation
+from tests.fixture_types import AExecute, BigFileStoreFactory, NeuronModelFactory
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -19,7 +23,7 @@ mutation ($input: CreateNeuronModelInput!) {
 """
 
 
-def _config(cells=None):
+def _config(cells: Sequence[Mapping[str, object]] | None = None) -> dict[str, object]:
     return {
         "cells": cells or [],
         "vInit": "-67 mV",
@@ -27,7 +31,7 @@ def _config(cells=None):
     }
 
 
-def _cell(mechanisms):
+def _cell(mechanisms: Sequence[str]) -> dict[str, object]:
     return {
         "id": "cell0",
         # Compartments are matched to sections by the section's category, so the
@@ -39,7 +43,9 @@ def _cell(mechanisms):
     }
 
 
-async def test_create_neuron_model_minimal(aexecute, authenticated_context):
+async def test_create_neuron_model_minimal(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     # environment is NOT NULL, so a minimal create must still supply one.
     env = await ModEnvironment.objects.acreate(
         name="env-min", organization=authenticated_context.request.organization
@@ -49,11 +55,12 @@ async def test_create_neuron_model_minimal(aexecute, authenticated_context):
         {"input": {"name": "NM", "environment": str(env.id), "config": _config()}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createNeuronModel"]["name"] == "NM"
     assert await NeuronModel.objects.filter(name="NM").aexists()
 
 
-async def test_create_neuron_model_requires_environment(aexecute):
+async def test_create_neuron_model_requires_environment(aexecute: AExecute) -> None:
     # environment/parent both omitted -> NOT NULL environment can't be resolved.
     res = await aexecute(
         CREATE_NEURON_MODEL, {"input": {"name": "NoEnv", "config": _config()}}
@@ -63,8 +70,10 @@ async def test_create_neuron_model_requires_environment(aexecute):
 
 
 async def test_create_neuron_model_builtin_mechanism(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
         name="env", store=store, organization=authenticated_context.request.organization
@@ -84,7 +93,9 @@ async def test_create_neuron_model_builtin_mechanism(
     assert await NeuronModel.objects.filter(name="WithEnv").aexists()
 
 
-async def test_create_neuron_model_with_parent(aexecute, make_neuron_model):
+async def test_create_neuron_model_with_parent(
+    aexecute: AExecute, make_neuron_model: NeuronModelFactory
+) -> None:
     # `parent` is sugar now: it lowers to a single NEURON_MODEL entry in `derivedFrom`, placed
     # first, so what it produces is an UNMAPPABLE edge out of the child's space -- not a column.
     parent = await make_neuron_model(name="Parent")
@@ -93,6 +104,7 @@ async def test_create_neuron_model_with_parent(aexecute, make_neuron_model):
         {"input": {"name": "Child", "parent": str(parent.id), "config": _config()}},
     )
     assert not res.errors, res.errors
+    assert res.data is not None
     assert res.data["createNeuronModel"]["name"] == "Child"
 
     child = await NeuronModel.objects.aget(name="Child")
@@ -111,8 +123,11 @@ async def test_create_neuron_model_with_parent(aexecute, make_neuron_model):
 
 
 async def test_create_neuron_model_inherits_parent_environment(
-    aexecute, authenticated_context, bigfile_store, make_neuron_model
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    make_neuron_model: NeuronModelFactory,
+) -> None:
     # When parent is set but environment is omitted, the child inherits the
     # parent's environment.
     store = await bigfile_store()
@@ -132,8 +147,11 @@ async def test_create_neuron_model_inherits_parent_environment(
 
 
 async def test_create_neuron_model_explicit_environment_overrides_parent(
-    aexecute, authenticated_context, bigfile_store, make_neuron_model
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+    make_neuron_model: NeuronModelFactory,
+) -> None:
     # An explicit environment wins over the parent's environment.
     parent_store = await bigfile_store()
     parent_env = await ModEnvironment.objects.acreate(
@@ -169,8 +187,10 @@ async def test_create_neuron_model_explicit_environment_overrides_parent(
 
 
 async def test_create_neuron_model_unknown_mechanism(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
         name="env2",
@@ -191,13 +211,13 @@ async def test_create_neuron_model_unknown_mechanism(
     assert res.errors
 
 
-async def test_create_neuron_model_missing_config(aexecute):
+async def test_create_neuron_model_missing_config(aexecute: AExecute) -> None:
     # config is required on CreateNeuronModelInput.
     res = await aexecute(CREATE_NEURON_MODEL, {"input": {"name": "NoConfig"}})
     assert res.errors
 
 
-def _cell_with_param(mechanism, param):
+def _cell_with_param(mechanism: str, param: str) -> dict[str, object]:
     # A cell whose compartment sets one section param on a catalog mechanism.
     return {
         "id": "cell0",
@@ -223,8 +243,10 @@ def _cell_with_param(mechanism, param):
 
 
 async def test_create_neuron_model_section_param_valid_against_catalog(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
         name="env-cat-ok",
@@ -250,8 +272,10 @@ async def test_create_neuron_model_section_param_valid_against_catalog(
 
 
 async def test_create_neuron_model_section_param_not_in_catalog(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
         name="env-cat-bad",
@@ -276,7 +300,7 @@ async def test_create_neuron_model_section_param_not_in_catalog(
     assert not await NeuronModel.objects.filter(name="BadParam").aexists()
 
 
-def _cell_with_value(mechanism, param, value):
+def _cell_with_value(mechanism: str, param: str, value: str) -> dict[str, object]:
     # A cell whose compartment sets `param` to a specific quantity `value`.
     return {
         "id": "cell0",
@@ -302,8 +326,10 @@ def _cell_with_value(mechanism, param, value):
 
 
 async def test_section_param_value_matching_declared_dimension(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
         name="env-dim-ok",
@@ -331,8 +357,10 @@ async def test_section_param_value_matching_declared_dimension(
 
 
 async def test_section_param_value_wrong_dimension_rejected(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
         name="env-dim-bad",
@@ -359,8 +387,10 @@ async def test_section_param_value_wrong_dimension_rejected(
 
 
 async def test_arbitrary_unit_param_opts_out_of_dimension_check(
-    aexecute, authenticated_context, bigfile_store
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    bigfile_store: BigFileStoreFactory,
+) -> None:
     store = await bigfile_store()
     env = await ModEnvironment.objects.acreate(
         name="env-au",

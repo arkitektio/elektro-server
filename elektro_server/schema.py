@@ -123,6 +123,7 @@ class Query:
 
     collaborations: list[collaboration_types.Collaboration] = field(resolver=collaboration_api.collaborations, description="List the organization's collaborations: what a guest granted one sees of it (a guest: the collaborations granted to them)")
     collaboration: collaboration_types.Collaboration = field(resolver=collaboration_api.collaboration, description="Get a single collaboration by ID")
+    collaborations_stats: collaboration_types.CollaborationStats = field(resolver=collaboration_api.collaborations_stats, description="Count the collaborations `collaborations` lists, and the objects in them")
 
     mod_environments: list[types.ModEnvironment] = field()
     mechanisms: list[types.Mechanism] = field()

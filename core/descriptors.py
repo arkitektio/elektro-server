@@ -35,6 +35,9 @@ from kanne_server.scalars import (
 )
 
 if TYPE_CHECKING:
+    from arkitekt_service.service.described import Described
+    from django.db.models import QuerySet
+
     from core import models
 
 
@@ -115,7 +118,7 @@ def lens_descriptors(lens: "models.Lens") -> dict[str, int | str]:
     return {**counted, **value_descriptors(lens.dataset)}
 
 
-def restore(target: object) -> None:
+def restore(target: "Described | QuerySet[Described]") -> None:
     """Store the descriptors of a row, or of every row of a queryset, again: for what was written after it.
 
     Inside the transaction that created the row this announces nothing more -- its CREATED reads

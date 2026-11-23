@@ -4,7 +4,7 @@ The factories are Protocols: a test annotates its argument with the factory's ty
 fixture's own function is checked against the same signature.
 """
 
-from collections.abc import Awaitable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeAlias, overload
 
@@ -23,6 +23,10 @@ from core.models import (
 
 #: A GraphQL payload, as strawberry hands it over: ``ExecutionResult.data`` is ``dict[str, Any]``.
 GraphQLData: TypeAlias = dict[str, Any]
+
+#: ``guest({key: roles})``: a context presenting a guest's token granted those collaborations, by their
+#: key (lok's), with the roles held in each (``[]``: view only).
+GuestFactory: TypeAlias = Callable[[Mapping[str, list[str]]], HttpContext]
 
 #: The host ports the compose stack published: ``{"db": ..., "rustfs": ...}``.
 BackendStack: TypeAlias = dict[str, int]

@@ -1,28 +1,31 @@
 """A guest of the organization, granted a collaboration and nothing else: what they read, and what they may draw.
 
-Their token lists their collaborations by service instance (`collabs`, instance "1" in the test settings),
-with the roles they hold in each; the guest token is minted per test. A full member ("test")
-puts objects in a collaboration; what each needs to be seen comes along, and what is part of it is in it.
+Their token lists their collaborations by key (`collabs`: lok's key, one across the hub), with the
+roles they hold in each; the guest token is minted per test. A full member ("test") puts objects in a
+collaboration under a fresh key (`addManyToCollaboration`, which makes elektro's row of it); what each
+needs to be seen comes along, and what is part of it is in it.
 """
 
-from collections.abc import Callable, Iterator, Mapping
-from typing import TypeAlias
+import uuid
 
 import pytest
-from arkitekt_service.collaborations import items as collaboration_items
 from arkitekt_service.collaborations.models import Collaboration
+from arkitekt_service.service import Service
 from asgiref.sync import sync_to_async
-from authentikate import settings as authentikate_settings
 from django.db.models import Model
-from kante.context import HttpContext, UniversalRequest
-from pytest_django.fixtures import SettingsWrapper
-from strawberry.http.temporal_response import TemporalResponse
+from kante.context import HttpContext
 from strawberry.types import ExecutionResult
 
 from core import models
 from elektro_server.schema import schema
 from tests import seed
-from tests.fixture_types import GraphQLData, SimulationChain, SimulationChainFactory
+from tests.conftest import token_context
+from tests.fixture_types import (
+    GraphQLData,
+    GuestFactory,
+    SimulationChain,
+    SimulationChainFactory,
+)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
@@ -61,49 +64,6 @@ CLOCK_OFFSET = "mutation ($input: CreateClockOffsetInput!) { createClockOffset(i
 TRACE = "mutation ($input: CreateTraceLayerInput!) { createTraceLayer(input: $input) { id } }"
 
 
-def _context(token: str) -> HttpContext:
-    return HttpContext(
-        request=UniversalRequest(_extensions={}),
-        response=TemporalResponse(),
-        headers={"Authorization": f"Bearer {token}"},
-        type="http",
-    )
-
-
-#: ``guest``: mint a context presenting a guest's token granted ``{collaboration: roles}``.
-GuestFactory: TypeAlias = Callable[[Mapping[Collaboration, list[str]]], HttpContext]
-
-
-@pytest.fixture
-def guest(
-    db: None, authenticated_context: HttpContext, settings: SettingsWrapper
-) -> Iterator[GuestFactory]:
-    """``guest({collaboration: roles})``: a context presenting a guest's token granted those collaborations on instance "1"."""
-
-    def mint(collaborations: Mapping[Collaboration, list[str]]) -> HttpContext:
-        granted = {
-            str(collaboration.pk): roles
-            for collaboration, roles in collaborations.items()
-        }
-        settings.AUTHENTIKATE = {
-            **settings.AUTHENTIKATE,
-            "static_tokens": {
-                **settings.AUTHENTIKATE["static_tokens"],
-                "guest": {
-                    "sub": "20",
-                    "roles": [],
-                    "collabs": {"1": granted},
-                    "scope": "openid elektro_all",
-                },
-            },
-        }
-        authentikate_settings.cached_settings = None
-        return _context("guest")
-
-    yield mint
-    authentikate_settings.cached_settings = None
-
-
 async def _run(ctx: HttpContext, query: str, **variables: object) -> ExecutionResult:
     return await schema.execute(
         query, context_value=ctx, variable_values=variables or None
@@ -112,24 +72,38 @@ async def _run(ctx: HttpContext, query: str, **variables: object) -> ExecutionRe
 
 async def _member(query: str, **variables: object) -> GraphQLData:
     """Run ``query`` as the full member, as a request of its own, and hand back its data."""
-    result = await _run(_context("test"), query, **variables)
+    result = await _run(token_context("test"), query, **variables)
     assert not result.errors, result.errors
     assert result.data is not None
     return result.data
 
 
-async def _collaboration(ctx: HttpContext, *objects: Model) -> Collaboration:
-    """A collaboration of the organization holding ``objects``, as a full member puts them in."""
+def _identifier(obj: Model) -> str:
+    structure = Service.hosting(obj)
+    assert structure is not None, f"{type(obj).__name__} is no structure here"
+    return structure.identifier
 
-    def make() -> Collaboration:
-        collaboration = Collaboration.objects.create(
-            organization=ctx.request.organization, name="Shared"
-        )
-        for obj in objects:
-            collaboration_items.add(collaboration, obj)
-        return collaboration
 
-    return await sync_to_async(make)()
+async def _collaboration(ctx: HttpContext, *objects: Model) -> str:
+    """A collaboration of the organization holding ``objects``, as a full member puts them in:
+    under a fresh key, as lok hands one out, in one ``addManyToCollaboration``. Its key."""
+    key = str(uuid.uuid4())
+    added = await _member(
+        "mutation ($input: AddManyToCollaborationInput!) { addManyToCollaboration(input: $input) { key name } }",
+        input={
+            "collaboration": key,
+            "name": "Shared",
+            "objects": [
+                {"identifier": _identifier(obj), "object": str(obj.pk)}
+                for obj in objects
+            ],
+        },
+    )
+    assert added["addManyToCollaboration"] == {"key": key, "name": "Shared"}
+    assert await Collaboration.objects.filter(
+        key=key, organization=ctx.request.organization
+    ).aexists()
+    return key
 
 
 async def _experiment(name: str) -> models.Experiment:
@@ -417,24 +391,28 @@ async def test_a_member_puts_an_experiment_in_a_collaboration_and_takes_it_out(
     authenticated_context: HttpContext, guest: GuestFactory
 ) -> None:
     experiment = await _experiment("Handed over")
-    created = await _member(
-        'mutation { createCollaboration(input: {name: "Review"}) { id } }'
-    )
-    collaboration = created["createCollaboration"]["id"]
+    key = str(uuid.uuid4())  # lok's: nothing of it is here until something is put in
     target = {
-        "collaboration": collaboration,
+        "collaboration": key,
         "identifier": "@elektro/experiment",
         "object": str(experiment.pk),
     }
 
     added = await _member(
-        "mutation ($input: CollaborationObjectInput!) { addToCollaboration(input: $input) { items { identifier brought } } }",
-        input=target,
+        "mutation ($input: CollaborationObjectInput!) { addToCollaboration(input: $input) { key name items { identifier brought } } }",
+        input={**target, "name": "Review"},
     )
+    assert added["addToCollaboration"]["key"] == key
+    assert added["addToCollaboration"]["name"] == "Review"
     items = added["addToCollaboration"]["items"]
     assert {"identifier": "@elektro/experiment", "brought": False} in items
     assert any(item["brought"] for item in items), "its world came along"
-    ctx = guest({await Collaboration.objects.aget(pk=collaboration): []})
+    listed = await _member(
+        "query ($key: ID!) { collaboration(key: $key) { key itemCount(brought: false) } }",
+        key=key,
+    )
+    assert listed["collaboration"] == {"key": key, "itemCount": 1}
+    ctx = guest({key: []})
     assert (await _run(ctx, EXPERIMENT, id=str(experiment.pk))).data["experiment"][
         "name"
     ] == "Handed over"

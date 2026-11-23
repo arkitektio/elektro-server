@@ -165,6 +165,11 @@ def _file_needs(file: models.File) -> list[Model | None]:
 
 
 # --- Structures: what elektro hosts ---------------------------------------------------
+# What a workflow (a root task) created, for `shareWorkflow` and the `createdUnder` filters, koherent
+# reads off each model: the `created_through` task of a dataset, a file, a folder or an annotation
+# collection, the CREATE row of a lens', a neuron model's or an experiment's history. A model
+# collection keeps neither, so nothing says which workflow made one: a workflow share reports it as
+# `unknown`. A lens needs no `whole=`: its dataset key is required and cascades, so it is part of it.
 
 arraydataset = service.structure(
     models.ArrayDataset,

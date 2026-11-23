@@ -10,6 +10,7 @@ import psycopg
 import pytest
 from arkitekt_datalayer.models import BigFileStore, ZarrStore
 from asgiref.sync import sync_to_async
+from authentikate import settings as authentikate_settings
 from authentikate.models import Client, Membership, Organization, User
 from botocore.client import BaseClient
 from botocore.config import Config
@@ -21,6 +22,7 @@ from kante.context import HttpContext, UniversalRequest
 from moto import mock_aws
 from numpy.typing import NDArray
 from pytest_django import DjangoDbBlocker
+from pytest_django.fixtures import SettingsWrapper
 from strawberry.http.temporal_response import TemporalResponse
 from strawberry.types import ExecutionResult
 
@@ -33,6 +35,7 @@ from tests.fixture_types import (
     DatasetFactory,
     Grant,
     GraphQLData,
+    GuestFactory,
     NeuronModelFactory,
     SimulationChain,
     SimulationChainFactory,
@@ -417,6 +420,43 @@ def fresh_request(ctx: HttpContext) -> HttpContext:
     return HttpContext(
         request=request, response=TemporalResponse(), headers=ctx.headers, type="http"
     )
+
+
+def token_context(token: str) -> HttpContext:
+    """A request presenting the static token ``token``, as a client sends it: nothing resolved yet."""
+    return HttpContext(
+        request=UniversalRequest(_extensions={}),
+        response=TemporalResponse(),
+        headers={"Authorization": f"Bearer {token}"},
+        type="http",
+    )
+
+
+@pytest.fixture
+def guest(
+    db: None, authenticated_context: HttpContext, settings: SettingsWrapper
+) -> Iterator[GuestFactory]:
+    """``guest({key: roles})``: a context presenting a guest of the test organization (sub 20),
+    granted those collaborations by their key, as lok lists them in the token's ``collabs``."""
+
+    def mint(collaborations: Mapping[str, list[str]]) -> HttpContext:
+        settings.AUTHENTIKATE = {
+            **settings.AUTHENTIKATE,
+            "static_tokens": {
+                **settings.AUTHENTIKATE["static_tokens"],
+                "guest": {
+                    "sub": "20",
+                    "roles": [],
+                    "collabs": dict(collaborations),
+                    "scope": "openid elektro_all",
+                },
+            },
+        }
+        authentikate_settings.cached_settings = None
+        return token_context("guest")
+
+    yield mint
+    authentikate_settings.cached_settings = None
 
 
 @pytest.fixture

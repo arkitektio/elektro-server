@@ -4,6 +4,7 @@ from typing import ClassVar
 import kante
 import strawberry
 import strawberry_django
+from arkitekt_service.collaborations.filters import SharingFilterMixin
 from django.contrib.postgres.search import (
     SearchQuery,
     SearchRank,
@@ -78,59 +79,77 @@ class ProvenanceFilterMixin:
     """Flat, biologist-friendly filters over a model's provenance history.
 
     Requires the model to carry a :func:`koherent.fields.ProvenanceField`
-    (reverse relation ``provenance_entries``). Traversing that one-to-many
-    history relation joins one row per matching entry, so every method ends in
-    ``.distinct()`` to keep an instance from being returned once per match (same
-    pattern the experiment filters use).
+    (reverse relation ``provenance_entries``). Each field answers a condition, not a
+    filtered queryset: the filter ANDs them into one ``.filter()``, so two criteria
+    given together hold of the *same* history row (a separate ``.filter()`` per
+    criterion would join the history once per criterion, and let ``provenanceTask``
+    and ``createdWith`` match two different changes). Traversing the one-to-many
+    history joins one row per matching entry, so each field also hands back a
+    ``.distinct()`` queryset.
 
-    Only apply this mixin to a filter whose model has ``provenance_entries`` —
+    Only apply this mixin to a filter whose model has ``provenance_entries`` --
     otherwise these lookups raise ``FieldError`` at query time.
 
-    NB: this is the deliberately *flat* counterpart to koherent's own nested
-    ``koherent.strawberry.ProvenanceFilterMixin`` (a ``provenance: {...}`` input).
-    Both can coexist; koherent's is never imported here, so there is no clash.
+    NB: the deliberately *flat* counterpart to koherent's own nested
+    ``koherent.strawberry.ProvenanceFilterMixin`` (a ``provenance: {...}`` input),
+    which has no ``createdByAgent`` and matches ``createdWith`` only against the
+    task's agent, not the client a change was made with. What a *workflow* created
+    is ``createdUnder`` (:class:`SharingFilterMixin`); ``provenanceRootTask`` finds
+    everything a workflow touched.
     """
 
     # The human-readable task id string (Task.task_id), not the FK pk. We
     # traverse ``task__task_id`` deliberately: ``provenance_entries__task_id``
     # would resolve to the FK's pk column, a different (and confusing) field.
-    provenance_task: str | None
-    provenance_root_task: str | None
-    created_with: str | None
-    created_by_agent: bool | None
+    @kante.filter_field(description="Filter to what a change ran under this task id")
+    def provenance_task(
+        self, info: Info, value: str | None, prefix: str, queryset: QuerySet
+    ) -> tuple[QuerySet, Q]:
+        if value is None:
+            return queryset, Q()
+        return queryset.distinct(), Q(
+            **{f"{prefix}provenance_entries__task__task_id": value}
+        )
 
-    def filter_provenance_task(self, queryset: QuerySet, info: Info) -> QuerySet:
-        if self.provenance_task is None:
-            return queryset
-        return queryset.filter(
-            provenance_entries__task__task_id=self.provenance_task
-        ).distinct()
+    @kante.filter_field(
+        description="Filter to what a change ran under this root task (the workflow): created or modified by it"
+    )
+    def provenance_root_task(
+        self, info: Info, value: str | None, prefix: str, queryset: QuerySet
+    ) -> tuple[QuerySet, Q]:
+        if value is None:
+            return queryset, Q()
+        return queryset.distinct(), Q(
+            **{f"{prefix}provenance_entries__task__root_task_id": value}
+        )
 
-    def filter_provenance_root_task(self, queryset: QuerySet, info: Info) -> QuerySet:
-        if self.provenance_root_task is None:
-            return queryset
-        return queryset.filter(
-            provenance_entries__task__root_task_id=self.provenance_root_task
-        ).distinct()
-
-    def filter_created_with(self, queryset: QuerySet, info: Info) -> QuerySet:
-        if self.created_with is None:
-            return queryset
+    @kante.filter_field(
+        description="Filter to what a change was made with this client: directly, or as the agent executing its task"
+    )
+    def created_with(
+        self, info: Info, value: str | None, prefix: str, queryset: QuerySet
+    ) -> tuple[QuerySet, Q]:
+        if value is None:
+            return queryset, Q()
         # A change can be attributed to a client directly (on the history row)
         # or via the task's executing agent; match either.
-        return queryset.filter(
-            Q(provenance_entries__client__client_id=self.created_with)
-            | Q(provenance_entries__task__agent_client_id=self.created_with)
-        ).distinct()
+        return queryset.distinct(), Q(
+            **{f"{prefix}provenance_entries__client__client_id": value}
+        ) | Q(**{f"{prefix}provenance_entries__task__agent_client_id": value})
 
-    def filter_created_by_agent(self, queryset: QuerySet, info: Info) -> QuerySet:
-        if self.created_by_agent is None:
-            return queryset
-        if self.created_by_agent:
-            # Produced/modified under an automated provenance task.
-            return queryset.filter(provenance_entries__task__isnull=False).distinct()
-        # Human / direct-API only: no provenance entry carries a task.
-        return queryset.exclude(provenance_entries__task__isnull=False).distinct()
+    @kante.filter_field(
+        description="True: what some change was made under an automated task. False: only what no task ever touched (human / direct API)"
+    )
+    def created_by_agent(
+        self, info: Info, value: bool | None, prefix: str, queryset: QuerySet
+    ) -> tuple[QuerySet, Q]:
+        if value is None:
+            return queryset, Q()
+        touched = Q(**{f"{prefix}provenance_entries__task__isnull": False})
+        if value:
+            return queryset.distinct(), touched
+        # Negated over a multi-valued relation: no history row carries a task.
+        return queryset, ~touched
 
 
 # Minimum trigram similarity for a fuzzy match to be considered a hit. Postgres'
@@ -211,6 +230,7 @@ class ExperimentFilter(
     CreatedAtFilterMixin,
     CreatorFilterMixin,
     ProvenanceFilterMixin,
+    SharingFilterMixin,
 ):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
@@ -226,7 +246,11 @@ class ExperimentFilter(
 
 @strawberry_django.filter_type(models.ModelCollection)
 class ModelCollectionFilter(
-    IDFilterMixin, SearchFilterMixin, CreatedAtFilterMixin, CreatorFilterMixin
+    IDFilterMixin,
+    SearchFilterMixin,
+    CreatedAtFilterMixin,
+    CreatorFilterMixin,
+    SharingFilterMixin,
 ):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
@@ -254,6 +278,7 @@ class NeuronModelFilter(
     CreatedAtFilterMixin,
     CreatorFilterMixin,
     ProvenanceFilterMixin,
+    SharingFilterMixin,
 ):
     SEARCH_FIELDS = ["name", "description"]
     id: auto
@@ -438,7 +463,9 @@ class PlaceableFilter:
 
 
 @kante.filter_type(models.CoordinateSystem)
-class CoordinateSystemFilter(IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin):
+class CoordinateSystemFilter(
+    IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, SharingFilterMixin
+):
     id: auto
     name: FilterLookup[str] | None
 
@@ -515,7 +542,7 @@ class AxisFilter(IdsFilterMixin):
 
 
 @kante.filter_type(models.Transformation)
-class TransformationFilter(IdsFilterMixin, OwnedFilterMixin):
+class TransformationFilter(IdsFilterMixin, OwnedFilterMixin, SharingFilterMixin):
     id: auto
     kind: auto
 
@@ -554,7 +581,7 @@ class TransformationFilter(IdsFilterMixin, OwnedFilterMixin):
 
 
 @kante.filter_type(models.Lens)
-class LensFilter(IdsFilterMixin):
+class LensFilter(IdsFilterMixin, SharingFilterMixin):
     id: auto
 
     @kante.filter_field(
@@ -638,7 +665,7 @@ def _systems_drawn_over_system(system_id: strawberry.ID) -> QuerySet:
 
 @kante.filter_type(models.AnnotationCollection)
 class AnnotationCollectionFilter(
-    IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin
+    IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, SharingFilterMixin
 ):
     id: auto
     name: FilterLookup[str] | None
@@ -690,7 +717,7 @@ class AnnotationCollectionFilter(
 
 
 @kante.filter_type(models.Annotation)
-class AnnotationFilter(IdsFilterMixin, NameSearchFilterMixin):
+class AnnotationFilter(IdsFilterMixin, NameSearchFilterMixin, SharingFilterMixin):
     id: auto
     name: FilterLookup[str] | None
     description: FilterLookup[str] | None
@@ -1032,6 +1059,7 @@ class FolderFilter(
     PinnedFilterMixin,
     TagsFilterMixin,
     CreatedThroughFilterMixin,
+    SharingFilterMixin,
 ):
     id: auto
     name: FilterLookup[str] | None
@@ -1060,7 +1088,11 @@ class FolderFilter(
 
 @kante.filter_type(models.File)
 class FileFilter(
-    IdsFilterMixin, NameSearchFilterMixin, OwnedFilterMixin, CreatedThroughFilterMixin
+    IdsFilterMixin,
+    NameSearchFilterMixin,
+    OwnedFilterMixin,
+    CreatedThroughFilterMixin,
+    SharingFilterMixin,
 ):
     id: auto
     name: FilterLookup[str] | None
@@ -1251,6 +1283,7 @@ class ArrayDatasetFilter(
     SemanticNameSearchFilterMixin,
     OwnedFilterMixin,
     CreatedThroughFilterMixin,
+    SharingFilterMixin,
 ):
     id: auto
     name: FilterLookup[str] | None
@@ -1681,6 +1714,7 @@ class SparseDatasetFilter(
     SemanticNameSearchFilterMixin,
     OwnedFilterMixin,
     CreatedThroughFilterMixin,
+    SharingFilterMixin,
 ):
     id: auto
     name: FilterLookup[str] | None
@@ -1734,6 +1768,7 @@ class TableDatasetFilter(
     SemanticNameSearchFilterMixin,
     OwnedFilterMixin,
     CreatedThroughFilterMixin,
+    SharingFilterMixin,
 ):
     id: auto
     name: FilterLookup[str] | None
@@ -1824,7 +1859,7 @@ def _systems_derived_from_dataset(dataset_id: strawberry.ID) -> QuerySet:
 
 
 @kante.filter_type(models.ExperimentLayer)
-class ExperimentLayerFilter(IdsFilterMixin):
+class ExperimentLayerFilter(IdsFilterMixin, SharingFilterMixin):
     """The layers of an experiment. mikro's LayerFilter, for time series."""
 
     id: auto

@@ -23,9 +23,6 @@ ADMIN_WITH_EVERY_SCOPE = {"roles": ["elektro_admin"], "scope": "openid elektro_a
 AUTHENTIKATE = {
     **AUTHENTIKATE,
     "allow_static_tokens_in_production": True,
-    # This service instance, as konstruktor renders it: what a guest's collaborations are
-    # listed under (tests/test_sharing.py).
-    "audience": "1",
     "static_tokens": {
         name: {**ADMIN_WITH_EVERY_SCOPE, **token}
         for name, token in {

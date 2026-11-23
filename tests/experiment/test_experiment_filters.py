@@ -109,3 +109,60 @@ async def test_provenance_root_task(
     assert not res.errors, res.errors
     assert res.data is not None
     assert [e["name"] for e in res.data["experiments"]] == ["manual"]
+
+
+@sync_to_async
+def _two_changes(exp: models.Experiment) -> tuple[Task, Task]:
+    """The experiment created under one task (agent ``creator``), then changed under another (agent ``editor``)."""
+
+    def task(agent: str) -> Task:
+        return Task.objects.create(
+            task_id=f"task-{uuid.uuid4().hex}",
+            root_task_id=f"root-{uuid.uuid4().hex}",
+            assigner_sub="s",
+            caller_sub="s",
+            agent_sub="s",
+            agent_client_id=agent,
+            issuer="iss",
+            token_id=f"tok-{uuid.uuid4().hex}",
+            args_hash="h",
+            args_hash_algorithm="a",
+            organization=exp.organization,
+        )
+
+    created, changed = task("creator"), task("editor")
+    exp.name = f"{exp.name} (changed)"
+    exp.save()
+    # koherent's ProvenanceField adds `provenance_entries` at class creation; without the
+    # django-stubs plugin no reverse accessor is visible to the checker.
+    entries = exp.provenance_entries  # pyright: ignore[reportAttributeAccessIssue]
+    assert entries.filter(history_type="+").update(task=created) == 1
+    assert entries.filter(history_type="~").update(task=changed) == 1
+    return created, changed
+
+
+async def test_provenance_criteria_hold_of_one_change(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
+    exp = await _make_experiment(
+        authenticated_context, name="twice", creator=authenticated_context.request.user
+    )
+    created, _ = await _two_changes(exp)
+
+    same = await aexecute(
+        EXPERIMENTS,
+        {"filters": {"provenanceTask": created.task_id, "createdWith": "creator"}},
+    )
+    assert not same.errors, same.errors
+    assert same.data is not None
+    assert [e["id"] for e in same.data["experiments"]] == [str(exp.pk)]
+
+    split = await aexecute(
+        EXPERIMENTS,
+        {"filters": {"provenanceTask": created.task_id, "createdWith": "editor"}},
+    )
+    assert not split.errors, split.errors
+    assert split.data is not None
+    assert split.data["experiments"] == [], (
+        "the task of one change and the agent of another are not one change"
+    )

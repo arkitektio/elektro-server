@@ -167,7 +167,7 @@ class Query:
     )
     collaboration: collaboration_types.Collaboration = field(
         resolver=collaboration_api.collaboration,
-        description="Get a single collaboration by ID",
+        description="Get a single collaboration by its key (lok's): what was put in it here",
     )
     collaborations_stats: collaboration_types.CollaborationStats = field(
         resolver=collaboration_api.collaborations_stats,
@@ -381,15 +381,20 @@ MODELING_ROLES = [EDITOR, MODELER]
 @strawberry.type
 class Mutation:
     # --- Collaborations ----------------------------------------------------
-    create_collaboration = mutation(
-        scope="elektro_share",
-        resolver=collaboration_api.create_collaboration,
-        description="Create an empty collaboration, to put objects in and grant a guest",
-    )
     add_to_collaboration = mutation(
         scope="elektro_share",
         resolver=collaboration_api.add_to_collaboration,
-        description="Put an object in a collaboration, with what it needs to be seen: an experiment brings the data its layers draw, a dataset its stores, its spaces and their edges, and its anchors",
+        description="Put an object in a collaboration (lok's, by its key), with what it needs to be seen: an experiment brings the data its layers draw, a dataset its stores, its spaces and their edges, and its anchors. The collaboration's row here is made the first time something is put in",
+    )
+    add_many_to_collaboration = mutation(
+        scope="elektro_share",
+        resolver=collaboration_api.add_many_to_collaboration,
+        description="Put several objects in a collaboration (by its key) at once, a whole before its parts, each with what it needs to be seen: all of them, or none",
+    )
+    share_workflow = mutation(
+        scope="elektro_share",
+        resolver=collaboration_api.share_workflow,
+        description="Put what a workflow (its root task) created in elektro in a collaboration, as it is now: what it makes later is not. A part of something made before the workflow, and not shared, is left out and reported; `dryRun` only says what would be put in",
     )
     remove_from_collaboration = mutation(
         scope="elektro_share",
@@ -399,7 +404,7 @@ class Mutation:
     delete_collaboration = mutation(
         scope="elektro_share",
         resolver=collaboration_api.delete_collaboration,
-        description="Delete a collaboration: whoever was granted it sees nothing of it any more",
+        description="Take everything elektro put in a collaboration (by its key) out of it: whoever was granted it sees nothing of it here any more. lok's collaboration, and its grants, stay",
     )
 
     # --- Datalayer actions -------------------------------------------------

@@ -1119,7 +1119,13 @@ class FileFilter(
         """Match files whose digest and size another file of the organization has too."""
         if value is None:
             return Q()
-        q = Q(**{f"{prefix}pk__in": file_duplicates.duplicated(for_org(models.File, info)).values("pk")})
+        q = Q(
+            **{
+                f"{prefix}pk__in": file_duplicates.duplicated(
+                    for_org(models.File, info)
+                ).values("pk")
+            }
+        )
         return q if value else ~q
 
     @kante.filter_field(

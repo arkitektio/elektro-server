@@ -605,7 +605,7 @@ from core.types.coords import (  # noqa: E402,F401
 )
 from core.types.experiment import Experiment  # noqa: E402,F401
 from core.types.file_link import FileLink, FileLinkContainer  # noqa: E402,F401
-from core.types.folder import File, Folder  # noqa: E402,F401
+from core.types.folder import DuplicateFileGroup, File, Folder  # noqa: E402,F401
 from core.types.layers import (  # noqa: E402,F401
     AnnotationLayer,
     ColorBy,

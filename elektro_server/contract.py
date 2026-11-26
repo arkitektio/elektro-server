@@ -243,6 +243,17 @@ contract = Contract(
         "purge_orphaned_stores": Job(
             ("purge_orphaned_stores",),
             "Delete the stored objects of data that was deleted, after the grace period",
+            schedule="daily 03:00",
+        ),
+        # Long-running, so never in `setup=`: it reads every byte it owes. The service serves
+        # meanwhile; a file without a digest is simply not known yet.
+        "digest_bigfiles": Job(
+            ("digest_bigfiles",),
+            "Hash the stored files whose digest is still owed, for duplicate detection",
+            schedule="daily 01:00-06:00",
+            long_running=True,
+            backlog=("--backlog",),
+            deadline="--until",
         ),
         "respec_datasets": Job(
             ("respec_datasets",),

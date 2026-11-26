@@ -816,6 +816,7 @@ class AnnotationFilter(IdsFilterMixin, NameSearchFilterMixin, SharingFilterMixin
 
 from django.db.models import Count, Exists, OuterRef, QuerySet  # noqa: E402
 
+from core.logic import file_duplicates  # noqa: E402
 from core.logic import file_link as file_link_logic  # noqa: E402
 from kanne_server import scalars as kanne_scalars  # noqa: E402
 
@@ -1110,6 +1111,16 @@ class FileFilter(
         if value is None:
             return Q()
         return Q(**{f"{prefix}folder_id__in": value})
+
+    @kante.filter_field(
+        description="Filter for files that share their bytes (`store.digest` and size) with another file of the organization (`true`), or with none (`false`). A file whose digest is still owed shares with none"
+    )
+    def duplicated(self, info: Info, value: bool | None, prefix: str) -> Q:
+        """Match files whose digest and size another file of the organization has too."""
+        if value is None:
+            return Q()
+        q = Q(**{f"{prefix}pk__in": file_duplicates.duplicated(for_org(models.File, info)).values("pk")})
+        return q if value else ~q
 
     @kante.filter_field(
         description=(

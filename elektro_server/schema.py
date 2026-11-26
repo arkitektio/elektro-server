@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import kante
 import strawberry
@@ -23,6 +23,7 @@ from strawberry.types.field import StrawberryField
 from strawberry_django.fields.field import StrawberryDjangoField
 from strawberry_django.mutations.fields import DjangoMutationBase
 from strawberry_django.optimizer import DjangoOptimizerExtension
+from strawberry_django.pagination import OffsetPaginationInput
 
 from core import filters as core_filters
 from core import models, mutations, queries, scoping, subscriptions, types
@@ -36,6 +37,7 @@ from core.input_unions import unionElementOf
 from core.inputs.coords import derived_from_union_types, transform_union_types
 from core.inputs.file_link import file_link_union_types
 from core.inputs.identification import identification_union_types
+from core.logic import file_duplicates
 from core.logic import sites as sites_logic
 from core.types.coords import transformation_types
 from core.types.layers import layer_types
@@ -318,6 +320,54 @@ class Query:
     @field(permission_classes=[])
     def file(self, info: Info, id: ID) -> types.File:
         return scoping.get_for_org(models.File, info, id=id)
+
+    @field(
+        permission_classes=[],
+        description=(
+            "The files of this organization that may already hold a file a client is about to upload: the same size and the same `sample` (the SHA-256 of the "
+            "size and the first, middle and last 4 MiB -- `BigFileStore.sample`). A candidate, not a proof: a candidate whose `store.digest` is known can be compared "
+            "with the client's own digest of the whole file. Oldest first"
+        ),
+    )
+    def file_candidates(
+        self, info: Info, size: datalayer_scalars.ByteCount, sample: str
+    ) -> list[types.File]:
+        return cast(
+            list[types.File],
+            list(
+                file_duplicates.candidates(
+                    scoping.for_org(models.File, info), int(size), sample
+                )
+            ),
+        )
+
+    @field(
+        permission_classes=[],
+        description=(
+            "The sets of files of this organization holding the same bytes (the same `store.digest` and size), most redundant bytes first. Files whose digest is "
+            "still owed are in none: `digest_bigfiles` records it"
+        ),
+    )
+    def file_duplicate_groups(
+        self, info: Info, pagination: OffsetPaginationInput | None = None
+    ) -> list[types.DuplicateFileGroup]:
+        offset = (pagination.offset or 0) if pagination else 0
+        limit = (
+            pagination.limit
+            if pagination and pagination.limit is not None and pagination.limit >= 0
+            else None
+        )
+        return [
+            types.DuplicateFileGroup(
+                digest=group.digest,
+                size=datalayer_scalars.ByteCount(group.size),
+                files=cast(list[types.File], group.files),
+                redundant_bytes=datalayer_scalars.ByteCount(group.redundant_bytes),
+            )
+            for group in file_duplicates.groups(
+                scoping.for_org(models.File, info), offset=offset, limit=limit
+            )
+        ]
 
     @field(permission_classes=[], description="Get a single folder by ID")
     def folder(self, info: Info, id: ID) -> types.Folder:
